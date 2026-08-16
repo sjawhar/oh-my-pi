@@ -3,11 +3,11 @@ name: Fork Release
 on:
   push:
     tags:
-      - "fork-v*"
+      - "v*-sami.*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Fork-only release tag, for example fork-v17.3.4-resize.1"
+        description: "Fork release tag, for example v17.3.5-sami.20260816-120000"
         required: true
         type: string
 
@@ -25,9 +25,9 @@ jobs:
           TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
           case "$TAG" in
-            fork-v*) ;;
+            v*-sami.*) ;;
             *)
-              echo "Fork release tags must start with fork-v: $TAG" >&2
+              echo "Fork release tags must look like v<upstream>-sami.<timestamp>: $TAG" >&2
               exit 1
               ;;
           esac
@@ -94,4 +94,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release_metadata.outputs.tag }}
-        run: gh release create "$TAG" release/*.tar.gz --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+        run: gh release create "$TAG" release/*.tar.gz --target "$GITHUB_SHA" --title "sami build $TAG" --generate-notes
