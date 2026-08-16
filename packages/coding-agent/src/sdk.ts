@@ -2570,6 +2570,28 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			void extensionRunner.emitCredentialDisabled(event);
 		}
 
+		// resources_discover: extensions may contribute skill directories. Re-run
+		// discovery only when a handler actually returned paths — the common
+		// no-handler case keeps the parallel discovery from above untouched.
+		// Explicit `options.skills` means the embedder owns the skill list; respect it.
+		const discoveredResources = await extensionRunner.emitResourcesDiscover(cwd, "startup");
+		if (discoveredResources.skillPaths.length > 0 && options.skills === undefined) {
+			const extensionDirectories = discoveredResources.skillPaths.map(entry => entry.path);
+			const rediscovered = await logger.time("discoverExtensionSkills", () =>
+				loadSkillsInternal({
+					...skillsSettings,
+					cwd,
+					disabledExtensions: disabledExtensionIds,
+					extensionDirectories,
+				}),
+			);
+			skills = rediscovered.skills;
+			skillWarnings = rediscovered.warnings;
+			if (!options.parentTaskPrefix) {
+				setActiveSkills(skills);
+			}
+		}
+
 		const getSessionContext = () => ({
 			sessionManager,
 			modelRegistry,
