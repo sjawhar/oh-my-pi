@@ -2048,6 +2048,49 @@ describe("issue #2088: tmux pane-resize race produces viewport flash", () => {
 		});
 	});
 
+	it("does not re-emit committed rows for unresolved pending width epochs in preserve mode", async () => {
+		await withEnvPatch(TMUX_ENV, async () => {
+			const initial = Array.from(
+				{ length: 12 },
+				(_value, index) => `preserve-${index.toString().padStart(2, "0")} ${"I".repeat(20)}`,
+			);
+			const appended = Array.from(
+				{ length: 8 },
+				(_value, index) => `preserve-new-${index.toString().padStart(2, "0")}`,
+			);
+			const term = new VirtualTerminal(17, 6, 10_000);
+			const component = new UnresolvedWrappingLinesComponent(initial);
+			const tui = new TUI(term);
+			tui.setResizeScrollback("preserve");
+			tui.addChild(component);
+
+			try {
+				tui.start();
+				await settle(term);
+				const historyBeforeResize = term.getScrollBuffer().map(line => line.trimEnd());
+				const committedMarker = "preserve-00";
+				const committedOccurrencesBeforeResize = historyBeforeResize.filter(line =>
+					line.includes(committedMarker),
+				).length;
+				expect(committedOccurrencesBeforeResize).toBeGreaterThan(0);
+
+				term.resize(40, 4);
+				component.setLines([...initial, ...appended]);
+				tui.requestRender();
+				await Bun.sleep(DEBOUNCE_SETTLE_WAIT_MS);
+				await settle(term);
+
+				const historyAfterResize = term.getScrollBuffer().map(line => line.trimEnd());
+				expect(historyAfterResize.filter(line => line.includes(committedMarker))).toHaveLength(
+					committedOccurrencesBeforeResize,
+				);
+				expect(visible(term)).toEqual(appended.slice(-4));
+			} finally {
+				tui.stop();
+			}
+		});
+	});
+
 	it("backfills unresolved growth queued behind an overlay during width settlement", async () => {
 		await withEnvPatch(TMUX_ENV, async () => {
 			const initial = Array.from(
