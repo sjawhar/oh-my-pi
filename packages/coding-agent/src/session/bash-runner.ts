@@ -77,6 +77,10 @@ export class BashRunner {
 		const cwd = this.#host.sessionManager.getCwd();
 		try {
 			const extensionRunner = this.#host.extensionRunner();
+			const shellEnv =
+				options?.useUserShell === true
+					? extensionRunner?.getRegisteredTool("bash")?.definition.shellEnv?.({ command, cwd, env: process.env })
+					: undefined;
 			if (extensionRunner?.hasHandlers("user_bash")) {
 				const hookResult = await extensionRunner.emitUserBash({
 					type: "user_bash",
@@ -102,6 +106,7 @@ export class BashRunner {
 					cwd,
 					timeout: clampTimeout("bash", undefined, this.#host.settings.get("tools.maxTimeout")) * 1000,
 					onMinimizedSave: originalText => this.#saveOriginalArtifact(target, originalText),
+					env: shellEnv,
 					useUserShell: options?.useUserShell,
 				});
 			} finally {

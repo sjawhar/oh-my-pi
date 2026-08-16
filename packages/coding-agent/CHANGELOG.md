@@ -2,12 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added the `tui.resizeScrollback` setting (default `append`) controlling how a settled width resize refreshes pane scrollback when the terminal repaints in place (tmux/screen/Zellij panes, in-place direct terminals). Multiplexers rewrap old output naively on width changes, leaving history hard-broken at the old width; `append` re-emits the transcript at the new width below it (one fresh copy per settled resize), `rebuild` clears pane history first so it holds exactly one current-width copy (needs a host that honors ED3, like tmux; erases pre-session scrollback), and `preserve` keeps the old-width history untouched with zero growth ([#8193](https://github.com/can1357/oh-my-pi/issues/8193)).
+
+### Fixed
+
+- Discovered skills nested one namespace level deep (`skills/<namespace>/<skill>/SKILL.md`) in every skill source (Claude, OpenCode, native), matching the curated-pool layouts both other harnesses already load.
+- Fixed `tui.resizeScrollback: preserve` re-emitting committed transcript rows when a tmux width epoch settled without a resolvable source boundary; recovery now appends only unmatched pending growth while Ctrl+O keeps its explicit full replay.
+- Fixed multiplexer width resizes (tmux/screen/Zellij/cmux/Herdr panes) replaying the entire transcript into pane history — one duplicated transcript copy and seconds of visible scrolling per width change. The width-epoch boundary now resolves for real transcripts: finalized blocks without `getTranscriptBlockVersion` are treated as immutable per the documented contract, Container-derived blocks without a nested epoch source fall back to whole-segment stability instead of failing, and bash/eval/tool/read-group blocks report a block version for their genuine post-finalize mutations. The interactive resize listener no longer marks every SIGWINCH as "render pending", which forced the conservative replay-from-row-zero fallback on every settled resize ([#8193](https://github.com/can1357/oh-my-pi/issues/8193), [#7026](https://github.com/can1357/oh-my-pi/issues/7026)).
+- Extension bare imports of workspace members now resolve inside installed git-dependency monorepo plugins (the walk recognizes `workspaces` roots; installed node_modules copies still shadow members)
+
 ## [17.3.5] - 2026-08-16
 
 ### Added
 
 - Added Extensions tab group to settings schema
-
 ### Changed
 
 - Routed paid xAI models (XAI_API_KEY / xai/…) through the Responses API used by SuperGrok OAuth instead of Chat Completions, including reliable replay of encrypted reasoning content on follow-up turns.
@@ -69,6 +79,14 @@
 - Fixed `hub jobs` and empty `hub wait` snapshots hiding running subagents that have no live turn, which removed the only way to discover and `hub cancel` a stale registration; such agents are listed again and flagged as having no turn in flight.
 - Fixed external thinking being offered on xAI reasoning-only Responses models (grok-4 family) that reject `reasoning.effort`, where the private scratchpad ran alongside native reasoning instead of replacing it.
 - Fixed the extension tool-call handler timeout rendering outside a titled section in `/settings` by registering its Extensions group on the Tools tab.
+
+### Fixed
+
+- Applied registered extension shell environments to interactive `!` commands.
+
+### Fixed
+
+- Fixed concurrent live tool spinners creating one repaint timer per block by using one shared ticker ([#8733](https://github.com/can1357/oh-my-pi/issues/8733)).
 
 ## [17.3.4] - 2026-08-14
 
