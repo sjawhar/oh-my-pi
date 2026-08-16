@@ -1244,8 +1244,13 @@ export class TUI extends Container {
 	 * fire the next frame immediately (see #4145).
 	 */
 	#lastFrameCostMs = 0;
-	static readonly #MIN_RENDER_INTERVAL_MS = 1000 / 30;
-	static readonly #INPUT_RENDER_GRACE_MS = TUI.#MIN_RENDER_INTERVAL_MS;
+	static readonly #DEFAULT_MIN_RENDER_INTERVAL_MS = 1000 / 30;
+	static #minRenderIntervalMs = TUI.#DEFAULT_MIN_RENDER_INTERVAL_MS;
+	static readonly #INPUT_RENDER_GRACE_MS = TUI.#DEFAULT_MIN_RENDER_INTERVAL_MS;
+
+	static setMinRenderInterval(intervalMs: number): void {
+		TUI.#minRenderIntervalMs = intervalMs;
+	}
 	/**
 	 * Cap on the adaptive floor derived from `#lastFrameCostMs`. Bounds the UI
 	 * responsiveness at ~5 fps under sustained heavy renders — anything slower
@@ -2135,6 +2140,76 @@ export class TUI extends Container {
 	 */
 	setResizeScrollback(mode: ResizeScrollbackMode): void {
 		this.#resizeScrollbackMode = mode;
+	}
+
+	/**
+	 * Absolute frame row for `localRow` inside `component`'s own render
+	 * coordinate space. `component` must be a currently stable root child
+	 * (this frame's `#frameSegments` ledger matches `this.children` 1:1,
+	 * exactly like {@link requestComponentRender}'s reuse check); `localRow`
+	 * is typically a nested container's own segment boundary (e.g.
+	 * `TranscriptContainer.getBlockStartRow`). Returns undefined when
+	 * `component` is not a root child of this frame, or when the ledger is
+	 * stale (children mutated since the last render) and the offset cannot
+	 * be trusted. Feeds {@link amputateCommittedTail}.
+	 */
+	getComponentFrameRow(component: Component, localRow: number): number | undefined {
+		const children = this.children;
+		const segments = this.#frameSegments;
+		if (segments.length !== children.length) return undefined;
+		for (let i = 0; i < children.length; i++) {
+			if (segments[i]!.component !== children[i]) return undefined;
+		}
+		const segment = segments.find(candidate => candidate.component === component);
+		if (!segment) return undefined;
+		return segment.start + localRow;
+	}
+
+	/**
+	 * Declares that every current-frame row at/after `frameRow` is about to
+	 * be dropped by the caller (a preserve-mode history rewind removing
+	 * rendered components, never a render-driven shrink) and permanently
+	 * disowns any of those rows already on the terminal's native tape: they
+	 * are abandoned scrollback the engine will never reconcile, verify, or
+	 * re-emit — the same "stale rows above are acceptable" contract
+	 * `tui.resizeScrollback: preserve` already keeps for a settled resize.
+	 *
+	 * Rows [0, frameRow) are untouched by contract: the caller's surviving
+	 * components MUST NOT be disposed or re-rendered, so the very next
+	 * render reproduces them byte-for-byte from cache/identity, and
+	 * `#doRender`'s existing "frame shrank below the committed row count"
+	 * path (driven by the `#committedRows` this method just lowered) repaints
+	 * only the viewport — erasing any dead rows still on screen — and
+	 * commits nothing new for the surviving prefix.
+	 *
+	 * Refuses (returns false, no state mutated) whenever the frame's
+	 * coordinate space is mid-reconciliation and amputating on top of it
+	 * would compound two unresolved coordinate systems: an in-place
+	 * width-epoch append ledger still tracking a past resize
+	 * (`#widthEpochBaselineRows`), a live resize drag or unprocessed resize
+	 * event, the alternate screen, or a visible overlay compositing its own
+	 * rows. Callers must fall back to a full replay in that case; Ctrl+O's
+	 * explicit replay is untouched.
+	 */
+	amputateCommittedTail(frameRow: number): boolean {
+		if (!Number.isFinite(frameRow) || frameRow < 0) return false;
+		if (this.#widthEpochBaselineRows !== undefined) return false;
+		if (this.#resizeEventPending || this.#resizeViewportActive || this.#altActive) return false;
+		if (this.hasOverlay()) return false;
+		const boundary = Math.min(Math.trunc(frameRow), this.#composedFrame.length);
+		if (boundary < this.#committedRows) {
+			this.#committedRows = boundary;
+			this.#committedPrefix.length = boundary;
+			this.#committedPrefixAuditRows = Math.min(this.#committedPrefixAuditRows, boundary);
+		}
+		if (this.#nativeScrollbackPinnedBoundary !== undefined && this.#nativeScrollbackPinnedBoundary > boundary) {
+			this.#nativeScrollbackPinnedBoundary = boundary;
+		}
+		if (this.#nativeScrollbackLiveRegionStart !== undefined && this.#nativeScrollbackLiveRegionStart > boundary) {
+			this.#nativeScrollbackLiveRegionStart = boundary;
+		}
+		if (this.#windowTopRow > boundary) this.#windowTopRow = boundary;
+		return true;
 	}
 
 	getShowHardwareCursor(): boolean {
@@ -3131,7 +3206,7 @@ export class TUI extends Container {
 		}
 		const now = this.#renderScheduler.now();
 		const elapsed = now - this.#lastRenderAt;
-		const cadenceDelay = Math.max(0, TUI.#MIN_RENDER_INTERVAL_MS - elapsed);
+		const cadenceDelay = Math.max(0, TUI.#minRenderIntervalMs - elapsed);
 		// Adaptive backpressure — target ~50% render duty cycle: the next frame
 		// starts no sooner than `last_frame_end + last_frame_cost`, i.e.
 		// `last_frame_start + 2 × last_frame_cost`. So `elapsed` (which counts

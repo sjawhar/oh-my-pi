@@ -15,6 +15,7 @@ import {
 	type TUI,
 } from "@oh-my-pi/pi-tui";
 import { getProjectDir, isRecord, logger, sanitizeText } from "@oh-my-pi/pi-utils";
+import { isReduceMotion } from "../../config/reduce-motion";
 import { EDIT_MODE_STRATEGIES, type EditMode, type PerFileDiffPreview } from "../../edit";
 import type { Theme } from "../../modes/theme/theme";
 import { getThemeEpoch, theme } from "../../modes/theme/theme";
@@ -870,6 +871,12 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 			this.#stopTodoStrikeAnimation();
 			return;
 		}
+		if (isReduceMotion()) {
+			this.#stopTodoStrikeAnimation();
+			this.#spinnerFrame = TODO_STRIKE_TOTAL_FRAMES;
+			this.#renderState.spinnerFrame = TODO_STRIKE_TOTAL_FRAMES;
+			return;
+		}
 		if (this.#todoStrikeInterval) return;
 
 		this.#spinnerFrame = 0;
@@ -995,6 +1002,17 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 		return (
 			this.#displaceableByToolName !== undefined && this.#displaceableByToolName === nextToolName && !this.#sealed
 		);
+	}
+
+	/**
+	 * A live block torn down through the generic Container path (transcript
+	 * clear, session switch mid-run) must not leak its shared-ticker
+	 * registration: the dead component would keep the process-wide 80ms
+	 * interval alive and keep being repainted.
+	 */
+	override dispose(): void {
+		this.stopAnimation();
+		super.dispose();
 	}
 
 	/**
