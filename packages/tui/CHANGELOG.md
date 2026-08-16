@@ -2,13 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `setResizeScrollback()` / `ResizeScrollbackMode` (`PI_TUI_RESIZE_SCROLLBACK` env initializer) controlling what a settled in-place width resize does to native scrollback, which the host rewraps naively at the old width: `append` replays the transcript at the settled width below the old-wrap history, `rebuild` clears pane history first (ED3) so it holds exactly one current-width copy, and `preserve` repaints the viewport only with zero history growth. The raw engine defaults to `preserve`; the coding agent's `tui.resizeScrollback` setting (default `append`) governs interactive sessions.
+- Added a configurable minimum render interval for accessibility modes that need to cap terminal repaint frequency ([#8336](https://github.com/can1357/oh-my-pi/issues/8336)).
+
+### Fixed
+
+- Fixed preserve-mode unresolved width recovery replaying committed rows after tmux client-size changes; it now resumes at the matching committed boundary and appends only pending growth.
+- Fixed multiplexer width-epoch resolution failing for every real component tree, which forced the conservative full-transcript replay (and one duplicated transcript copy in pane history) on every settled width resize: leading children without a width-epoch revision are no longer validated by width-dependent row counts (reflow is not mutation — identity plus the revision, when reported, is the stability proof), and `Markdown` now reports a width-independent mutation revision so it can sit above an epoch source ([#8193](https://github.com/can1357/oh-my-pi/issues/8193), [#7026](https://github.com/can1357/oh-my-pi/issues/7026)).
+
 ## [17.3.5] - 2026-08-16
 
 ### Fixed
 
 - Fixed long CPU-bound event-loop stalls being misclassified as system sleep and omitted from loop-blocked diagnostics.
 - Fixed focused components with markers falling back to full-screen redraws instead of direct row updates, preserving cursor position and native scrollback across marker changes.
-
 ## [17.3.4] - 2026-08-14
 
 ### Fixed

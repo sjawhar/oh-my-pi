@@ -1,9 +1,13 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "bun:test";
 import { stripVTControlCharacters } from "node:util";
-import { ToolExecutionComponent } from "@oh-my-pi/pi-coding-agent/modes/components/tool-execution";
+import {
+	SPINNER_RENDER_INTERVAL_MS,
+	ToolExecutionComponent,
+	type ToolExecutionUi,
+} from "@oh-my-pi/pi-coding-agent/modes/components/tool-execution";
 import { TranscriptContainer } from "@oh-my-pi/pi-coding-agent/modes/components/transcript-container";
 import { initTheme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { Component, TUI } from "@oh-my-pi/pi-tui";
 
 // Contract under test: live tool previews that render a pending/running status
 // must keep the spinner glyph tied to the shared tool-frame ticker. This covers
@@ -17,6 +21,93 @@ describe("ToolExecutionComponent live preview spinners", () => {
 	afterEach(() => {
 		vi.useRealTimers();
 		vi.restoreAllMocks();
+	});
+
+	function createLiveEvalComponent(): {
+		component: ToolExecutionComponent;
+		requestComponentRender: (component: Component) => void;
+	} {
+		const requestComponentRender = vi.fn();
+		const ui: ToolExecutionUi = {
+			requestRender: vi.fn(),
+			requestComponentRender,
+			resetDisplay: vi.fn(),
+		};
+		return {
+			component: new ToolExecutionComponent(
+				"eval",
+				{ language: "py", code: "import time\ntime.sleep(10)" },
+				{},
+				undefined,
+				ui,
+				process.cwd(),
+			),
+			requestComponentRender,
+		};
+	}
+
+	it("shares one live spinner timer across concurrent eval previews", () => {
+		vi.useFakeTimers();
+		const liveComponents = Array.from({ length: 3 }, createLiveEvalComponent);
+
+		try {
+			expect(vi.getTimerCount()).toBe(1);
+		} finally {
+			for (const { component } of liveComponents) component.stopAnimation();
+		}
+	});
+
+	it("stops the shared spinner timer when the final live preview settles", () => {
+		vi.useFakeTimers();
+		const first = createLiveEvalComponent();
+		const second = createLiveEvalComponent();
+		const result = { content: [{ type: "text", text: "complete" }] };
+
+		try {
+			first.component.updateResult(result, false);
+			expect(vi.getTimerCount()).toBe(1);
+
+			second.component.updateResult(result, false);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			first.component.stopAnimation();
+			second.component.stopAnimation();
+		}
+	});
+
+	it("unsubscribes a destroyed live preview from the shared spinner timer", () => {
+		vi.useFakeTimers();
+		const { component } = createLiveEvalComponent();
+
+		try {
+			component.dispose();
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			component.stopAnimation();
+		}
+	});
+
+	it("advances every live preview from the shared spinner tick", () => {
+		vi.useFakeTimers();
+		const liveComponents = Array.from({ length: 3 }, createLiveEvalComponent);
+		const initialFrames = liveComponents.map(({ component }) =>
+			stripVTControlCharacters(component.render(80).join("\n")),
+		);
+
+		try {
+			vi.advanceTimersByTime(SPINNER_RENDER_INTERVAL_MS);
+			for (const { component, requestComponentRender } of liveComponents) {
+				expect(requestComponentRender).toHaveBeenCalledWith(component);
+			}
+			const advancedFrames = liveComponents.map(({ component }) =>
+				stripVTControlCharacters(component.render(80).join("\n")),
+			);
+			for (let index = 0; index < liveComponents.length; index++) {
+				expect(advancedFrames[index]).not.toBe(initialFrames[index]);
+			}
+		} finally {
+			for (const { component } of liveComponents) component.stopAnimation();
+		}
 	});
 
 	it("animates the eval pending cell while the call is live", () => {

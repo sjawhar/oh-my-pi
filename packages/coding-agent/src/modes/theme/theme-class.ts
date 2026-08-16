@@ -2,6 +2,7 @@ import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import type { Effort } from "@oh-my-pi/pi-ai";
 import { colorLuma, logger, relativeLuminance } from "@oh-my-pi/pi-utils";
 import chalk from "@oh-my-pi/pi-utils/chalk";
+import { isReduceMotion } from "../../config/reduce-motion";
 import { bgAnsi, colorToAnsi, fgAnsi, resolveToHex } from "./color";
 import type { ColorMode, ThemeBg, ThemeColor } from "./schema";
 import {
@@ -127,6 +128,16 @@ const LANG_BRAND_COLORS: Partial<Record<SymbolKey, string>> = {
 	"lang.ruby": "#cc342d",
 	"lang.julia": "#9558b2",
 };
+
+const frozenSpinnerFrames = new WeakMap<string[], string[]>();
+
+function freezeSpinnerFrames(frames: string[]): string[] {
+	const frozen = frozenSpinnerFrames.get(frames);
+	if (frozen) return frozen;
+	const next = [frames[0] ?? ""];
+	frozenSpinnerFrames.set(frames, next);
+	return next;
+}
 
 export class Theme {
 	#fgColors: Record<ThemeColor, string>;
@@ -580,7 +591,8 @@ export class Theme {
 	 * Get spinner frames by type.
 	 */
 	getSpinnerFrames(type: SpinnerType = "status"): string[] {
-		return this.#spinnerFramesOverrides[type] ?? SPINNER_FRAMES[this.symbolPreset][type];
+		const frames = this.#spinnerFramesOverrides[type] ?? SPINNER_FRAMES[this.symbolPreset][type];
+		return isReduceMotion() ? freezeSpinnerFrames(frames) : frames;
 	}
 
 	/**

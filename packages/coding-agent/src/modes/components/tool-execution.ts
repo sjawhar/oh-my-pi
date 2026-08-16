@@ -15,6 +15,7 @@ import {
 	type TUI,
 } from "@oh-my-pi/pi-tui";
 import { getProjectDir, logger, sanitizeText } from "@oh-my-pi/pi-utils";
+import { isReduceMotion } from "../../config/reduce-motion";
 import { EDIT_MODE_STRATEGIES, type EditMode, type PerFileDiffPreview } from "../../edit";
 import type { Theme } from "../../modes/theme/theme";
 import { getThemeEpoch, theme } from "../../modes/theme/theme";
@@ -269,6 +270,35 @@ export function sharedSpinnerFrame(frameCount: number, now: number = performance
 	return frameCount > 0 ? Math.floor(now / SPINNER_GLYPH_ADVANCE_MS) % frameCount : 0;
 }
 
+interface LiveSpinnerBlock {
+	tickSpinner(frame: number): void;
+}
+
+const liveSpinnerBlocks = new Set<LiveSpinnerBlock>();
+let sharedSpinnerTicker: NodeJS.Timeout | undefined;
+
+function ensureSharedSpinnerTicker(): void {
+	if (sharedSpinnerTicker || liveSpinnerBlocks.size === 0) return;
+	sharedSpinnerTicker = setInterval(() => {
+		const frame = sharedSpinnerFrame(theme.spinnerFrames.length);
+		for (const block of liveSpinnerBlocks) {
+			block.tickSpinner(frame);
+		}
+	}, SPINNER_RENDER_INTERVAL_MS);
+}
+
+function registerSpinnerBlock(block: LiveSpinnerBlock): void {
+	liveSpinnerBlocks.add(block);
+	ensureSharedSpinnerTicker();
+}
+
+function unregisterSpinnerBlock(block: LiveSpinnerBlock): void {
+	liveSpinnerBlocks.delete(block);
+	if (liveSpinnerBlocks.size !== 0 || !sharedSpinnerTicker) return;
+	clearInterval(sharedSpinnerTicker);
+	sharedSpinnerTicker = undefined;
+}
+
 // Stable per-instance counter so each tool execution's inline images get a
 // graphics id that survives child re-creation (the image budget keys off it).
 let toolExecutionInstanceSeq = 0;
@@ -298,6 +328,12 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 	#clipboard?: Clipboard;
 	#isPartial = true;
 	#resultVersion = 0;
+	// Post-finalize mutation counter (see FinalizableBlock.getTranscriptBlockVersion):
+	// a tool block can keep changing after isTranscriptBlockFinalized() first
+	// returns true — an async task's terminal result settlement, seal(), or an
+	// expansion toggle — and the transcript's width-epoch resolution and
+	// committed-render bypass must observe those mutations.
+	#blockVersion = 0;
 	#lastDisplayKey: string | undefined;
 	// Bumped whenever a render input that #rebuildDisplay consumes but the memo
 	// key cannot cheaply hash changes: streamed call args, the async edit-diff
@@ -337,7 +373,7 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 	#convertedImages: Map<number, { data: string; mimeType: string }> = new Map();
 	// Spinner animation for partial task results
 	#spinnerFrame?: number;
-	#spinnerInterval?: NodeJS.Timeout;
+	#spinnerActive = false;
 	// Todo write completion strikethrough reveal animation
 	#todoStrikeInterval?: NodeJS.Timeout;
 	// Track if args are still being streamed (for edit/write spinner)
@@ -598,6 +634,7 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 		this.#partialResultShapePainted = false;
 		this.#result = result;
 		this.#resultVersion++;
+		this.#blockVersion++;
 		this.#isPartial = isPartial;
 		this.#displaceableByToolName = displaceableToolName(this.#toolName, result, isPartial);
 		// When tool is complete, ensure args are marked complete so spinner stops
@@ -697,27 +734,16 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 			!isBackgroundAsyncRunning &&
 			(pendingCallConsumesSpinner || partialResultConsumesSpinner);
 		const needsSpinner = isStreamingArgs || isLivePartialTool || this.#displaceableByToolName === "hub";
-		if (needsSpinner && !this.#spinnerInterval) {
+		if (needsSpinner && !this.#spinnerActive) {
 			const frameCount = theme.spinnerFrames.length;
 			const frame = sharedSpinnerFrame(frameCount);
 			this.#spinnerFrame = frame;
 			this.#renderState.spinnerFrame = frame;
-			this.#spinnerInterval = setInterval(() => {
-				// If a detached task interval from an older render path is still live,
-				// stop it the instant the block leaves the repaintable region.
-				if (this.#maybeFreezeBackgroundTask()) return;
-				const now = performance.now();
-				const frameCount = theme.spinnerFrames.length;
-				this.#spinnerFrame = sharedSpinnerFrame(frameCount, now);
-				this.#renderState.spinnerFrame = this.#spinnerFrame;
-				// Component-scoped: a spinner tick only changes this tool block, so
-				// the TUI reuses every other root subtree instead of walking the
-				// whole tree (issue #4377).
-				this.#ui.requestComponentRender(this);
-			}, SPINNER_RENDER_INTERVAL_MS);
-		} else if (!needsSpinner && this.#spinnerInterval) {
-			clearInterval(this.#spinnerInterval);
-			this.#spinnerInterval = undefined;
+			this.#spinnerActive = true;
+			registerSpinnerBlock(this);
+		} else if (!needsSpinner && this.#spinnerActive) {
+			this.#spinnerActive = false;
+			unregisterSpinnerBlock(this);
 			// Clear the last drawn frame so a non-live renderCall (e.g. a write whose
 			// args just completed) stops showing a frozen spinner glyph. Skip when a
 			// todo strike owns the frame — it sets its own value right after this.
@@ -726,6 +752,15 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 				this.#renderState.spinnerFrame = undefined;
 			}
 		}
+	}
+
+	tickSpinner(frame: number): void {
+		if (!this.#spinnerActive || this.#maybeFreezeBackgroundTask()) return;
+		this.#spinnerFrame = frame;
+		this.#renderState.spinnerFrame = frame;
+		// Component-scoped: a spinner tick only changes this tool block, so the
+		// TUI reuses every other root subtree instead of walking the whole tree.
+		this.#ui.requestComponentRender(this);
 	}
 
 	/**
@@ -767,6 +802,12 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 			this.#stopTodoStrikeAnimation();
 			return;
 		}
+		if (isReduceMotion()) {
+			this.#stopTodoStrikeAnimation();
+			this.#spinnerFrame = TODO_STRIKE_TOTAL_FRAMES;
+			this.#renderState.spinnerFrame = TODO_STRIKE_TOTAL_FRAMES;
+			return;
+		}
 		if (this.#todoStrikeInterval) return;
 
 		this.#spinnerFrame = 0;
@@ -790,7 +831,7 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 			clearInterval(this.#todoStrikeInterval);
 			this.#todoStrikeInterval = undefined;
 		}
-		if (!this.#spinnerInterval) {
+		if (!this.#spinnerActive) {
 			this.#spinnerFrame = undefined;
 			this.#renderState.spinnerFrame = undefined;
 		}
@@ -845,6 +886,10 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 		return (this.#result.details as { async?: { state?: string } } | undefined)?.async?.state === "running";
 	}
 
+	getTranscriptBlockVersion(): number {
+		return this.#blockVersion;
+	}
+
 	/**
 	 * Mark the tool terminal even though no result arrived (the turn aborted or
 	 * abandoned it) and stop animating, so it can freeze and stops pinning the
@@ -853,6 +898,7 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 	seal(): void {
 		if (this.#sealed) return;
 		this.#sealed = true;
+		this.#blockVersion++;
 		this.#displaceableByToolName = undefined;
 		// A sealed detached task is abandoned history: settle its progress rows
 		// on static gray — but only while none of them are committed; a recolor
@@ -886,9 +932,9 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 	 * Stop spinner animation and cleanup resources.
 	 */
 	stopAnimation(): void {
-		if (this.#spinnerInterval) {
-			clearInterval(this.#spinnerInterval);
-			this.#spinnerInterval = undefined;
+		if (this.#spinnerActive) {
+			this.#spinnerActive = false;
+			unregisterSpinnerBlock(this);
 			this.#spinnerFrame = undefined;
 			this.#renderState.spinnerFrame = undefined;
 		}
@@ -900,7 +946,13 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 		this.#editDiffDirty = false;
 	}
 
+	override dispose(): void {
+		this.stopAnimation();
+		super.dispose();
+	}
+
 	setExpanded(expanded: boolean): void {
+		if (this.#expanded !== expanded) this.#blockVersion++;
 		this.#expanded = expanded;
 		this.#updateDisplay();
 	}
