@@ -267,4 +267,26 @@ describe("ToolExecutionComponent live preview spinners", () => {
 			for (const component of components) component.stopAnimation();
 		}
 	});
+
+	it("unsubscribes a destroyed live preview from the shared spinner timer", () => {
+		vi.useFakeTimers();
+		const component = new ToolExecutionComponent(
+			"eval",
+			{ language: "py", code: "import time\ntime.sleep(10)" },
+			{},
+			undefined,
+			{ requestRender: vi.fn(), requestComponentRender: vi.fn() } as unknown as TUI,
+			process.cwd(),
+		);
+
+		try {
+			// Generic Container teardown (transcript clear, session switch) must
+			// unregister the block; a leaked registration keeps the process-wide
+			// spinner interval alive with a dead component in the ticker set.
+			component.dispose();
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			component.stopAnimation();
+		}
+	});
 });

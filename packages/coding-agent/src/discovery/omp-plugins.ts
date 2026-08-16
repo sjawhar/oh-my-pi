@@ -29,6 +29,7 @@ import { type SlashCommand, slashCommandCapability } from "../capability/slash-c
 import { type CustomTool, toolCapability } from "../capability/tool";
 import type { LoadContext, LoadResult } from "../capability/types";
 import { legacyProviderAllowed } from "./agent-plugin-format";
+import { realpathIfExists, resolveContainedPath } from "./contained-path";
 import {
 	buildRuleFromMarkdown,
 	createSourceMeta,
@@ -46,6 +47,16 @@ const DESCRIPTION =
 	"Sub-discovery (skills, hooks, tools, commands, rules, prompts, .mcp.json) inside extension packages";
 const PRIORITY = 90;
 
+interface PluginPackage {
+	omp?: unknown;
+	pi?: unknown;
+}
+
+interface PluginSkillDirs {
+	dirs: string[];
+	warnings: string[];
+}
+
 /**
  * Extension roots this legacy provider may process for a given surface. Roots
  * whose root `plugin.json` targets the Agent Plugins standard keep their
@@ -62,21 +73,67 @@ async function allowedRoots(ctx: LoadContext, surface: "skills" | "mcp" | "other
 // Skills
 // =============================================================================
 
+function declaredSkillEntries(manifest: unknown): string[] | null {
+	if (
+		manifest === null ||
+		typeof manifest !== "object" ||
+		Array.isArray(manifest) ||
+		!Object.hasOwn(manifest, "skills")
+	) {
+		return null;
+	}
+	const skills = Object.getOwnPropertyDescriptor(manifest, "skills")?.value;
+	if (!Array.isArray(skills)) return [];
+	return skills.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+}
+
+async function pluginSkillDirs(root: OmpExtensionRoot): Promise<PluginSkillDirs> {
+	const fallback = { dirs: [path.join(root.path, "skills")], warnings: [] };
+	const realRoot = await realpathIfExists(root.path);
+	if (realRoot === null) return fallback;
+	const packageJson = await resolveContainedPath(realRoot, path.join(realRoot, "package.json"));
+	if (packageJson.status !== "ok") return fallback;
+	const content = await readFile(packageJson.realPath);
+	if (content === null) return fallback;
+	const pluginPkg = tryParseJson<PluginPackage>(content);
+	const entries = declaredSkillEntries(pluginPkg?.omp ?? pluginPkg?.pi);
+	if (entries === null) return fallback;
+
+	const dirs: string[] = [];
+	const warnings: string[] = [];
+	for (const entry of entries) {
+		const resolved = await resolveContainedPath(realRoot, path.resolve(realRoot, entry));
+		if (resolved.status === "ok") {
+			dirs.push(resolved.realPath);
+		} else if (resolved.status === "outside") {
+			warnings.push(`[omp-plugins] Skipping manifest skills directory outside plugin root: ${entry}`);
+		}
+	}
+	return { dirs, warnings };
+}
+
 async function loadSkills(ctx: LoadContext): Promise<LoadResult<Skill>> {
 	const roots = await allowedRoots(ctx, "skills");
-	const results = await Promise.all(
-		roots.map(root =>
-			scanSkillsFromDir(ctx, {
-				dir: path.join(root.path, "skills"),
-				providerId: PROVIDER_ID,
-				level: root.level,
-				requireDescription: true,
-			}),
-		),
+	const perRoot = await Promise.all(
+		roots.map(async root => {
+			const skillDirs = await pluginSkillDirs(root);
+			const results = await Promise.all(
+				skillDirs.dirs.map(dir =>
+					scanSkillsFromDir(ctx, {
+						dir,
+						providerId: PROVIDER_ID,
+						level: root.level,
+						requireDescription: true,
+					}),
+				),
+			);
+			return { results, warnings: skillDirs.warnings };
+		}),
 	);
+	const results = perRoot.flatMap(root => root.results);
 	return {
 		items: results.flatMap(r => r.items),
-		warnings: results.flatMap(r => r.warnings ?? []),
+		warnings: [...perRoot.flatMap(root => root.warnings), ...results.flatMap(r => r.warnings ?? [])],
 	};
 }
 
