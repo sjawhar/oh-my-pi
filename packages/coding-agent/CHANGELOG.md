@@ -5,11 +5,15 @@
 ### Added
 
 - Added the `tui.resizeScrollback` setting (default `append`) controlling how a settled width resize refreshes pane scrollback when the terminal repaints in place (tmux/screen/Zellij panes, in-place direct terminals). Multiplexers rewrap old output naively on width changes, leaving history hard-broken at the old width; `append` re-emits the transcript at the new width below it (one fresh copy per settled resize), `rebuild` clears pane history first so it holds exactly one current-width copy (needs a host that honors ED3, like tmux; erases pre-session scrollback), and `preserve` keeps the old-width history untouched with zero growth ([#8193](https://github.com/can1357/oh-my-pi/issues/8193)).
+- Added `display.reduceMotion` (`off`, `on`, or `strict`) and a session-only `--reduce-motion` override to freeze cosmetic terminal animations, with strict mode limiting TUI repaints to 4 fps ([#8336](https://github.com/can1357/oh-my-pi/issues/8336)).
 
 ### Fixed
 
-- Fixed `tui.resizeScrollback: preserve` re-emitting committed transcript rows when a tmux width epoch settled without a resolvable source boundary; recovery now appends only unmatched pending growth while Ctrl+O keeps its explicit full replay.
 - Fixed multiplexer width resizes (tmux/screen/Zellij/cmux/Herdr panes) replaying the entire transcript into pane history — one duplicated transcript copy and seconds of visible scrolling per width change. The width-epoch boundary now resolves for real transcripts: finalized blocks without `getTranscriptBlockVersion` are treated as immutable per the documented contract, Container-derived blocks without a nested epoch source fall back to whole-segment stability instead of failing, and bash/eval/tool/read-group blocks report a block version for their genuine post-finalize mutations. The interactive resize listener no longer marks every SIGWINCH as "render pending", which forced the conservative replay-from-row-zero fallback on every settled resize ([#8193](https://github.com/can1357/oh-my-pi/issues/8193), [#7026](https://github.com/can1357/oh-my-pi/issues/7026)).
+- Fixed `tui.resizeScrollback: preserve` re-emitting committed transcript rows when a tmux width epoch settled without a resolvable source boundary; recovery now appends only unmatched pending growth while Ctrl+O keeps its explicit full replay.
+- Discovered skills nested one namespace level deep (`skills/<namespace>/<skill>/SKILL.md`) in every skill source (Claude, OpenCode, native), matching the curated-pool layouts both other harnesses already load.
+- Applied registered extension shell environments to interactive `!` commands.
+- Fixed live tool blocks disposed through the generic Container teardown (transcript clear, session switch mid-run) leaking their shared spinner ticker registration, keeping the process-wide 80ms interval alive with a dead component in the ticker set ([#8733](https://github.com/can1357/oh-my-pi/pull/8733) follow-up).
 
 ## [17.3.8] - 2026-08-19
 
