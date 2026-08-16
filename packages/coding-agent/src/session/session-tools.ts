@@ -1162,10 +1162,17 @@ export class SessionTools {
 		resetCapabilities();
 		if (this.#skillsReloadable) {
 			const skillsSettings = this.#host.settings.getGroup("skills");
+			// Extensions may contribute skill directories (resources_discover).
+			// Re-emit on every refresh so /reload-plugins picks up changes.
+			const runner = this.#host.extensionRunner();
+			const discoveredResources = runner
+				? await runner.emitResourcesDiscover(this.#host.sessionManager.getCwd(), "reload")
+				: undefined;
 			const discovered = await loadSkills({
 				...skillsSettings,
 				cwd: this.#host.sessionManager.getCwd(),
 				disabledExtensions: this.#host.settings.get("disabledExtensions") ?? [],
+				extensionDirectories: discoveredResources?.skillPaths.map(entry => entry.path),
 			});
 			this.#skills = discovered.skills;
 			this.#skillWarnings = discovered.warnings;

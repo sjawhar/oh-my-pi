@@ -20,6 +20,7 @@ const collisionFixturesDir = path.resolve(import.meta.dirname, "fixtures/skills-
 const longSkillName = "this-is-a-very-long-skill-name-that-exceeds-the-sixty-four-character-limit-set-by-the-standard";
 const expectedFixtureSkillOrder: string[] = [
 	"bad--name",
+	"child-skill",
 	"different-name",
 	"Invalid_Name",
 	longSkillName,
@@ -100,10 +101,13 @@ describe("skills", () => {
 			expect(skills.some(skill => skill.name === "unknown-field")).toBe(true);
 		});
 
-		it("should not load nested skills recursively", async () => {
+		it("should load skills one namespace level deep but not deeper", async () => {
 			const { skills } = await loadFixtureRoot();
 
-			expect(skills.some(skill => skill.name === "child-skill")).toBe(false);
+			// nested/child-skill: one namespace level below the root — discovered.
+			expect(skills.some(skill => skill.name === "child-skill")).toBe(true);
+			// nested/deeper/grandchild-skill: two levels down — stays invisible.
+			expect(skills.some(skill => skill.name === "grandchild-skill")).toBe(false);
 		});
 
 		it("should skip files without frontmatter description", async () => {
@@ -130,10 +134,10 @@ describe("skills", () => {
 					"this-is-a-very-long-skill-name-that-exceeds-the-sixty-four-character-limit-set-by-the-standard",
 					"unknown-field",
 					"bad--name",
+					"child-skill",
 				]),
 			);
-			expect(names).not.toContain("child-skill");
-			expect(skills).toHaveLength(6);
+			expect(skills).toHaveLength(7);
 		});
 
 		it("should return skills sorted by name (case-insensitive)", async () => {
@@ -457,6 +461,98 @@ enabled: false
 				ignoredSkills: ["valid-skill"],
 			});
 			expect(skills.every(s => s.name !== "valid-skill")).toBe(true);
+		});
+	});
+
+	describe("extensionDirectories (resources_discover)", () => {
+		async function writeSkill(root: string, relDir: string, name: string, description: string): Promise<string> {
+			const skillDir = path.join(root, relDir);
+			await fs.mkdir(skillDir, { recursive: true });
+			const skillPath = path.join(skillDir, "SKILL.md");
+			await fs.writeFile(skillPath, `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`);
+			return skillPath;
+		}
+
+		it("should load skills from extension directories with extension source labeling", async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-ext-skills-"));
+			try {
+				await writeSkill(tempDir, "flat-ext-skill", "flat-ext-skill", "Flat extension-provided skill.");
+				await writeSkill(tempDir, "second-ext-skill", "second-ext-skill", "Second extension-provided skill.");
+
+				const { skills } = await loadSkills({
+					...DISABLE_ALL_BUILTIN_SKILLS,
+					extensionDirectories: [tempDir],
+				});
+
+				const flat = skills.find(s => s.name === "flat-ext-skill");
+				expect(flat).toBeDefined();
+				expect(skills.some(s => s.name === "second-ext-skill")).toBe(true);
+				expect(flat!.source).toBe("extension:user");
+				expect(flat!._source?.providerName).toBe("Extension");
+			} finally {
+				await removeWithRetries(tempDir);
+			}
+		});
+
+		it("should prefer customDirectories over extensionDirectories on name collision", async () => {
+			const customDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-ext-custom-"));
+			const extensionDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-ext-ext-"));
+			try {
+				const customPath = await writeSkill(customDir, "shared-name", "shared-name", "From custom directory.");
+				await writeSkill(extensionDir, "shared-name", "shared-name", "From extension directory.");
+
+				const { skills, warnings } = await loadSkills({
+					...DISABLE_ALL_BUILTIN_SKILLS,
+					customDirectories: [customDir],
+					extensionDirectories: [extensionDir],
+				});
+
+				const shared = skills.filter(s => s.name === "shared-name");
+				expect(shared).toHaveLength(1);
+				expect(shared[0].filePath).toBe(customPath);
+				expect(shared[0].source).toBe("custom:user");
+				expect(warnings.some(w => w.message.includes(`name collision: "shared-name"`))).toBe(true);
+			} finally {
+				await removeWithRetries(customDir);
+				await removeWithRetries(extensionDir);
+			}
+		});
+
+		it("should apply ignoredSkills to extension directories", async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-ext-ignored-"));
+			try {
+				await writeSkill(tempDir, "ignored-ext-skill", "ignored-ext-skill", "Should be filtered out.");
+				await writeSkill(tempDir, "kept-ext-skill", "kept-ext-skill", "Should survive the filter.");
+
+				const { skills } = await loadSkills({
+					...DISABLE_ALL_BUILTIN_SKILLS,
+					extensionDirectories: [tempDir],
+					ignoredSkills: ["ignored-ext-skill"],
+				});
+
+				expect(skills.some(s => s.name === "ignored-ext-skill")).toBe(false);
+				expect(skills.some(s => s.name === "kept-ext-skill")).toBe(true);
+			} finally {
+				await removeWithRetries(tempDir);
+			}
+		});
+
+		it("should dedupe by real path when custom and extension directories overlap", async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-ext-overlap-"));
+			try {
+				await writeSkill(tempDir, "overlap-skill", "overlap-skill", "Reached via two configured routes.");
+
+				const { skills, warnings } = await loadSkills({
+					...DISABLE_ALL_BUILTIN_SKILLS,
+					customDirectories: [tempDir],
+					extensionDirectories: [tempDir],
+				});
+
+				expect(skills.filter(s => s.name === "overlap-skill")).toHaveLength(1);
+				expect(warnings.some(w => w.message.includes(`name collision: "overlap-skill"`))).toBe(false);
+			} finally {
+				await removeWithRetries(tempDir);
+			}
 		});
 	});
 
