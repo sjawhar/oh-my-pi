@@ -44,7 +44,7 @@ jobs:
             native_targets: linux-x64-baseline linux-x64-modern
           - runner: macos-14
             target: darwin-arm64
-            native_targets: darwin-arm64-baseline
+            native_targets: darwin-arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -52,12 +52,7 @@ jobs:
         with:
           bun-version: "1.3"
       - run: bun install --frozen-lockfile
-      - uses: ./.github/actions/native-artifacts
-        if: matrix.target == 'linux-x64'
-        with:
-          targets: ${{ matrix.native_targets }}
       - uses: ./.github/actions/bazel-natives
-        if: matrix.target == 'darwin-arm64'
         with:
           targets: ${{ matrix.native_targets }}
           cache-scope: fork-release-${{ matrix.target }}
