@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added a configurable minimum render interval for accessibility modes that need to cap terminal repaint frequency ([#8336](https://github.com/can1357/oh-my-pi/issues/8336)).
+- Added `TUI.amputateCommittedTail()` and `TUI.getComponentFrameRow()`: a history-rewind caller can now disown already-committed frame rows in place — declaring a boundary below which the tape is abandoned rather than reconciled — so a rewind that cuts into native scrollback no longer forces a clear-and-replay of the whole transcript. Refuses (falls back to the caller's replay path) during an unresolved width epoch, a live resize, or a visible overlay.
+
 ### Fixed
 
 - Fixed preserve-mode unresolved width recovery replaying committed rows after tmux client-size changes; it now resumes at the deepest row structurally proven (by component identity and finalization/version stability) to already be on the pane's native scrollback, falling back to the pre-resize committed boundary — never row zero — when nothing can be proven at all.

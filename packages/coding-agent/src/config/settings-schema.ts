@@ -1259,6 +1259,31 @@ export const SETTINGS_SCHEMA = {
 			],
 		},
 	},
+	"tui.rewindScrollback": {
+		type: "enum",
+		values: ["replay", "preserve"] as const,
+		default: "replay",
+		ui: {
+			tab: "appearance",
+			group: "Display",
+			label: "Rewind Scrollback",
+			description:
+				"How Esc-Esc and /tree history rewinds refresh terminal scrollback when the dropped tail already reached it. These modes decide whether the transcript replays after a rewind cuts into committed history.",
+			options: [
+				{
+					value: "replay",
+					label: "Replay",
+					description: "Clear scrollback and re-render the transcript when a rewind cuts into committed history",
+				},
+				{
+					value: "preserve",
+					label: "Preserve",
+					description:
+						"Drop the rewound tail in place and leave already-committed rows untouched in scrollback — stale tail rows remain above the cut, but nothing replays",
+				},
+			],
+		},
+	},
 
 	"display.shimmer": {
 		type: "enum",
@@ -1285,6 +1310,22 @@ export const SETTINGS_SCHEMA = {
 			group: "Display",
 			label: "Smooth Streaming",
 			description: "Reveal assistant text and streamed tool input smoothly while chunks arrive",
+		},
+	},
+	"display.reduceMotion": {
+		type: "enum",
+		values: ["off", "on", "strict"] as const,
+		default: "off",
+		ui: {
+			tab: "appearance",
+			group: "Display",
+			label: "Reduce Motion",
+			description: "Freeze cosmetic terminal animations; strict also limits repaint frequency",
+			options: [
+				{ value: "off", label: "Off", description: "Use the normal animation cadence" },
+				{ value: "on", label: "On", description: "Freeze cosmetic animations" },
+				{ value: "strict", label: "Strict", description: "Freeze animations and limit repaints to 4 fps" },
+			],
 		},
 	},
 
@@ -1917,6 +1958,18 @@ export const SETTINGS_SCHEMA = {
 			label: "Anthropic Server-Side Fallback (Fable 5)",
 			description:
 				"When a Claude Fable 5 / Mythos 5 request is blocked by Anthropic's safety classifier, retry it on Claude Opus 4.8 server-side (Anthropic `server-side-fallback-2026-06-01` beta). Opt-in — leaving this off preserves the pre-fallback behavior for every request.",
+		},
+	},
+
+	"providers.anthropic.serverSideFallbackModels": {
+		type: "array",
+		default: ["claude-opus-4-8"] as string[],
+		ui: {
+			tab: "model",
+			group: "Retry & Fallback",
+			label: "Anthropic Server-Side Fallback Chain",
+			description:
+				'Ordered bare Anthropic model ids forwarded as the server-side `fallbacks` chain when Anthropic Server-Side Fallback is enabled, e.g. ["claude-opus-5", "claude-opus-4-8"]. These are API model ids, not provider/model selectors. An empty list sends no fallbacks even when the toggle is on; the API accepts at most three entries, so longer chains use the first three.',
 		},
 	},
 

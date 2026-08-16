@@ -2,9 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `display.reduceMotion` (`off`, `on`, or `strict`) and a session-only `--reduce-motion` override to freeze cosmetic terminal animations, with strict mode limiting TUI repaints to 4 fps ([#8336](https://github.com/can1357/oh-my-pi/issues/8336)).
+- Added `omp.skills` and legacy `pi.skills` manifest directories for plugin-provided skills. Declared directories replace the conventional plugin `skills/` scan and remain constrained to the plugin root.
+- `providers.anthropic.serverSideFallbackModels`: ordered model-id chain for the Anthropic server-side fallback beta, replacing the hardcoded single-hop Opus 4.8 fallback (still the default). An empty list sends no fallbacks even when the toggle is on.
+- Added the `tui.rewindScrollback` setting (default `replay`) controlling whether an Esc-Esc or `/tree` history rewind that cuts into already-committed terminal scrollback clears and replays the transcript. `preserve` drops the rewound tail in place instead, leaving stale rows above the cut in scrollback but never replaying.
+
 ### Fixed
 
 - Fixed `tui.resizeScrollback: preserve` re-emitting committed transcript rows when a tmux width epoch settled without a resolvable source boundary; recovery now resumes from the deepest transcript block structurally proven stable (identity, finalization, and version), never replaying already-committed rows into scrollback even when nothing can be proven at all, while Ctrl+O keeps its explicit full replay.
+- Fixed clearing the transcript or switching sessions while a tool was still running leaving spinner animation work active for the rest of the process ([#8733](https://github.com/can1357/oh-my-pi/pull/8733) follow-up).
+- Applied registered extension shell environments to interactive `!` commands.
+- Discovered skills nested one namespace level deep (`skills/<namespace>/<skill>/SKILL.md`) in every skill source (Claude, OpenCode, native), matching the curated-pool layouts both other harnesses already load.
+- Extension-contributed skill paths (`resources_discover`) are now honored at session start and `/reload-plugins`.
+- Fixed remote browser relay endpoints advertising a client-local CDP WebSocket URL: `/json/version` now reflects a valid request `Host` and falls back to the relay's loopback address when it is absent or unusable.
 
 ## [18.0.0] - 2026-08-22
 
