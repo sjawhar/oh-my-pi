@@ -51,16 +51,22 @@ export function createSettingsAwareStreamFn(settings: Settings, base: StreamFn =
 		const streamIdleTimeoutMs = timeoutSecondsToMs(settings.get("providers.streamIdleTimeoutSeconds"));
 		// Server-side fallback (opt-in): when the user enables it AND the
 		// resolved model is a Claude Fable/Mythos on Anthropic's messages
-		// API, inject the `fallbacks: [{ model: "claude-opus-4-8" }]` chain.
+		// API, inject the `providers.anthropic.serverSideFallbackModels`
+		// chain (default `[{ model: "claude-opus-4-8" }]`) as `fallbacks`.
 		// The provider layer picks it up, sends the beta header, and honors
-		// the response signals. Every other model / API is untouched.
+		// the response signals. Every other model / API is untouched, and an
+		// empty configured chain sends nothing even with the toggle on.
 		const serverSideFallbackEnabled =
 			settings.get("providers.anthropic.serverSideFallback") &&
 			model.api === "anthropic-messages" &&
 			model.provider === "anthropic" &&
 			isAnthropicFableOrMythosModel(model.id);
+		const serverSideFallbackModels = serverSideFallbackEnabled
+			? settings.get("providers.anthropic.serverSideFallbackModels").filter(id => id.trim().length > 0)
+			: [];
 		const fallbacks =
-			streamOptions?.fallbacks ?? (serverSideFallbackEnabled ? [{ model: "claude-opus-4-8" }] : undefined);
+			streamOptions?.fallbacks ??
+			(serverSideFallbackModels.length > 0 ? serverSideFallbackModels.map(id => ({ model: id })) : undefined);
 		const merged: SimpleStreamOptions = {
 			...streamOptions,
 			openrouterVariant: streamOptions?.openrouterVariant ?? openrouterVariant,

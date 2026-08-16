@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added a configurable minimum render interval for accessibility modes that need to cap terminal repaint frequency ([#8336](https://github.com/can1357/oh-my-pi/issues/8336)).
+
 ### Fixed
 
 - Fixed preserve-mode unresolved width recovery replaying committed rows after tmux client-size changes; it now resumes at the matching committed boundary and appends only pending growth.

@@ -2,9 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `display.reduceMotion` (`off`, `on`, or `strict`) and a session-only `--reduce-motion` override to freeze cosmetic terminal animations, with strict mode limiting TUI repaints to 4 fps ([#8336](https://github.com/can1357/oh-my-pi/issues/8336)).
+- Added `omp.skills` and legacy `pi.skills` manifest directories for plugin-provided skills. Declared directories replace the conventional plugin `skills/` scan and remain constrained to the plugin root.
+- `providers.anthropic.serverSideFallbackModels`: ordered model-id chain for the Anthropic server-side fallback beta, replacing the hardcoded single-hop Opus 4.8 fallback (still the default). An empty list sends no fallbacks even when the toggle is on.
+
 ### Fixed
 
 - Fixed `tui.resizeScrollback: preserve` re-emitting committed transcript rows when a tmux width epoch settled without a resolvable source boundary; recovery now appends only unmatched pending growth while Ctrl+O keeps its explicit full replay.
+- Fixed live tool blocks disposed through the generic Container teardown (transcript clear, session switch mid-run) leaking their shared spinner ticker registration, keeping the process-wide 80ms interval alive with a dead component in the ticker set ([#8733](https://github.com/can1357/oh-my-pi/pull/8733) follow-up).
+- Applied registered extension shell environments to interactive `!` commands.
+- Discovered skills nested one namespace level deep (`skills/<namespace>/<skill>/SKILL.md`) in every skill source (Claude, OpenCode, native), matching the curated-pool layouts both other harnesses already load.
+- Fixed the `resources_discover` extension event never firing: the runner's emit had no caller, so extension `skillPaths` (documented in the extension API and used by real extensions) silently went nowhere. Sessions now emit it once the extension runner is constructed at startup and again on `/reload-plugins`, and returned skill directories join skill discovery as an explicitly configured source — scanned like `skills.customDirectories`, honoring `ignoredSkills`/`includeSkills`, deduplicated by real path, and losing name collisions to `customDirectories` entries.
 
 ## [18.0.0] - 2026-08-22
 
