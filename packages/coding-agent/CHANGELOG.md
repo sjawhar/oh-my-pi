@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `omp.skills` and legacy `pi.skills` manifest directories for plugin-provided skills. Declared directories replace the conventional plugin `skills/` scan and remain constrained to the plugin root.
+
 ## [18.0.0] - 2026-08-22
 
 ### Added
