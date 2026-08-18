@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `display.reduceMotion` (`off`, `on`, or `strict`) and a session-only `--reduce-motion` override to freeze cosmetic terminal animations, with strict mode limiting TUI repaints to 4 fps ([#8336](https://github.com/can1357/oh-my-pi/issues/8336)).
+
 ### Changed
 
 - Routed paid xAI models (`XAI_API_KEY` / `xai/…`) through the Responses API used by SuperGrok OAuth instead of Chat Completions.

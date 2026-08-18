@@ -59,9 +59,11 @@ import type { CollabHost } from "../collab/host";
 import { KeybindingsManager } from "../config/keybindings";
 import { formatModelString, type ResolvedModelRoleValue } from "../config/model-resolver";
 import { applyProviderGlobalsFromSettings } from "../config/provider-globals";
+import { reduceMotionLevel } from "../config/reduce-motion";
 import {
 	isSettingsInitialized,
 	onModelRolesChanged,
+	onReduceMotionChanged,
 	onStatusLineSessionAccentChanged,
 	Settings,
 	settings,
@@ -139,6 +141,7 @@ import { getEditorCommand, openInEditor } from "../utils/external-editor";
 import { getSessionAccentAnsi, getSessionAccentHex } from "../utils/session-color";
 import { messageHasDisplayableThinking } from "../utils/thinking-display";
 import {
+	applyTerminalTitleReduceMotion,
 	disposeTerminalTitleState,
 	popTerminalTitle,
 	pushTerminalTitle,
@@ -787,6 +790,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		setTuiTight(settings.get("tui.tight"));
 		setMarkdownMermaidRendering(settings.get("tui.renderMermaid"));
 		this.ui = new TUI(new ProcessTerminal(), settings.get("showHardwareCursor"));
+		this.#applyReduceMotion();
+		this.#eventBusUnsubscribers.push(onReduceMotionChanged(() => this.#applyReduceMotion()));
 		this.ui.setMaxInlineImages(settings.get("tui.maxInlineImages"));
 		this.ui.setScrollbackRebuild(settings.get("tui.scrollbackRebuild"));
 		// OSC 66 text-sizing is Kitty-only; resolve the setting against the terminal's
@@ -949,6 +954,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		// Component-scoped: the intro only mutates the welcome box's own rows,
 		// so a resumed long transcript is not re-walked per animation frame.
 		welcome?.playIntro(() => this.ui.requestComponentRender(welcome));
+	}
+
+	#applyReduceMotion(): void {
+		TUI.setMinRenderInterval(reduceMotionLevel() === "strict" ? 250 : 1000 / 30);
+		applyTerminalTitleReduceMotion();
+		this.ui.requestRender();
 	}
 
 	async init(options: InteractiveModeInitOptions = {}): Promise<void> {
