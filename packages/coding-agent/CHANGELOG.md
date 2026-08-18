@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Discovered skills nested one namespace level deep (`skills/<namespace>/<skill>/SKILL.md`) in every skill source (Claude, OpenCode, native), matching the curated-pool layouts both other harnesses already load.
+
 ## [17.3.8] - 2026-08-19
 
 ### Added
