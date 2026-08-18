@@ -269,6 +269,35 @@ export function sharedSpinnerFrame(frameCount: number, now: number = performance
 	return frameCount > 0 ? Math.floor(now / SPINNER_GLYPH_ADVANCE_MS) % frameCount : 0;
 }
 
+interface LiveSpinnerBlock {
+	tickSpinner(frame: number): void;
+}
+
+const liveSpinnerBlocks = new Set<LiveSpinnerBlock>();
+let sharedSpinnerTicker: NodeJS.Timeout | undefined;
+
+function ensureSharedSpinnerTicker(): void {
+	if (sharedSpinnerTicker || liveSpinnerBlocks.size === 0) return;
+	sharedSpinnerTicker = setInterval(() => {
+		const frame = sharedSpinnerFrame(theme.spinnerFrames.length);
+		for (const block of liveSpinnerBlocks) {
+			block.tickSpinner(frame);
+		}
+	}, SPINNER_RENDER_INTERVAL_MS);
+}
+
+function registerSpinnerBlock(block: LiveSpinnerBlock): void {
+	liveSpinnerBlocks.add(block);
+	ensureSharedSpinnerTicker();
+}
+
+function unregisterSpinnerBlock(block: LiveSpinnerBlock): void {
+	liveSpinnerBlocks.delete(block);
+	if (liveSpinnerBlocks.size !== 0 || !sharedSpinnerTicker) return;
+	clearInterval(sharedSpinnerTicker);
+	sharedSpinnerTicker = undefined;
+}
+
 // Stable per-instance counter so each tool execution's inline images get a
 // graphics id that survives child re-creation (the image budget keys off it).
 let toolExecutionInstanceSeq = 0;
@@ -337,7 +366,7 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 	#convertedImages: Map<number, { data: string; mimeType: string }> = new Map();
 	// Spinner animation for partial task results
 	#spinnerFrame?: number;
-	#spinnerInterval?: NodeJS.Timeout;
+	#spinnerActive = false;
 	// Todo write completion strikethrough reveal animation
 	#todoStrikeInterval?: NodeJS.Timeout;
 	// Track if args are still being streamed (for edit/write spinner)
@@ -697,27 +726,16 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 			!isBackgroundAsyncRunning &&
 			(pendingCallConsumesSpinner || partialResultConsumesSpinner);
 		const needsSpinner = isStreamingArgs || isLivePartialTool || this.#displaceableByToolName === "hub";
-		if (needsSpinner && !this.#spinnerInterval) {
+		if (needsSpinner && !this.#spinnerActive) {
 			const frameCount = theme.spinnerFrames.length;
 			const frame = sharedSpinnerFrame(frameCount);
 			this.#spinnerFrame = frame;
 			this.#renderState.spinnerFrame = frame;
-			this.#spinnerInterval = setInterval(() => {
-				// If a detached task interval from an older render path is still live,
-				// stop it the instant the block leaves the repaintable region.
-				if (this.#maybeFreezeBackgroundTask()) return;
-				const now = performance.now();
-				const frameCount = theme.spinnerFrames.length;
-				this.#spinnerFrame = sharedSpinnerFrame(frameCount, now);
-				this.#renderState.spinnerFrame = this.#spinnerFrame;
-				// Component-scoped: a spinner tick only changes this tool block, so
-				// the TUI reuses every other root subtree instead of walking the
-				// whole tree (issue #4377).
-				this.#ui.requestComponentRender(this);
-			}, SPINNER_RENDER_INTERVAL_MS);
-		} else if (!needsSpinner && this.#spinnerInterval) {
-			clearInterval(this.#spinnerInterval);
-			this.#spinnerInterval = undefined;
+			this.#spinnerActive = true;
+			registerSpinnerBlock(this);
+		} else if (!needsSpinner && this.#spinnerActive) {
+			this.#spinnerActive = false;
+			unregisterSpinnerBlock(this);
 			// Clear the last drawn frame so a non-live renderCall (e.g. a write whose
 			// args just completed) stops showing a frozen spinner glyph. Skip when a
 			// todo strike owns the frame — it sets its own value right after this.
@@ -726,6 +744,15 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 				this.#renderState.spinnerFrame = undefined;
 			}
 		}
+	}
+
+	tickSpinner(frame: number): void {
+		if (!this.#spinnerActive || this.#maybeFreezeBackgroundTask()) return;
+		this.#spinnerFrame = frame;
+		this.#renderState.spinnerFrame = frame;
+		// Component-scoped: a spinner tick only changes this tool block, so the
+		// TUI reuses every other root subtree instead of walking the whole tree.
+		this.#ui.requestComponentRender(this);
 	}
 
 	/**
@@ -789,7 +816,7 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 			clearInterval(this.#todoStrikeInterval);
 			this.#todoStrikeInterval = undefined;
 		}
-		if (!this.#spinnerInterval) {
+		if (!this.#spinnerActive) {
 			this.#spinnerFrame = undefined;
 			this.#renderState.spinnerFrame = undefined;
 		}
@@ -882,9 +909,9 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 	 * Stop spinner animation and cleanup resources.
 	 */
 	stopAnimation(): void {
-		if (this.#spinnerInterval) {
-			clearInterval(this.#spinnerInterval);
-			this.#spinnerInterval = undefined;
+		if (this.#spinnerActive) {
+			this.#spinnerActive = false;
+			unregisterSpinnerBlock(this);
 			this.#spinnerFrame = undefined;
 			this.#renderState.spinnerFrame = undefined;
 		}
@@ -894,6 +921,11 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 		// Drop any queued rerun so the drain loop exits instead of recomputing a
 		// preview for a torn-down block after its in-flight compute is aborted.
 		this.#editDiffDirty = false;
+	}
+
+	override dispose(): void {
+		this.stopAnimation();
+		super.dispose();
 	}
 
 	setExpanded(expanded: boolean): void {
