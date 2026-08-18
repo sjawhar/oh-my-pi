@@ -3,11 +3,11 @@ name: Fork Release
 on:
   push:
     tags:
-      - "v*-sami.*"
+      - "release-*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Fork release tag, for example v17.3.5-sami.20260816-120000"
+        description: "Fork release tag: the knives cut name with slashes as dashes, for example release-2026-08-18.3"
         required: true
         type: string
 
@@ -25,9 +25,9 @@ jobs:
           TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
           case "$TAG" in
-            v*-sami.*) ;;
+            release-*) ;;
             *)
-              echo "Fork release tags must look like v<upstream>-sami.<timestamp>: $TAG" >&2
+              echo "Fork release tags are knives cut names with slashes as dashes (release-<date>[.n]): $TAG" >&2
               exit 1
               ;;
           esac
@@ -94,4 +94,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release_metadata.outputs.tag }}
-        run: gh release create "$TAG" release/*.tar.gz --target "$GITHUB_SHA" --title "sami build $TAG" --generate-notes
+        run: |
+          # Title is the knives cut name verbatim (tag = same name with / as -).
+          title="${TAG/release-/release/}"
+          gh release create "$TAG" release/*.tar.gz --target "$GITHUB_SHA" --title "$title" --generate-notes
