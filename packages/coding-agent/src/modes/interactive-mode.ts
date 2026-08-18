@@ -36,7 +36,7 @@ import {
 	setTuiTight,
 	TERMINAL,
 	Text,
-	type TUI,
+	TUI,
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@oh-my-pi/pi-tui";
@@ -64,6 +64,7 @@ import type { CollabHost } from "../collab/host";
 import { formatKeyHint, KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
 import { appKey, editorKey } from "@oh-my-pi/pi-tui/chrome/keybinding-hints";
 import { formatModelString, type ResolvedModelRoleValue } from "../config/model-resolver";
+import { reduceMotionLevel } from "../config/reduce-motion";
 import { isSettingsInitialized, Settings, settings } from "../config/settings";
 import { clearClaudePluginRootsCache } from "../discovery/helpers";
 import type {
@@ -186,6 +187,7 @@ import { getSessionAccentAnsi, getSessionAccentHex } from "@oh-my-pi/pi-tui/them
 import { messageHasDisplayableThinking } from "@oh-my-pi/pi-tui/chat/thinking-display";
 import type { TokenRateMeter } from "../utils/token-rate";
 import {
+	applyTerminalTitleReduceMotion,
 	disposeTerminalTitleState,
 	initTerminalTitleState,
 	popTerminalTitle,
@@ -310,6 +312,7 @@ import {
 	cfgDisplayCollapseCompacted,
 	cfgDisplayHideToolActivity,
 	cfgDisplayPinnedAgents,
+	cfgDisplayReduceMotion,
 	cfgDisplayShowTokenUsage,
 	cfgDisplayShowTurnTime,
 	cfgGitEnabled,
@@ -385,6 +388,7 @@ const cfgLiveUiSettings = combine({
 	"tui.vimMode": cfgTuiVimMode,
 	"tui.vimModeDisplay": cfgTuiVimModeDisplay,
 	"display.pinnedAgents": cfgDisplayPinnedAgents,
+	"display.reduceMotion": cfgDisplayReduceMotion,
 	"compaction.idleEnabled": cfgCompactionIdleEnabled,
 	"compaction.idleThresholdTokens": cfgCompactionIdleThresholdTokens,
 	"compaction.idleTimeoutSeconds": cfgCompactionIdleTimeoutSeconds,
@@ -1381,6 +1385,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		setTuiTight(cfgTuiTight.get(settings));
 		setMarkdownMermaidRendering(cfgTuiRenderMermaid.get(settings));
 		this.#applyTextSizingSetting();
+		this.#applyReduceMotion();
 		// Keep generic pi-tui renderers aligned with the coding-agent setting.
 		applyHyperlinkSetting();
 		// The TUI polls the provider every frame, so it reads a field kept in sync by
@@ -2884,6 +2889,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		return computeEditorMaxHeight(this.ui.terminal.rows);
 	}
 
+	#applyReduceMotion(): void {
+		TUI.setMinRenderInterval(reduceMotionLevel() === "strict" ? 250 : 1000 / 30);
+		applyTerminalTitleReduceMotion();
+		this.ui.requestRender();
+	}
+
 	#syncEditorMaxHeight(): void {
 		this.editor.setMaxHeight(this.#computeEditorMaxHeight());
 	}
@@ -2940,6 +2951,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (any("composer.shape")) this.syncComposerShape();
 		if (any("tui.vimMode", "tui.vimModeDisplay")) this.#applyVimModeSetting();
 		if (any("display.pinnedAgents")) this.applyPinnedAgentsSetting();
+		if (any("display.reduceMotion")) this.#applyReduceMotion();
 		if (any("compaction.idleEnabled", "compaction.idleThresholdTokens", "compaction.idleTimeoutSeconds")) {
 			this.#eventController.refreshIdleCompactionTimer();
 		}
