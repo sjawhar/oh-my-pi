@@ -146,6 +146,7 @@ import {
 	cfgAutoResume,
 	cfgColorBlindMode,
 	cfgComposerShape,
+	cfgDisplayReduceMotion,
 	cfgImagesAutoResize,
 	cfgMarketplaceAutoUpdate,
 	cfgSetupVersion,
@@ -1859,6 +1860,9 @@ export async function runRootCommand(
 			// --auto-approve / --yolo without an explicit --approval-mode: reflect in settings so
 			// setup-time checks (e.g. #wrapToolForAcpPermission) also see the yolo intent.
 			cfgToolsApprovalMode.override(settingsInstance, "yolo");
+		}
+		if (parsedArgs.reduceMotion) {
+			cfgDisplayReduceMotion.override(settingsInstance, parsedArgs.reduceMotion);
 		}
 		if (parsedArgs.mode === "rpc" || parsedArgs.mode === "rpc-ui") {
 			applyProtocolDefaults("rpc", settingsInstance);
