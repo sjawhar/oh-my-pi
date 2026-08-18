@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed preserve-mode unresolved width recovery replaying committed rows after tmux client-size changes; it now resumes at the deepest row structurally proven (by component identity and finalization/version stability) to already be on the pane's native scrollback, and only ever duplicates rows it cannot prove, never drops them.
+
 ## [18.0.0] - 2026-08-22
 
 ### Breaking Changes

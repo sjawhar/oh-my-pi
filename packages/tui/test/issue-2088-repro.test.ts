@@ -72,6 +72,13 @@ class RevisionMutableLinesComponent implements Component {
 	}
 }
 
+// Rows a single line occupies when wrapped at `width` — matches the
+// `WrappingLinesComponent.render` loop's segment count exactly (zero for an
+// empty line, since that loop never executes for it).
+function wrappedRowCount(line: string, width: number): number {
+	return line.length === 0 ? 0 : Math.ceil(line.length / width);
+}
+
 class WrappingLinesComponent implements Component {
 	#lines: string[];
 
@@ -81,6 +88,10 @@ class WrappingLinesComponent implements Component {
 
 	setLines(lines: string[]): void {
 		this.#lines = [...lines];
+	}
+
+	linesSnapshot(): readonly string[] {
+		return this.#lines;
 	}
 
 	invalidate(): void {}
@@ -122,7 +133,66 @@ class RecoveringWrappingLinesComponent extends WrappingLinesComponent implements
 	}
 }
 
+// Simulates a leaf component with no logical live/settled distinction at all
+// (`resolveNativeScrollbackWidthEpoch` always fails — genuinely unresolved),
+// but one that can still structurally prove which of its OWN lines are
+// unchanged since the width epoch was captured: pure content identity on a
+// stable leading run, independent of the live/settled question the width
+// epoch itself cannot answer.
 class UnresolvedWrappingLinesComponent extends WrappingLinesComponent implements NativeScrollbackWidthEpoch {
+	#lastRenderedWidth = 0;
+	#captured: { lines: readonly string[]; width: number } | undefined;
+
+	override render(width: number): string[] {
+		this.#lastRenderedWidth = width;
+		return super.render(width);
+	}
+
+	captureNativeScrollbackWidthEpoch(): unknown {
+		this.#captured = { lines: this.linesSnapshot(), width: this.#lastRenderedWidth };
+		return {};
+	}
+
+	resolveNativeScrollbackWidthEpoch(): undefined {
+		return undefined;
+	}
+
+	getNativeScrollbackWidthEpochRows(): undefined {
+		return undefined;
+	}
+
+	resolveNativeScrollbackCommittedRows(_boundary: unknown, committedRows: number): number | undefined {
+		const captured = this.#captured;
+		if (!captured) return undefined;
+		const current = this.linesSnapshot();
+		let stableLines = 0;
+		while (
+			stableLines < captured.lines.length &&
+			stableLines < current.length &&
+			captured.lines[stableLines] === current[stableLines]
+		) {
+			stableLines++;
+		}
+		let oldRows = 0;
+		let coveredLines = 0;
+		for (let i = 0; i < stableLines; i++) {
+			const lineRows = wrappedRowCount(captured.lines[i]!, captured.width);
+			if (oldRows + lineRows > committedRows) break;
+			oldRows += lineRows;
+			coveredLines++;
+		}
+		if (coveredLines === 0) return undefined;
+		let newRows = 0;
+		for (let i = 0; i < coveredLines; i++) newRows += wrappedRowCount(captured.lines[i]!, this.#lastRenderedWidth);
+		return newRows;
+	}
+}
+
+// Same "genuinely unresolved" shape as `UnresolvedWrappingLinesComponent`,
+// but with no `resolveNativeScrollbackCommittedRows` at all — simulates a
+// component nobody has instrumented for structural committed-row proof, so
+// the engine can only fall back to resuming from row zero.
+class OpaqueUnresolvedComponent extends WrappingLinesComponent implements NativeScrollbackWidthEpoch {
 	captureNativeScrollbackWidthEpoch(): unknown {
 		return {};
 	}
@@ -2044,6 +2114,196 @@ describe("issue #2088: tmux pane-resize race produces viewport flash", () => {
 				}
 			} finally {
 				tui.stop();
+			}
+		});
+	});
+
+	it("does not re-emit committed rows for unresolved pending width epochs in preserve mode", async () => {
+		await withEnvPatch(TMUX_ENV, async () => {
+			const initial = Array.from(
+				{ length: 12 },
+				(_value, index) => `preserve-${index.toString().padStart(2, "0")} ${"I".repeat(20)}`,
+			);
+			const appended = Array.from(
+				{ length: 8 },
+				(_value, index) => `preserve-new-${index.toString().padStart(2, "0")}`,
+			);
+			const term = new VirtualTerminal(17, 6, 10_000);
+			const component = new UnresolvedWrappingLinesComponent(initial);
+			const tui = new TUI(term);
+			tui.setResizeScrollback("preserve");
+			tui.addChild(component);
+
+			try {
+				tui.start();
+				await settle(term);
+				const historyBeforeResize = term.getScrollBuffer().map(line => line.trimEnd());
+				const committedMarker = "preserve-00";
+				const committedOccurrencesBeforeResize = historyBeforeResize.filter(line =>
+					line.includes(committedMarker),
+				).length;
+				expect(committedOccurrencesBeforeResize).toBeGreaterThan(0);
+
+				term.resize(40, 4);
+				component.setLines([...initial, ...appended]);
+				tui.requestRender();
+				await Bun.sleep(DEBOUNCE_SETTLE_WAIT_MS);
+				await settle(term);
+
+				const historyAfterResize = term.getScrollBuffer().map(line => line.trimEnd());
+				expect(historyAfterResize.filter(line => line.includes(committedMarker))).toHaveLength(
+					committedOccurrencesBeforeResize,
+				);
+				expect(visible(term)).toEqual(appended.slice(-4));
+			} finally {
+				tui.stop();
+			}
+		});
+	});
+
+	it("falls back to resuming from row zero when nothing structurally proves a boundary", async () => {
+		await withEnvPatch(TMUX_ENV, async () => {
+			const initial = Array.from(
+				{ length: 12 },
+				(_value, index) => `opaque-${index.toString().padStart(2, "0")} ${"I".repeat(20)}`,
+			);
+			const appended = Array.from(
+				{ length: 8 },
+				(_value, index) => `opaque-new-${index.toString().padStart(2, "0")}`,
+			);
+			const term = new VirtualTerminal(17, 6, 10_000);
+			const component = new OpaqueUnresolvedComponent(initial);
+			const tui = new TUI(term);
+			tui.setResizeScrollback("preserve");
+			tui.addChild(component);
+
+			try {
+				tui.start();
+				await settle(term);
+				const historyBeforeResize = term.getScrollBuffer().map(line => line.trimEnd());
+				const committedMarker = "opaque-00";
+				const committedOccurrencesBeforeResize = historyBeforeResize.filter(line =>
+					line.includes(committedMarker),
+				).length;
+				expect(committedOccurrencesBeforeResize).toBeGreaterThan(0);
+
+				term.resize(40, 4);
+				component.setLines([...initial, ...appended]);
+				tui.requestRender();
+				await Bun.sleep(DEBOUNCE_SETTLE_WAIT_MS);
+				await settle(term);
+
+				const historyAfterResize = term.getScrollBuffer().map(line => line.trimEnd());
+				// No component in the chain implements the structural resolver, so
+				// the replay falls back to resuming from row zero: the already
+				// committed marker is re-emitted once more rather than skipped —
+				// duplication, never loss, is the accepted degradation.
+				expect(historyAfterResize.filter(line => line.includes(committedMarker))).toHaveLength(
+					committedOccurrencesBeforeResize * 2,
+				);
+			} finally {
+				tui.stop();
+			}
+		});
+	});
+
+	it("stops at the last stable leading block when a later one turns mutable, duplicating only that block onward", async () => {
+		await withEnvPatch(TMUX_ENV, async () => {
+			const stableLines = Array.from({ length: 3 }, (_value, index) => `stable-${index} ${"S".repeat(20)}`);
+			const mutableLines = Array.from({ length: 3 }, (_value, index) => `mutable-${index} ${"M".repeat(20)}`);
+			const sourceLines = Array.from(
+				{ length: 6 },
+				(_value, index) => `source-${index.toString().padStart(2, "0")} ${"R".repeat(20)}`,
+			);
+			const appended = Array.from(
+				{ length: 8 },
+				(_value, index) => `source-new-${index.toString().padStart(2, "0")}`,
+			);
+
+			const term = new VirtualTerminal(17, 6, 10_000);
+			const stable = new WrappingLinesComponent(stableLines);
+			const mutable = new RevisionMutableLinesComponent(mutableLines);
+			const source = new UnresolvedWrappingLinesComponent(sourceLines);
+			const tui = new TUI(term);
+			tui.setResizeScrollback("preserve");
+			tui.addChild(stable);
+			tui.addChild(mutable);
+			tui.addChild(source);
+
+			try {
+				tui.start();
+				await settle(term);
+				const historyBeforeResize = term.getScrollBuffer().map(line => line.trimEnd());
+				const stableMarker = "stable-0";
+				const mutableMarker = "mutable-0";
+				const stableOccurrencesBefore = historyBeforeResize.filter(line => line.includes(stableMarker)).length;
+				const mutableOccurrencesBefore = historyBeforeResize.filter(line => line.includes(mutableMarker)).length;
+				expect(stableOccurrencesBefore).toBeGreaterThan(0);
+				expect(mutableOccurrencesBefore).toBeGreaterThan(0);
+
+				term.resize(40, 4);
+				// The mutable leading block changes during the settle window (a
+				// late correction), and the source keeps growing — both feed the
+				// unresolved-pending-render path.
+				mutable.setLines([...mutableLines, "mutable-late"]);
+				source.setLines([...sourceLines, ...appended]);
+				tui.requestRender();
+				await Bun.sleep(DEBOUNCE_SETTLE_WAIT_MS);
+				await settle(term);
+
+				const historyAfterResize = term.getScrollBuffer().map(line => line.trimEnd());
+				// Stable precedes the mutable block, proven stable end to end:
+				// never duplicated.
+				expect(historyAfterResize.filter(line => line.includes(stableMarker))).toHaveLength(
+					stableOccurrencesBefore,
+				);
+				// The mutable block itself could not be proven stable (its
+				// width-epoch revision moved between capture and resolve): its
+				// already-committed rows are re-emitted rather than lost.
+				expect(historyAfterResize.filter(line => line.includes(mutableMarker)).length).toBeGreaterThan(
+					mutableOccurrencesBefore,
+				);
+			} finally {
+				tui.stop();
+			}
+		});
+	});
+
+	it("leaves append and rebuild resize scrollback modes unaffected by the structural resolver", async () => {
+		await withEnvPatch(TMUX_ENV, async () => {
+			for (const mode of ["append", "rebuild"] as const) {
+				const initial = Array.from(
+					{ length: 12 },
+					(_value, index) => `${mode}-${index.toString().padStart(2, "0")} ${"I".repeat(20)}`,
+				);
+				const appended = Array.from(
+					{ length: 8 },
+					(_value, index) => `${mode}-new-${index.toString().padStart(2, "0")}`,
+				);
+				const term = new VirtualTerminal(17, 6, 10_000);
+				// Same structurally-capable double the preserve-mode tests use above:
+				// proves append/rebuild never reach (or need) the new resolver —
+				// every width-changing resize classifies as a full paint before the
+				// preserve-only incremental branch that consults it is ever entered.
+				const component = new UnresolvedWrappingLinesComponent(initial);
+				const tui = new TUI(term);
+				tui.setResizeScrollback(mode);
+				tui.addChild(component);
+
+				try {
+					tui.start();
+					await settle(term);
+
+					term.resize(40, 4);
+					component.setLines([...initial, ...appended]);
+					tui.requestRender();
+					await Bun.sleep(DEBOUNCE_SETTLE_WAIT_MS);
+					await settle(term);
+
+					expect(visible(term)).toEqual(appended.slice(-4));
+				} finally {
+					tui.stop();
+				}
 			}
 		});
 	});
