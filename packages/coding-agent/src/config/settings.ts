@@ -728,6 +728,9 @@ export class Settings {
 		if (path === "statusLine.sessionAccent") {
 			statusLineSessionAccentSignal.fire();
 		}
+		if (path === "display.reduceMotion") {
+			reduceMotionSignal.fire();
+		}
 		if (path === "modelRoles") {
 			modelRolesSignal.fire();
 		}
@@ -3147,6 +3150,10 @@ export const onExtendedContextChanged = (cb: () => void) => extendedContextSigna
 
 /** Fires when `statusLine.sessionAccent` changes at runtime. */
 const statusLineSessionAccentSignal = new SettingSignal("statusLine.sessionAccent");
+
+const reduceMotionSignal = new SettingSignal("display.reduceMotion");
+
+export const onReduceMotionChanged: (cb: () => void) => () => void = reduceMotionSignal.on.bind(reduceMotionSignal);
 
 /**
  * Subscribe to session-accent setting changes.
