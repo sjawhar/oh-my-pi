@@ -8,6 +8,7 @@ import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import * as bashExecutor from "@oh-my-pi/pi-coding-agent/exec/bash-executor";
 import type { ExtensionRunner } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
+import { createBashTool } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-pi-coding-agent-shim";
 import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
@@ -111,6 +112,33 @@ describe("AgentSession bash session ownership", () => {
 		await session.waitForIdle();
 
 		expect(session.messages.some(message => message.role === "bashExecution")).toBe(false);
+	});
+
+	it("applies the registered bash shell environment to user-shell commands", async () => {
+		const spawnHook = vi.fn(spawn => ({
+			...spawn,
+			env: { ...spawn.env, OMP_USER_SHELL_ENV: "extension-value" },
+		}));
+		const definition = createBashTool(tempDir.path(), { spawnHook });
+		const extensionRunner = {
+			hasHandlers: vi.fn(() => false),
+			getRegisteredTool: vi.fn((name: string) => (name === "bash" ? { definition } : undefined)),
+			emit: vi.fn().mockResolvedValue(undefined),
+			emitBeforeAgentStart: vi.fn().mockResolvedValue(undefined),
+		} as unknown as ExtensionRunner;
+		createSession(undefined, extensionRunner);
+
+		const result = await session.executeBash('printf "%s" "$OMP_USER_SHELL_ENV"', undefined, {
+			useUserShell: true,
+		});
+
+		expect(result.output).toBe("extension-value");
+		expect(spawnHook).toHaveBeenCalledWith(
+			expect.objectContaining({
+				command: 'printf "%s" "$OMP_USER_SHELL_ENV"',
+				cwd: tempDir.path(),
+			}),
+		);
 	});
 
 	it("keeps a queued bash result on the branch discarded by an empty stop", async () => {
