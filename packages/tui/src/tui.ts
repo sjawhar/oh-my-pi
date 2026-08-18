@@ -3727,6 +3727,7 @@ export class TUI extends Container {
 				break;
 			}
 		}
+		const preservesScrollback = this.#resizeScrollbackMode === "preserve";
 		// Without a logical source boundary, pending growth folded into an
 		// overlay-covered width reset cannot be separated from reflow. Replay
 		// conservatively from row zero after the overlay closes: duplication is
@@ -3752,7 +3753,31 @@ export class TUI extends Container {
 				resizeHadPendingRender &&
 				widthEpochBoundary !== undefined &&
 				widthEpochSourceBoundary === undefined);
-		if (replayUnresolvedWidthEpoch) prevWindowTop = 0;
+		let unresolvedWidthEpochResume = 0;
+		if (replayUnresolvedWidthEpoch) {
+			if (preservesScrollback) {
+				let committedRow = 0;
+				let frameRow = 0;
+				let committedText = "";
+				let frameText = "";
+				const committedLimit = Math.min(this.#committedRows, this.#committedPrefix.length);
+				while (committedRow < committedLimit && frameRow < frameLength) {
+					if (committedText.length <= frameText.length) {
+						committedText += this.#committedPrefix[committedRow++]!.replace(SGR_SEQUENCE, "");
+					} else {
+						frameText += rawFrame[frameRow++]!.replace(SGR_SEQUENCE, "");
+					}
+					if (committedText === frameText) {
+						unresolvedWidthEpochResume = frameRow;
+						committedText = "";
+						frameText = "";
+					} else if (!committedText.startsWith(frameText) && !frameText.startsWith(committedText)) {
+						break;
+					}
+				}
+			}
+			prevWindowTop = preservesScrollback ? unresolvedWidthEpochResume : 0;
+		}
 
 		// 4. Classify. A resize is an explicit user gesture: normally the engine
 		// erases and replays so history rewraps at the new geometry (the reader
@@ -4008,9 +4033,9 @@ export class TUI extends Container {
 			let commitFrom: number;
 			let commitTo: number;
 			if (replayUnresolvedWidthEpoch) {
-				commitFrom = 0;
+				commitFrom = preservesScrollback ? Math.min(unresolvedWidthEpochResume, windowTop) : 0;
 				commitTo = liveRegionPinned ? Math.min(windowTop, finalBoundary) : windowTop;
-				scrollRows = commitTo;
+				scrollRows = Math.max(0, commitTo - commitFrom);
 			} else if (logicalAppend && !logicalPrefixAppend) {
 				const sourceWindowTop = Math.max(0, widthEpochSourceBoundary - height);
 				const logicalSuffixRows = Math.max(0, widthEpochCurrentRows - widthEpochSourceBoundary);
