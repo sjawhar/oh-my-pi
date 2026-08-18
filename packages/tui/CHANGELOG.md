@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed preserve-mode unresolved width recovery replaying committed rows after tmux client-size changes; it now resumes at the matching committed boundary and appends only pending growth.
+
 ## [18.0.0] - 2026-08-22
 
 ### Breaking Changes
