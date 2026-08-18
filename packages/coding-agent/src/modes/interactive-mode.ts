@@ -35,7 +35,7 @@ import {
 	setTuiTight,
 	TERMINAL,
 	Text,
-	type TUI,
+	TUI,
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@oh-my-pi/pi-tui";
@@ -63,9 +63,11 @@ import { CollabController } from "../collab/controller";
 import type { CollabHost } from "../collab/host";
 import { formatKeyHint, KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
 import { formatModelString, type ResolvedModelRoleValue } from "../config/model-resolver";
+import { reduceMotionLevel } from "../config/reduce-motion";
 import {
 	isSettingsInitialized,
 	onModelRolesChanged,
+	onReduceMotionChanged,
 	onStatusLineSessionAccentChanged,
 	Settings,
 	settings,
@@ -178,6 +180,7 @@ import { getSessionAccentAnsi, getSessionAccentHex } from "@oh-my-pi/pi-tui/them
 import { messageHasDisplayableThinking } from "@oh-my-pi/pi-tui/chat/thinking-display";
 import type { TokenRateMeter } from "../utils/token-rate";
 import {
+	applyTerminalTitleReduceMotion,
 	disposeTerminalTitleState,
 	initTerminalTitleState,
 	popTerminalTitle,
@@ -1220,6 +1223,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		// buffered during startup remains in the same editor instance.
 		this.ui.setMaxInlineImages(settings.get("tui.maxInlineImages"));
 		this.ui.setShowHardwareCursor(settings.get("showHardwareCursor"));
+		this.#applyReduceMotion();
+		this.#eventBusUnsubscribers.push(onReduceMotionChanged(() => this.#applyReduceMotion()));
 		// OSC 66 text-sizing is Kitty-only; resolve the setting against the terminal's
 		// capability (`TERMINAL.supportsTextSizing` defaults on for Kitty) so it stays off
 		// unless the user opts in, and never emits raw escapes on other terminals.
@@ -2604,6 +2609,12 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	#computeEditorMaxHeight(): number {
 		return computeEditorMaxHeight(this.ui.terminal.rows);
+	}
+
+	#applyReduceMotion(): void {
+		TUI.setMinRenderInterval(reduceMotionLevel() === "strict" ? 250 : 1000 / 30);
+		applyTerminalTitleReduceMotion();
+		this.ui.requestRender();
 	}
 
 	#syncEditorMaxHeight(): void {
