@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed live tool blocks disposed through the generic Container teardown (transcript clear, session switch mid-run) leaking their shared spinner ticker registration, keeping the process-wide 80ms interval alive with a dead component in the ticker set ([#8733](https://github.com/can1357/oh-my-pi/pull/8733) follow-up).
+
 ## [17.3.8] - 2026-08-19
 
 ### Added
