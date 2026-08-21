@@ -153,4 +153,52 @@ describe("browser relay extension scope enforcement", () => {
 			}),
 		);
 	});
+	it("rejects Target escape commands while allowing same-tab auto-attach", async () => {
+		const socket = await prepareScope([{ ...scopedTab }], [{ ...ompGroup }]);
+		const forbidden = [
+			"Target.getTargets",
+			"Target.setDiscoverTargets",
+			"Target.attachToTarget",
+			"Target.createTarget",
+			"Target.activateTarget",
+			"Target.closeTarget",
+			"Target.createBrowserContext",
+			"Target.attachToBrowserTarget",
+			"Target.autoAttachRelated",
+			"Target.exposeDevToolsProtocol",
+		];
+		for (const [index, method] of forbidden.entries()) {
+			socket.receive(JSON.stringify({ t: "rpc", id: 20 + index, op: "send", tabId: 1, method }));
+		}
+		await flush();
+
+		expect(fake.calls.debugger.sendCommand).toHaveLength(0);
+		for (const [index, method] of forbidden.entries()) {
+			expect(messages(socket)).toContainEqual(
+				expect.objectContaining({
+					t: "rpcResult",
+					id: 20 + index,
+					ok: false,
+					error: `${method} is not allowed through the omp browser relay`,
+				}),
+			);
+		}
+
+		socket.receive(JSON.stringify({ t: "rpc", id: 30, op: "send", tabId: 1, method: "Target.setAutoAttach" }));
+		await flush();
+		expect(fake.calls.debugger.sendCommand).toContainEqual(
+			expect.objectContaining({ target: { tabId: 1 }, method: "Target.setAutoAttach" }),
+		);
+		expect(messages(socket)).toContainEqual(expect.objectContaining({ t: "rpcResult", id: 30, ok: true }));
+	});
+	it("drops child-session events that Chrome identifies with another tab", async () => {
+		const socket = await prepareScope([{ ...scopedTab }], [{ ...ompGroup }]);
+		const before = messages(socket).length;
+		fake.events.debugger.onEvent.emit({ tabId: 1 }, "Target.attachedToTarget", {
+			sessionId: "foreign-child",
+			targetInfo: { tabId: 2 },
+		});
+
+		expect(messages(socket).slice(before)).not.toContainEqual(expect.objectContaining({ t: "cdpEvent" }));
+	});
 });

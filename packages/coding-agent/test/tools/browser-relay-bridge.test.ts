@@ -285,4 +285,74 @@ describe("RelayBridge scope enforcement", () => {
 		expect(cdp.messages).toContainEqual(expect.objectContaining({ id, result: { targetId: "PAGE9" } }));
 		expect(bridge.listTargets()).toContainEqual(expect.objectContaining({ id: "PAGE9" }));
 	});
+	it("does not forward page-session Target escapes but preserves same-tab auto-attach", async () => {
+		const bridge = new RelayBridge();
+		const ext = new FakeExtSocket();
+		connect(bridge, ext, [tab({ tabId: 1 })]);
+		const cdp = new FakeCdpSocket();
+		const connectionId = bridge.cdpConnected(cdp);
+		const sessionId = await attachPage(bridge, ext, cdp, connectionId, 1);
+		const forbidden = [
+			{ method: "Target.attachToTarget", params: { targetId: "unscoped-target", flatten: true } },
+			{ method: "Target.createTarget", params: { url: "https://example.com/escape" } },
+			{ method: "Target.getTargets" },
+		];
+		const ids: number[] = [];
+		for (const command of forbidden) {
+			const id = ++messageId;
+			ids.push(id);
+			bridge.cdpMessage(connectionId, JSON.stringify({ id, sessionId, ...command }));
+		}
+		await flush();
+
+		expect(ext.rpcs("send")).toHaveLength(0);
+		for (const [index, command] of forbidden.entries()) {
+			expect(cdp.messages).toContainEqual(
+				expect.objectContaining({
+					id: ids[index],
+					error: expect.objectContaining({
+						message: `${command.method} is not allowed through the omp browser relay`,
+					}),
+				}),
+			);
+		}
+
+		const autoAttachId = ++messageId;
+		bridge.cdpMessage(
+			connectionId,
+			JSON.stringify({ id: autoAttachId, sessionId, method: "Target.setAutoAttach", params: { autoAttach: true } }),
+		);
+		await flush();
+		expect(ext.rpcs("send")).toContainEqual(expect.objectContaining({ method: "Target.setAutoAttach" }));
+		ack(bridge, ext, "send");
+		await flush();
+		expect(cdp.messages).toContainEqual(expect.objectContaining({ id: autoAttachId, result: {} }));
+	});
+	it("does not associate a child session Chrome identifies with another tab", async () => {
+		const bridge = new RelayBridge();
+		const ext = new FakeExtSocket();
+		connect(bridge, ext, [tab({ tabId: 1 })]);
+		const cdp = new FakeCdpSocket();
+		const connectionId = bridge.cdpConnected(cdp);
+		bridge.extMessage(
+			ext,
+			JSON.stringify({
+				t: "cdpEvent",
+				tabId: 1,
+				method: "Target.attachedToTarget",
+				params: { sessionId: "foreign-child", targetInfo: { tabId: 2 } },
+			}),
+		);
+		const id = ++messageId;
+		bridge.cdpMessage(connectionId, JSON.stringify({ id, sessionId: "foreign-child", method: "Runtime.evaluate" }));
+		await flush();
+
+		expect(cdp.messages).toContainEqual(
+			expect.objectContaining({
+				id,
+				error: expect.objectContaining({ message: "Unknown session id foreign-child" }),
+			}),
+		);
+		expect(ext.rpcs("send")).toHaveLength(0);
+	});
 });

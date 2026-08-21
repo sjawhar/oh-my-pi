@@ -20,6 +20,19 @@ const PING_INTERVAL_MS = 20_000;
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 10_000;
 const OMP_GROUP = { title: "omp", color: "cyan" } as const;
+/** Browser-wide Target-domain operations cannot inherit a tab-scoped debugger session. */
+const BLOCKED_FORWARDED_TARGET_METHODS = new Set([
+	"Target.getTargets",
+	"Target.setDiscoverTargets",
+	"Target.attachToTarget",
+	"Target.createTarget",
+	"Target.activateTarget",
+	"Target.closeTarget",
+	"Target.createBrowserContext",
+	"Target.attachToBrowserTarget",
+	"Target.autoAttachRelated",
+	"Target.exposeDevToolsProtocol",
+]);
 
 let ws: WebSocket | null = null;
 let reconnectDelay = RECONNECT_MIN_MS;
@@ -259,6 +272,9 @@ async function runRpc(msg: Extract<RelayToExtMessage, { t: "rpc" }>): Promise<un
 			await chrome.debugger.detach({ tabId: msg.tabId });
 			return {};
 		case "send":
+			if (BLOCKED_FORWARDED_TARGET_METHODS.has(msg.method)) {
+				throw new Error(`${msg.method} is not allowed through the omp browser relay`);
+			}
 			await assertTabInScope(msg.tabId);
 			return await chrome.debugger.sendCommand(
 				msg.sessionId ? { tabId: msg.tabId, sessionId: msg.sessionId } : { tabId: msg.tabId },
@@ -363,6 +379,18 @@ async function connect(): Promise<void> {
 chrome.debugger.onEvent.addListener((source, method, params) => {
 	if (source.tabId === undefined) return;
 	if (!allTabs && (suspended.has(source.tabId) || !announced.has(source.tabId))) return;
+	const targetInfo = params?.targetInfo;
+	if (
+		!allTabs &&
+		method === "Target.attachedToTarget" &&
+		targetInfo !== null &&
+		typeof targetInfo === "object" &&
+		"tabId" in targetInfo &&
+		typeof targetInfo.tabId === "number" &&
+		targetInfo.tabId !== source.tabId
+	) {
+		return;
+	}
 	post({ t: "cdpEvent", tabId: source.tabId, sessionId: source.sessionId, method, params });
 });
 

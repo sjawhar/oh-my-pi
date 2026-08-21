@@ -117,6 +117,19 @@ const INELIGIBLE_URL = /^(chrome|devtools|edge|view-source|chrome-extension|chro
 const RPC_TIMEOUT_MS = 20_000;
 const CDP_ERROR_METHOD_NOT_FOUND = -32601;
 const CDP_ERROR_SERVER = -32000;
+/** Target-domain methods that could escape an authorized tab debugger session. */
+const BLOCKED_FORWARDED_TARGET_METHODS = new Set([
+	"Target.getTargets",
+	"Target.setDiscoverTargets",
+	"Target.attachToTarget",
+	"Target.createTarget",
+	"Target.activateTarget",
+	"Target.closeTarget",
+	"Target.createBrowserContext",
+	"Target.attachToBrowserTarget",
+	"Target.autoAttachRelated",
+	"Target.exposeDevToolsProtocol",
+]);
 
 function tabTargetId(tabId: number): string {
 	return `TAB${tabId}`;
@@ -371,7 +384,7 @@ export class RelayBridge {
 			return;
 		}
 		const realTab = this.#realSessionTabs.get(sessionId);
-		if (realTab !== undefined) {
+		if (realTab !== undefined && this.#tabs.get(realTab)?.realSessions.has(sessionId)) {
 			await this.#forwardToTab(conn, msg, realTab, sessionId);
 			return;
 		}
@@ -393,6 +406,10 @@ export class RelayBridge {
 		// marker, but tab-group membership now belongs solely to the extension ACL.
 		if (msg.method === "OMP.claimTarget") {
 			this.#reply(conn, msg, {});
+			return;
+		}
+		if (BLOCKED_FORWARDED_TARGET_METHODS.has(msg.method)) {
+			this.#replyError(conn, msg, `${msg.method} is not allowed through the omp browser relay`);
 			return;
 		}
 		try {
@@ -601,7 +618,23 @@ export class RelayBridge {
 	): void {
 		const tab = this.#tabs.get(tabId);
 		if (!tab) return;
-		// Track real child sessions so downstream commands can route back.
+		// The source tab is Chrome's debugger association for a child target. If
+		// Chrome exposes a different owning tab, never retain or fan out its session.
+		const targetInfo = params?.targetInfo;
+		if (
+			!this.#allTabs &&
+			method === "Target.attachedToTarget" &&
+			targetInfo !== null &&
+			typeof targetInfo === "object" &&
+			"tabId" in targetInfo &&
+			typeof targetInfo.tabId === "number" &&
+			targetInfo.tabId !== tabId
+		) {
+			this.#log("dropping child session outside its tab", { tabId, childTabId: targetInfo.tabId });
+			return;
+		}
+		// Track real child sessions so downstream commands can route back only
+		// through the Chrome debugger tab that emitted the attachment.
 		if (method === "Target.attachedToTarget") {
 			const child = params?.sessionId;
 			if (typeof child === "string") {
