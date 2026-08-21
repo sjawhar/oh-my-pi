@@ -52,11 +52,10 @@ interface TargetInfo {
 
 class CdpConnection {
 	discover = false;
+	discoverPending = false;
 	autoAttach = false;
 	/** Minted pseudo-sessions owned by this connection. */
 	readonly sessions = new Map<string, SessionRef>();
-	/** Tabs this connection claimed as drive targets (`OMP.claimTarget` / `Target.createTarget`). */
-	readonly claims = new Set<number>();
 
 	constructor(
 		readonly id: number,
@@ -87,13 +86,6 @@ class TabState {
 	/** Whether targets for this tab were announced to discovering connections. */
 	announced = false;
 	attaching: Promise<boolean> | null = null;
-	/** True after the relay put this tab in the omp group; `ompGroupId` holds that group. */
-	grouped = false;
-	/** Group RPC in flight — suppresses duplicate requests from load-time tabUpdated bursts. */
-	grouping = false;
-	ompGroupId: number | undefined;
-	/** User pulled the tab out of the omp group — never re-group it. */
-	groupOptOut = false;
 	/** Real Chrome session ids (OOPIF/worker children) living under this tab's root session. */
 	readonly realSessions = new Set<string>();
 
@@ -161,22 +153,17 @@ export class RelayBridge {
 	/** Real child session id → owning tab, learned from `Target.attachedToTarget` events. */
 	#realSessionTabs = new Map<string, number>();
 	#log: (message: string, data?: Record<string, unknown>) => void;
-	/** Tab-group appearance for driven tabs; null disables grouping. */
-	#group: { title: string; color: string } | null;
-	/** Tabs awaiting the next group RPC; drained one batch at a time. */
-	#groupQueue: TabState[] = [];
-	/** True while {@link #drainGroupQueue} runs — group RPCs must never overlap. */
-	#groupDraining = false;
+	#allTabs: boolean;
 
 	constructor(
 		opts: {
 			log?: (message: string, data?: Record<string, unknown>) => void;
-			/** Group tabs the agent actively drives under one per-window Chrome tab group. */
-			group?: { title: string; color: string } | null;
+			/** Expose every tab instead of only the 'omp' tab group (default false: group-scoped). */
+			allTabs?: boolean;
 		} = {},
 	) {
 		this.#log = opts.log ?? (() => {});
-		this.#group = opts.group ?? null;
+		this.#allTabs = opts.allTabs === true;
 	}
 
 	/** True once the extension has completed its hello handshake. */
@@ -199,6 +186,7 @@ export class RelayBridge {
 
 	/** Payload for `GET /json/list` (debugging aid; per-target endpoints are not served). */
 	listTargets(): Array<Record<string, string>> {
+		if (!this.ready) return [];
 		const out: Array<Record<string, string>> = [];
 		for (const tab of this.#tabs.values()) {
 			if (!this.#eligible(tab)) continue;
@@ -216,6 +204,7 @@ export class RelayBridge {
 			this.#ext.close();
 		}
 		this.#ext = socket;
+		socket.send(JSON.stringify({ t: "config", allTabs: this.#allTabs } satisfies RelayToExtMessage));
 	}
 
 	extClosed(socket: RelaySocket): void {
@@ -230,15 +219,7 @@ export class RelayBridge {
 		for (const tab of this.#tabs.values()) {
 			tab.attached = false;
 			tab.attaching = null;
-			// The extension dissolves omp groups on disconnect (or died along
-			// with them); grouping state is unknowable until the next hello.
-			// Without this reset, the next hello's groupId=-1 snapshots would
-			// read as the user dragging every tab out (permanent opt-out).
-			tab.grouped = false;
-			tab.grouping = false;
-			tab.ompGroupId = undefined;
 		}
-		this.#groupQueue.length = 0;
 	}
 
 	extMessage(socket: RelaySocket, raw: string): void {
@@ -252,7 +233,7 @@ export class RelayBridge {
 		}
 		switch (msg.t) {
 			case "hello":
-				this.#onHello(msg);
+				void this.#onHello(msg);
 				return;
 			case "rpcResult": {
 				const pending = this.#pendingRpc.get(msg.id);
@@ -284,7 +265,7 @@ export class RelayBridge {
 		}
 	}
 
-	#onHello(msg: Extract<ExtToRelayMessage, { t: "hello" }>): void {
+	async #onHello(msg: Extract<ExtToRelayMessage, { t: "hello" }>): Promise<void> {
 		this.#extInfo = { userAgent: msg.userAgent, browserVersion: msg.browserVersion };
 		const seen = new Set<number>();
 		const attachedNow = new Set(msg.attachedTabIds);
@@ -307,7 +288,24 @@ export class RelayBridge {
 				});
 			}
 		}
-		this.#syncGrouping();
+		for (const conn of this.#conns.values()) {
+			if (!conn.discoverPending) continue;
+			for (const tab of this.#tabs.values()) {
+				if (this.#eligible(tab)) this.#announceTab(conn, tab);
+			}
+			conn.discoverPending = false;
+		}
+		for (const conn of this.#conns.values()) {
+			if (!conn.autoAttach) continue;
+			for (const tab of this.#tabs.values()) {
+				if (!this.#eligible(tab)) continue;
+				if (await this.#ensureAttached(tab)) {
+					this.#emitTabAttached(conn, tab);
+				} else {
+					this.#log("auto-attach replay failed", { conn: conn.id, tabId: tab.tabId, url: tab.url });
+				}
+			}
+		}
 		this.#log("extension connected", { tabs: this.#tabs.size, version: msg.browserVersion });
 	}
 
@@ -328,14 +326,6 @@ export class RelayBridge {
 		const touched = new Set<number>();
 		for (const ref of conn.sessions.values()) touched.add(ref.tabId);
 		conn.sessions.clear();
-		// Tabs this client claimed leave the omp group unless another claimant
-		// remains — session holders don't count: the long-lived registry
-		// connection holds sessions on every tab without driving any of them.
-		for (const tabId of conn.claims) {
-			const tab = this.#tabs.get(tabId);
-			if (tab) this.#syncTabGrouping(tab);
-		}
-		conn.claims.clear();
 		// Drop the debugger (and its infobar) from tabs nobody drives anymore.
 		for (const tabId of touched) {
 			if (this.#sessionHolders(tabId).length > 0) continue;
@@ -399,10 +389,9 @@ export class RelayBridge {
 			this.#reply(conn, msg, {});
 			return;
 		}
-		// Relay-private claim: the omp tab worker marks the page it was spawned
-		// to drive. Never forwarded — real Chrome rejects the unknown method.
+		// Relay-private compatibility no-op: the omp tab worker still sends this
+		// marker, but tab-group membership now belongs solely to the extension ACL.
 		if (msg.method === "OMP.claimTarget") {
-			this.#claimTab(conn, tabId);
 			this.#reply(conn, msg, {});
 			return;
 		}
@@ -418,30 +407,6 @@ export class RelayBridge {
 		} catch (err) {
 			this.#replyError(conn, msg, err instanceof Error ? err.message : String(err));
 		}
-	}
-
-	/**
-	 * Record `conn` as a driver of the tab and reconcile grouping. Claims are
-	 * explicit (worker adoption or tab creation) rather than inferred from
-	 * command traffic: target discovery scans every page with the same
-	 * commands a driver sends, so inference would sweep all tabs.
-	 */
-	#claimTab(conn: CdpConnection, tabId: number): void {
-		const tab = this.#tabs.get(tabId);
-		if (!tab) return;
-		if (!conn.claims.has(tabId)) {
-			conn.claims.add(tabId);
-			this.#log("tab claimed", { conn: conn.id, tabId });
-		}
-		this.#syncTabGrouping(tab);
-	}
-
-	/** True while any downstream connection claims the tab as its drive target. */
-	#claimed(tabId: number): boolean {
-		for (const conn of this.#conns.values()) {
-			if (conn.claims.has(tabId)) return true;
-		}
-		return false;
 	}
 
 	/** Tab pseudo-sessions only exist to satisfy puppeteer's Target hierarchy. */
@@ -500,17 +465,23 @@ export class RelayBridge {
 				return;
 			case "Target.setDiscoverTargets": {
 				conn.discover = true;
+				if (!this.ready) {
+					conn.discoverPending = true;
+					this.#reply(conn, msg, {});
+					return;
+				}
 				for (const tab of this.#tabs.values()) {
-					if (!this.#eligible(tab)) continue;
-					tab.announced = true;
-					this.#emit(conn, "Target.targetCreated", { targetInfo: this.#tabInfo(tab, tab.attached) });
-					this.#emit(conn, "Target.targetCreated", { targetInfo: this.#pageInfo(tab, tab.attached) });
+					if (this.#eligible(tab)) this.#announceTab(conn, tab);
 				}
 				this.#reply(conn, msg, {});
 				return;
 			}
 			case "Target.setAutoAttach": {
 				conn.autoAttach = true;
+				if (!this.ready) {
+					this.#reply(conn, msg, {});
+					return;
+				}
 				const tabs = [...this.#tabs.values()].filter(tab => this.#eligible(tab));
 				await Promise.all(tabs.map(tab => this.#ensureAttached(tab)));
 				for (const tab of tabs) {
@@ -526,6 +497,10 @@ export class RelayBridge {
 				return;
 			}
 			case "Target.attachToTarget": {
+				if (!this.ready) {
+					this.#replyError(conn, msg, "relay extension is not connected");
+					return;
+				}
 				const parsed = typeof msg.params?.targetId === "string" ? parseTargetId(msg.params.targetId) : null;
 				const tab = parsed ? this.#tabs.get(parsed.tabId) : undefined;
 				if (!parsed || !tab) {
@@ -553,24 +528,28 @@ export class RelayBridge {
 					typeof msg.params?.url === "string" && msg.params.url.length > 0 ? msg.params.url : "about:blank";
 				const result = (await this.#rpc({ op: "createTab", url })) as { tab: TabSnapshot };
 				this.#onTabUpsert(result.tab);
-				// Creating a tab is an explicit act of driving it.
-				this.#claimTab(conn, result.tab.tabId);
 				this.#reply(conn, msg, { targetId: pageTargetId(result.tab.tabId) });
 				return;
 			}
 			case "Target.closeTarget": {
 				const parsed = typeof msg.params?.targetId === "string" ? parseTargetId(msg.params.targetId) : null;
-				if (!parsed) {
+				const tab = parsed ? this.#tabs.get(parsed.tabId) : undefined;
+				if (!parsed || !tab) {
 					this.#replyError(conn, msg, `No target with id ${String(msg.params?.targetId)}`);
 					return;
 				}
-				await this.#rpc({ op: "removeTab", tabId: parsed.tabId });
+				await this.#rpc({ op: "removeTab", tabId: tab.tabId });
 				this.#reply(conn, msg, { success: true });
 				return;
 			}
 			case "Target.activateTarget": {
 				const parsed = typeof msg.params?.targetId === "string" ? parseTargetId(msg.params.targetId) : null;
-				if (parsed) await this.#rpc({ op: "activateTab", tabId: parsed.tabId });
+				const tab = parsed ? this.#tabs.get(parsed.tabId) : undefined;
+				if (!parsed || !tab) {
+					this.#replyError(conn, msg, `No target with id ${String(msg.params?.targetId)}`);
+					return;
+				}
+				await this.#rpc({ op: "activateTab", tabId: tab.tabId });
 				this.#reply(conn, msg, {});
 				return;
 			}
@@ -660,9 +639,6 @@ export class RelayBridge {
 		tab.attached = false;
 		tab.attaching = null;
 		tab.banned = true;
-		// The user dismissed the debugger infobar (or the attach was torn
-		// down): release the tab's omp-group membership too.
-		this.#syncTabGrouping(tab);
 		this.#retractTab(tab);
 	}
 
@@ -671,7 +647,6 @@ export class RelayBridge {
 		if (!tab) return;
 		this.#retractTab(tab);
 		this.#tabs.delete(tabId);
-		for (const conn of this.#conns.values()) conn.claims.delete(tabId);
 	}
 
 	#onTabUpsert(snap: TabSnapshot, opts: { silent?: boolean } = {}): void {
@@ -681,23 +656,13 @@ export class RelayBridge {
 			this.#tabs.set(snap.tabId, tab);
 		} else {
 			if (tab.url !== snap.url) tab.banned = false;
-			// The user dragging a tab out of the omp group is an opt-out; the
-			// relay never fights the user over grouping.
-			if (tab.grouped && tab.ompGroupId !== undefined && snap.groupId !== tab.ompGroupId) {
-				tab.grouped = false;
-				tab.groupOptOut = true;
-			}
 			tab.update(snap);
 		}
 		if (opts.silent) return;
 		const eligible = this.#eligible(tab);
-		this.#syncTabGrouping(tab);
 		if (eligible && !tab.announced) {
-			tab.announced = true;
 			for (const conn of this.#conns.values()) {
-				if (!conn.discover) continue;
-				this.#emit(conn, "Target.targetCreated", { targetInfo: this.#tabInfo(tab, tab.attached) });
-				this.#emit(conn, "Target.targetCreated", { targetInfo: this.#pageInfo(tab, tab.attached) });
+				if (conn.discover) this.#announceTab(conn, tab);
 			}
 			for (const conn of this.#conns.values()) {
 				if (!conn.autoAttach) continue;
@@ -720,84 +685,11 @@ export class RelayBridge {
 		}
 	}
 
-	// ---- tab grouping -----------------------------------------------------------
-
-	/** A tab belongs in the omp group when claimed by a client, controllable, unpinned, not user-opted-out, and not already in a user group. */
-	#groupWorthy(tab: TabState): boolean {
-		if (!this.#claimed(tab.tabId) || !this.#eligible(tab) || tab.pinned || tab.groupOptOut) return false;
-		return tab.grouped || tab.groupId === -1;
-	}
-
-	/** Re-group every claimed tab (extension hello / reconnect). */
-	#syncGrouping(): void {
-		if (!this.#group) return;
-		const worthy = [...this.#tabs.values()].filter(tab => this.#groupWorthy(tab) && !tab.grouped && !tab.grouping);
-		if (worthy.length > 0) this.#requestGroup(worthy);
-	}
-
-	/** Reconcile one tab's group membership after a lifecycle event. */
-	#syncTabGrouping(tab: TabState): void {
-		if (!this.#group) return;
-		if (this.#groupWorthy(tab)) {
-			if (!tab.grouped && !tab.grouping) this.#requestGroup([tab]);
-			return;
-		}
-		if (tab.grouped) {
-			tab.grouped = false;
-			tab.ompGroupId = undefined;
-			void this.#rpc({ op: "ungroup", tabIds: [tab.tabId] }).catch(() => {});
-		}
-	}
-
-	/**
-	 * Queue tabs for grouping and drain serially. Overlapping group RPCs race
-	 * the extension's non-atomic query→create→set-title sequence and mint
-	 * duplicate omp groups, so at most one group RPC is ever in flight.
-	 */
-	#requestGroup(tabs: TabState[]): void {
-		if (!this.#group) return;
-		for (const tab of tabs) {
-			tab.grouping = true;
-			this.#groupQueue.push(tab);
-		}
-		if (!this.#groupDraining) void this.#drainGroupQueue();
-	}
-
-	async #drainGroupQueue(): Promise<void> {
-		const group = this.#group;
-		if (!group) return;
-		this.#groupDraining = true;
-		try {
-			while (this.#groupQueue.length > 0) {
-				const batch = this.#groupQueue.splice(0);
-				const tabIds = batch.map(tab => tab.tabId);
-				try {
-					const result = await this.#rpc({ op: "group", tabIds, title: group.title, color: group.color });
-					// Extension replies { grouped: { [tabId]: groupId } }; validate per entry.
-					const grouped: Record<string, unknown> =
-						result &&
-						typeof result === "object" &&
-						"grouped" in result &&
-						result.grouped &&
-						typeof result.grouped === "object"
-							? (result.grouped as Record<string, unknown>)
-							: {};
-					for (const tab of batch) {
-						const groupId = grouped[String(tab.tabId)];
-						if (typeof groupId !== "number") continue;
-						tab.grouped = true;
-						tab.ompGroupId = groupId;
-					}
-					this.#log("grouped tabs", { tabIds, grouped });
-				} catch (err) {
-					this.#log("tab grouping failed", { error: err instanceof Error ? err.message : String(err) });
-				} finally {
-					for (const tab of batch) tab.grouping = false;
-				}
-			}
-		} finally {
-			this.#groupDraining = false;
-		}
+	/** Announce an eligible tab and page target to one discovering connection. */
+	#announceTab(conn: CdpConnection, tab: TabState): void {
+		tab.announced = true;
+		this.#emit(conn, "Target.targetCreated", { targetInfo: this.#tabInfo(tab, tab.attached) });
+		this.#emit(conn, "Target.targetCreated", { targetInfo: this.#pageInfo(tab, tab.attached) });
 	}
 
 	/** Tear a tab out of every downstream connection (closed, detached, or now ineligible). */

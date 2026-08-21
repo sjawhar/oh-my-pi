@@ -19,8 +19,8 @@ export interface RelayServerOptions {
 	port: number;
 	/** Shared secret the extension must present as `?token=`; unset disables the check. */
 	token?: string;
-	/** Group tabs the agent actively drives under one per-window Chrome tab group (default on); `false` disables. */
-	group?: boolean | { title: string; color: string };
+	/** Expose every tab instead of only the 'omp' tab group (default false: group-scoped). */
+	allTabs?: boolean;
 	log?: (message: string, data?: Record<string, unknown>) => void;
 }
 
@@ -41,8 +41,6 @@ type RelayWebSocket = Bun.ServerWebSocket<SocketData>;
 const WS_KEEPALIVE_MS = 30_000;
 /** Screenshots travel base64-encoded through both websocket legs. */
 const MAX_PAYLOAD_BYTES = 256 * 1024 * 1024;
-/** Default appearance of the omp tab group. */
-const DEFAULT_GROUP = { title: "omp", color: "cyan" } as const;
 /** True when `raw` can serve as the authority of a `ws://` URL: no whitespace,
  *  slashes, userinfo, fragments, or control characters, and URL-parseable. */
 function isWsAuthority(raw: string): boolean {
@@ -57,9 +55,7 @@ function isWsAuthority(raw: string): boolean {
 /** Start the relay server on 127.0.0.1. Throws if the port is taken. */
 export function startRelayServer(opts: RelayServerOptions): RelayServer {
 	const log = opts.log ?? (() => {});
-	const group =
-		opts.group === false ? null : opts.group === true || opts.group === undefined ? DEFAULT_GROUP : opts.group;
-	const bridge = new RelayBridge({ log, group });
+	const bridge = new RelayBridge({ log, allTabs: opts.allTabs === true });
 	const sockets = new Set<RelayWebSocket>();
 
 	const server = Bun.serve({
