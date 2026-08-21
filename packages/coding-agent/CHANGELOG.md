@@ -2,9 +2,21 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- `omp browser-relay` now scopes agents to the `omp` Chrome tab group by default and enforces it in the extension; `--no-group` is removed, `--all-tabs` restores unscoped access.
+
+### Added
+
+- Relay browser mode reports a specific error when no tabs are in the `omp` tab group instead of the generic no-targets message.
+
 ### Fixed
 
-- Fixed remote browser relay endpoints advertising a client-local CDP WebSocket URL: `/json/version` now reflects a valid request `Host` and falls back to the relay's loopback address when it is absent or unusable.
+- The relay's `/json/version` now derives `webSocketDebuggerUrl` from a validated request `Host` header (falling back to loopback), so remote clients reached through a port forward are told to dial back through the same channel; the relay bridge no longer lists or attaches stale targets between an extension disconnect and the next handshake, and replays pending discovery/auto-attach once the extension returns.
+
+### Removed
+
+- The `group` RPC from the relay↔extension protocol — agents can create tabs inside the group but can never add an existing tab to it.
 
 ## [17.3.8] - 2026-08-19
 
