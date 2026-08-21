@@ -135,6 +135,8 @@ const tabs = new Map<string, TabSession>();
 const acquireChains = new Map<string, Promise<void>>();
 const GRACE_MS = 750;
 const WORKER_INIT_TIMEOUT_MS = 15_000;
+/** Relay mode with an empty omp tab group: name the fix, not the symptom. */
+const RELAY_NO_TABS_MESSAGE = 'No tabs are shared with omp: drag a tab into the "omp" tab group in Chrome to share it.';
 // Names of tabs the supervisor force-killed (timeout past grace, failed recycle),
 // mapped to the kill reason. Lets the next `run` on that name explain WHY the tab
 // vanished instead of a bare "not alive". Cleared when the name is opened again.
@@ -715,6 +717,7 @@ async function buildInitPayload(browser: PuppeteerBrowserHandle, opts: AcquireTa
 	const page = await pickElectronTarget(browser.browser, {
 		matcher: opts.target,
 		preferVisible: !activateForScreenshot,
+		noTargetsMessage: browser.kind.kind === "relay" ? RELAY_NO_TABS_MESSAGE : undefined,
 	});
 	const targetId = await targetIdForPage(page);
 	return {

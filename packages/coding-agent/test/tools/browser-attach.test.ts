@@ -15,6 +15,7 @@ import {
 	releaseBrowser,
 } from "@oh-my-pi/pi-coding-agent/tools/browser/registry";
 import { acquireTab } from "@oh-my-pi/pi-coding-agent/tools/browser/tab-supervisor";
+import { ToolError } from "@oh-my-pi/pi-coding-agent/tools/tool-errors";
 import type { Browser, Page, Target } from "puppeteer-core";
 import { chromiumAvailable } from "./chromium-probe";
 
@@ -85,6 +86,33 @@ describe("pickElectronTarget", () => {
 		} as unknown as Browser;
 
 		await expect(pickElectronTarget(browser)).resolves.toBe(page);
+	});
+
+	test("uses the relay empty-group instruction when no shared tabs are available", async () => {
+		const browser = { targets: () => [], pages: async () => [] } as unknown as Browser;
+		const error = await pickElectronTarget(browser, {
+			noTargetsMessage: 'No tabs are shared with omp: drag a tab into the "omp" tab group in Chrome to share it.',
+		}).then(
+			() => undefined,
+			error => error,
+		);
+
+		expect(error).toBeInstanceOf(ToolError);
+		expect(error).toHaveProperty(
+			"message",
+			'No tabs are shared with omp: drag a tab into the "omp" tab group in Chrome to share it.',
+		);
+	});
+
+	test("keeps the generic no-targets message for non-relay browsers", async () => {
+		const browser = { targets: () => [], pages: async () => [] } as unknown as Browser;
+		const error = await pickElectronTarget(browser).then(
+			() => undefined,
+			error => error,
+		);
+
+		expect(error).toBeInstanceOf(ToolError);
+		expect(error).toHaveProperty("message", "No page targets available on the attached browser");
 	});
 
 	test("reports available pages when the matcher misses", async () => {

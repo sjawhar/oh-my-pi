@@ -188,7 +188,7 @@ export function shouldPreserveConnectedBrowserFocus(target?: string): boolean {
  */
 export async function pickElectronTarget(
 	browser: Browser,
-	options: { matcher?: string; preferVisible?: boolean } = {},
+	options: { matcher?: string; preferVisible?: boolean; noTargetsMessage?: string } = {},
 ): Promise<Page> {
 	const discoveredPages = await Promise.all(
 		browser.targets().map(async target => {
@@ -203,7 +203,7 @@ export async function pickElectronTarget(
 
 	const fallbackPages = await browser.pages();
 	if (!fallbackPages.length) {
-		throw new ToolError("No page targets available on the attached browser");
+		throw new ToolError(options.noTargetsMessage ?? "No page targets available on the attached browser");
 	}
 	return pickPageFromList(fallbackPages, options);
 }
