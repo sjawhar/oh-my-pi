@@ -328,6 +328,75 @@ describe("RelayBridge scope enforcement", () => {
 		await flush();
 		expect(cdp.messages).toContainEqual(expect.objectContaining({ id: autoAttachId, result: {} }));
 	});
+	it("routes same-tab worker and OOPIF child sessions after page auto-attach", async () => {
+		const bridge = new RelayBridge();
+		const ext = new FakeExtSocket();
+		connect(bridge, ext, [tab({ tabId: 1 })]);
+		const cdp = new FakeCdpSocket();
+		const connectionId = bridge.cdpConnected(cdp);
+		const pageSession = await attachPage(bridge, ext, cdp, connectionId, 1);
+
+		const autoAttachId = ++messageId;
+		bridge.cdpMessage(
+			connectionId,
+			JSON.stringify({
+				id: autoAttachId,
+				sessionId: pageSession,
+				method: "Target.setAutoAttach",
+				params: { autoAttach: true },
+			}),
+		);
+		await flush();
+		const autoAttach = ext.rpcs("send").find(rpc => rpc.method === "Target.setAutoAttach");
+		expect(autoAttach).toEqual(expect.objectContaining({ tabId: 1, method: "Target.setAutoAttach" }));
+		expect(autoAttach?.sessionId).toBeUndefined();
+		ack(bridge, ext, "send");
+		await flush();
+		expect(cdp.messages).toContainEqual(expect.objectContaining({ id: autoAttachId, result: {} }));
+
+		const children = [
+			{ sessionId: "same-tab-worker", targetInfo: { tabId: 1, type: "worker" } },
+			{ sessionId: "same-tab-oopif", targetInfo: { tabId: 1, type: "iframe" } },
+		];
+		for (const child of children) {
+			bridge.extMessage(
+				ext,
+				JSON.stringify({ t: "cdpEvent", tabId: 1, method: "Target.attachedToTarget", params: child }),
+			);
+			expect(cdp.messages).toContainEqual(
+				expect.objectContaining({
+					sessionId: pageSession,
+					method: "Target.attachedToTarget",
+					params: child,
+				}),
+			);
+		}
+
+		const childCommandIds = children.map(child => {
+			const id = ++messageId;
+			bridge.cdpMessage(
+				connectionId,
+				JSON.stringify({
+					id,
+					sessionId: child.sessionId,
+					method: "Runtime.evaluate",
+					params: { expression: "1 + 1" },
+				}),
+			);
+			return id;
+		});
+		await flush();
+		for (const child of children) {
+			expect(ext.rpcs("send")).toContainEqual(
+				expect.objectContaining({ tabId: 1, sessionId: child.sessionId, method: "Runtime.evaluate" }),
+			);
+		}
+		ack(bridge, ext, "send");
+		await flush();
+		for (const id of childCommandIds) {
+			expect(cdp.messages).toContainEqual(expect.objectContaining({ id, result: {} }));
+		}
+	});
 	it("does not associate a child session Chrome identifies with another tab", async () => {
 		const bridge = new RelayBridge();
 		const ext = new FakeExtSocket();
