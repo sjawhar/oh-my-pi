@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { findFreeCdpPort } from "@oh-my-pi/pi-coding-agent/tools/browser/attach";
 import { startRelayServer } from "@oh-my-pi/pi-coding-agent/tools/browser/relay/server";
@@ -43,4 +45,16 @@ describe("omp browser-relay", () => {
 			relay.stop();
 		}
 	});
+	test("install guides extension loading without enabling browser.relay globally", async () => {
+		const directory = await fs.mkdtemp(path.join(os.tmpdir(), "omp-browser-relay-"));
+		try {
+			const result = await runRelayCli("install", "--dir", directory);
+			expect(result.exitCode).toBe(0);
+			expect(result.output).toContain("Load unpacked");
+			expect(result.output).not.toContain("omp config set browser.relay true");
+		} finally {
+			await fs.rm(directory, { recursive: true, force: true });
+		}
+	});
 });
+

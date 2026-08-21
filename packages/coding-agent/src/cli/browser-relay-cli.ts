@@ -55,11 +55,11 @@ async function runInstall(dirOverride: string | undefined): Promise<void> {
 	console.log("Finish setup in Chrome:");
 	console.log("  1. Open chrome://extensions and enable Developer mode.");
 	console.log(`  2. Click "Load unpacked" and select: ${dir}`);
-	console.log("  3. Enable the mode:  omp config set browser.relay true");
+	console.log("  3. Confirm the extension badge shows 'on' after it reaches a relay.");
 	console.log("");
-	console.log("omp starts the relay automatically when the browser tool needs it;");
+	console.log("Relay mode is enabled per browser call with app.relay: true.");
+	console.log("omp starts a loopback relay automatically for opted-in browser calls;");
 	console.log("run `omp browser-relay` yourself only for --token or --all-tabs.");
-	console.log("The extension badge shows 'on' once it reaches a relay.");
 }
 
 async function runServe(args: BrowserRelayCommandArgs): Promise<void> {
@@ -93,13 +93,7 @@ async function runServe(args: BrowserRelayCommandArgs): Promise<void> {
 
 	console.log(`omp browser relay listening on http://127.0.0.1:${args.port}`);
 	console.log(`  extension endpoint  ws://127.0.0.1:${args.port}/ext${args.token ? "?token=***" : ""}`);
-	if (args.port === DEFAULT_RELAY_PORT) {
-		console.log("  enable with         omp config set browser.relay true");
-	} else {
-		console.log(
-			`  enable with         omp config set browser.relay true && omp config set browser.relayUrl http://127.0.0.1:${args.port}`,
-		);
-	}
+	console.log("  use with         browser calls that opt in with app.relay: true");
 	console.log("Waiting for the OMP Browser Relay extension to connect (omp browser-relay install)...");
 
 	let announced = false;
