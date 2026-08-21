@@ -76,6 +76,12 @@ async function runServe(args: BrowserRelayCommandArgs): Promise<void> {
 		// broker (or by hand): losing the bind to a live relay is success.
 		if (err instanceof Error && "code" in err && err.code === "EADDRINUSE") {
 			if (await probeRelayServer(`http://127.0.0.1:${args.port}`)) {
+				if (args.allTabs === true) {
+					console.error(
+						`A relay is already running on http://127.0.0.1:${args.port}; --all-tabs cannot change its scope. Stop it and restart with --all-tabs.`,
+					);
+					process.exit(1);
+				}
 				console.log(`omp browser relay already running on http://127.0.0.1:${args.port}; nothing to do.`);
 				return;
 			}

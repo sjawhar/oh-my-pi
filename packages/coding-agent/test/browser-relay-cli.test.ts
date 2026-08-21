@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as path from "node:path";
+import { findFreeCdpPort } from "@oh-my-pi/pi-coding-agent/tools/browser/attach";
+import { startRelayServer } from "@oh-my-pi/pi-coding-agent/tools/browser/relay/server";
 
 const packageDir = path.resolve(import.meta.dir, "..");
 
@@ -27,5 +29,18 @@ describe("omp browser-relay", () => {
 		const removedFlag = await runRelayCli("--no-group");
 		expect(removedFlag.exitCode).not.toBe(0);
 		expect(removedFlag.output).toMatch(/unknown (option|flag)/i);
+	});
+
+	test("refuses --all-tabs when it cannot verify an existing relay's scope", async () => {
+		const port = await findFreeCdpPort();
+		const relay = startRelayServer({ port });
+		try {
+			const result = await runRelayCli("--port", String(port), "--all-tabs");
+			expect(result.exitCode).not.toBe(0);
+			expect(result.output).toContain("--all-tabs cannot change its scope");
+			expect(result.output).toContain("Stop it and restart with --all-tabs.");
+		} finally {
+			relay.stop();
+		}
 	});
 });
