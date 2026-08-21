@@ -117,19 +117,35 @@ const INELIGIBLE_URL = /^(chrome|devtools|edge|view-source|chrome-extension|chro
 const RPC_TIMEOUT_MS = 20_000;
 const CDP_ERROR_METHOD_NOT_FOUND = -32601;
 const CDP_ERROR_SERVER = -32000;
-/** Target-domain methods that could escape an authorized tab debugger session. */
-const BLOCKED_FORWARDED_TARGET_METHODS = new Set([
-	"Target.getTargets",
-	"Target.setDiscoverTargets",
-	"Target.attachToTarget",
-	"Target.createTarget",
-	"Target.activateTarget",
-	"Target.closeTarget",
-	"Target.createBrowserContext",
-	"Target.attachToBrowserTarget",
-	"Target.autoAttachRelated",
-	"Target.exposeDevToolsProtocol",
-]);
+/** The only Target-domain command safe to forward from a tab-scoped session. */
+const ALLOWED_FORWARDED_TARGET_METHODS = new Set(["Target.setAutoAttach"]);
+/** Restrict auto-attachment to child targets with tab-local relationships. */
+const TAB_LOCAL_TARGET_FILTER = [{ type: "iframe" }, { type: "worker" }, { exclude: true }] as const;
+
+function sanitizeAutoAttach(params: Record<string, unknown> | undefined): Record<string, unknown> {
+	return {
+		autoAttach: params?.autoAttach === true,
+		waitForDebuggerOnStart: params?.waitForDebuggerOnStart === true,
+		flatten: true,
+		filter: TAB_LOCAL_TARGET_FILTER,
+	};
+}
+
+function isTabLocalAutoAttachedChild(params: Record<string, unknown> | undefined): boolean {
+	const targetInfo = params?.targetInfo;
+	if (!targetInfo || typeof targetInfo !== "object" || !("type" in targetInfo)) return false;
+	if (targetInfo.type === "iframe") {
+		return "parentId" in targetInfo && typeof targetInfo.parentId === "string" && targetInfo.parentId.length > 0;
+	}
+	if (targetInfo.type === "worker") {
+		return (
+			"parentFrameId" in targetInfo &&
+			typeof targetInfo.parentFrameId === "string" &&
+			targetInfo.parentFrameId.length > 0
+		);
+	}
+	return false;
+}
 
 function tabTargetId(tabId: number): string {
 	return `TAB${tabId}`;
@@ -408,17 +424,18 @@ export class RelayBridge {
 			this.#reply(conn, msg, {});
 			return;
 		}
-		if (BLOCKED_FORWARDED_TARGET_METHODS.has(msg.method)) {
+		if (msg.method.startsWith("Target.") && !ALLOWED_FORWARDED_TARGET_METHODS.has(msg.method)) {
 			this.#replyError(conn, msg, `${msg.method} is not allowed through the omp browser relay`);
 			return;
 		}
+		const params = msg.method === "Target.setAutoAttach" ? sanitizeAutoAttach(msg.params) : msg.params;
 		try {
 			const result = await this.#rpc({
 				op: "send",
 				tabId,
 				sessionId: realSessionId,
 				method: msg.method,
-				params: msg.params,
+				params,
 			});
 			this.#reply(conn, msg, (result as Record<string, unknown> | undefined) ?? {});
 		} catch (err) {
@@ -618,19 +635,8 @@ export class RelayBridge {
 	): void {
 		const tab = this.#tabs.get(tabId);
 		if (!tab) return;
-		// The source tab is Chrome's debugger association for a child target. If
-		// Chrome exposes a different owning tab, never retain or fan out its session.
-		const targetInfo = params?.targetInfo;
-		if (
-			!this.#allTabs &&
-			method === "Target.attachedToTarget" &&
-			targetInfo !== null &&
-			typeof targetInfo === "object" &&
-			"tabId" in targetInfo &&
-			typeof targetInfo.tabId === "number" &&
-			targetInfo.tabId !== tabId
-		) {
-			this.#log("dropping child session outside its tab", { tabId, childTabId: targetInfo.tabId });
+		if (method === "Target.attachedToTarget" && !isTabLocalAutoAttachedChild(params)) {
+			this.#log("dropping non-local auto-attached child session", { tabId });
 			return;
 		}
 		// Track real child sessions so downstream commands can route back only

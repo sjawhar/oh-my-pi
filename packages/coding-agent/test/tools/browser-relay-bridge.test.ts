@@ -320,10 +320,30 @@ describe("RelayBridge scope enforcement", () => {
 		const autoAttachId = ++messageId;
 		bridge.cdpMessage(
 			connectionId,
-			JSON.stringify({ id: autoAttachId, sessionId, method: "Target.setAutoAttach", params: { autoAttach: true } }),
+			JSON.stringify({
+				id: autoAttachId,
+				sessionId,
+				method: "Target.setAutoAttach",
+				params: {
+					autoAttach: true,
+					waitForDebuggerOnStart: true,
+					flatten: false,
+					filter: [{ type: "page" }],
+				},
+			}),
 		);
 		await flush();
-		expect(ext.rpcs("send")).toContainEqual(expect.objectContaining({ method: "Target.setAutoAttach" }));
+		expect(ext.rpcs("send")).toContainEqual(
+			expect.objectContaining({
+				method: "Target.setAutoAttach",
+				params: {
+					autoAttach: true,
+					waitForDebuggerOnStart: true,
+					flatten: true,
+					filter: [{ type: "iframe" }, { type: "worker" }, { exclude: true }],
+				},
+			}),
+		);
 		ack(bridge, ext, "send");
 		await flush();
 		expect(cdp.messages).toContainEqual(expect.objectContaining({ id: autoAttachId, result: {} }));
@@ -355,8 +375,30 @@ describe("RelayBridge scope enforcement", () => {
 		expect(cdp.messages).toContainEqual(expect.objectContaining({ id: autoAttachId, result: {} }));
 
 		const children = [
-			{ sessionId: "same-tab-worker", targetInfo: { tabId: 1, type: "worker" } },
-			{ sessionId: "same-tab-oopif", targetInfo: { tabId: 1, type: "iframe" } },
+			{
+				sessionId: "same-tab-worker",
+				targetInfo: {
+					targetId: "worker",
+					type: "worker",
+					title: "",
+					url: "https://example.com/worker.js",
+					attached: false,
+					canAccessOpener: false,
+					parentFrameId: "parent-frame",
+				},
+			},
+			{
+				sessionId: "same-tab-oopif",
+				targetInfo: {
+					targetId: "oopif",
+					type: "iframe",
+					title: "",
+					url: "https://example.com/frame",
+					attached: false,
+					canAccessOpener: false,
+					parentId: "parent-page",
+				},
+			},
 		];
 		for (const child of children) {
 			bridge.extMessage(
@@ -397,31 +439,73 @@ describe("RelayBridge scope enforcement", () => {
 			expect(cdp.messages).toContainEqual(expect.objectContaining({ id, result: {} }));
 		}
 	});
-	it("does not associate a child session Chrome identifies with another tab", async () => {
+	it("does not associate popup, shared-worker, or service-worker child sessions", async () => {
 		const bridge = new RelayBridge();
 		const ext = new FakeExtSocket();
 		connect(bridge, ext, [tab({ tabId: 1 })]);
 		const cdp = new FakeCdpSocket();
 		const connectionId = bridge.cdpConnected(cdp);
-		bridge.extMessage(
-			ext,
-			JSON.stringify({
-				t: "cdpEvent",
-				tabId: 1,
-				method: "Target.attachedToTarget",
-				params: { sessionId: "foreign-child", targetInfo: { tabId: 2 } },
-			}),
-		);
-		const id = ++messageId;
-		bridge.cdpMessage(connectionId, JSON.stringify({ id, sessionId: "foreign-child", method: "Runtime.evaluate" }));
+		const children = [
+			{
+				sessionId: "popup",
+				targetInfo: {
+					targetId: "popup",
+					type: "page",
+					title: "",
+					url: "https://example.com/popup",
+					attached: false,
+					canAccessOpener: true,
+					openerId: "parent-page",
+				},
+			},
+			{
+				sessionId: "shared-worker",
+				targetInfo: {
+					targetId: "shared-worker",
+					type: "shared_worker",
+					title: "",
+					url: "https://example.com/shared.js",
+					attached: false,
+					canAccessOpener: false,
+					parentFrameId: "parent-frame",
+				},
+			},
+			{
+				sessionId: "service-worker",
+				targetInfo: {
+					targetId: "service-worker",
+					type: "service_worker",
+					title: "",
+					url: "https://example.com/service.js",
+					attached: false,
+					canAccessOpener: false,
+				},
+			},
+		];
+		for (const child of children) {
+			bridge.extMessage(
+				ext,
+				JSON.stringify({ t: "cdpEvent", tabId: 1, method: "Target.attachedToTarget", params: child }),
+			);
+		}
+		const commandIds = children.map(child => {
+			const id = ++messageId;
+			bridge.cdpMessage(
+				connectionId,
+				JSON.stringify({ id, sessionId: child.sessionId, method: "Runtime.evaluate" }),
+			);
+			return id;
+		});
 		await flush();
 
-		expect(cdp.messages).toContainEqual(
-			expect.objectContaining({
-				id,
-				error: expect.objectContaining({ message: "Unknown session id foreign-child" }),
-			}),
-		);
+		for (const id of commandIds) {
+			expect(cdp.messages).toContainEqual(
+				expect.objectContaining({
+					id,
+					error: expect.objectContaining({ message: expect.stringMatching(/^Unknown session id /) }),
+				}),
+			);
+		}
 		expect(ext.rpcs("send")).toHaveLength(0);
 	});
 });

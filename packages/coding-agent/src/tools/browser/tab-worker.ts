@@ -922,9 +922,9 @@ export class WorkerCore {
 	}
 
 	/**
-	 * Tell the omp browser relay this worker drives the adopted page, so the
-	 * relay adds it to the per-window "omp" tab group. Best-effort: plain CDP
-	 * backends (real Chrome, cmux) reject the relay-private method.
+	 * Send the relay-private compatibility marker retained for older relay
+	 * clients. The relay treats it as a no-op: agents never pull existing tabs
+	 * into the "omp" group. Plain CDP backends reject the marker.
 	 */
 	async #claimRelayTarget(page: Page): Promise<void> {
 		let session: CDPSession | undefined;

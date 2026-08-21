@@ -20,19 +20,35 @@ const PING_INTERVAL_MS = 20_000;
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 10_000;
 const OMP_GROUP = { title: "omp", color: "cyan" } as const;
-/** Browser-wide Target-domain operations cannot inherit a tab-scoped debugger session. */
-const BLOCKED_FORWARDED_TARGET_METHODS = new Set([
-	"Target.getTargets",
-	"Target.setDiscoverTargets",
-	"Target.attachToTarget",
-	"Target.createTarget",
-	"Target.activateTarget",
-	"Target.closeTarget",
-	"Target.createBrowserContext",
-	"Target.attachToBrowserTarget",
-	"Target.autoAttachRelated",
-	"Target.exposeDevToolsProtocol",
-]);
+/** The only Target-domain command safe to forward from a tab-scoped session. */
+const ALLOWED_FORWARDED_TARGET_METHODS = new Set(["Target.setAutoAttach"]);
+/** Restrict auto-attachment to child targets with tab-local relationships. */
+const TAB_LOCAL_TARGET_FILTER = [{ type: "iframe" }, { type: "worker" }, { exclude: true }] as const;
+
+function sanitizeAutoAttach(params: Record<string, unknown> | undefined): Record<string, unknown> {
+	return {
+		autoAttach: params?.autoAttach === true,
+		waitForDebuggerOnStart: params?.waitForDebuggerOnStart === true,
+		flatten: true,
+		filter: TAB_LOCAL_TARGET_FILTER,
+	};
+}
+
+function isTabLocalAutoAttachedChild(params: Record<string, unknown> | undefined): boolean {
+	const targetInfo = params?.targetInfo;
+	if (!targetInfo || typeof targetInfo !== "object" || !("type" in targetInfo)) return false;
+	if (targetInfo.type === "iframe") {
+		return "parentId" in targetInfo && typeof targetInfo.parentId === "string" && targetInfo.parentId.length > 0;
+	}
+	if (targetInfo.type === "worker") {
+		return (
+			"parentFrameId" in targetInfo &&
+			typeof targetInfo.parentFrameId === "string" &&
+			targetInfo.parentFrameId.length > 0
+		);
+	}
+	return false;
+}
 
 let ws: WebSocket | null = null;
 let reconnectDelay = RECONNECT_MIN_MS;
@@ -271,16 +287,18 @@ async function runRpc(msg: Extract<RelayToExtMessage, { t: "rpc" }>): Promise<un
 		case "detach":
 			await chrome.debugger.detach({ tabId: msg.tabId });
 			return {};
-		case "send":
-			if (BLOCKED_FORWARDED_TARGET_METHODS.has(msg.method)) {
+		case "send": {
+			if (msg.method.startsWith("Target.") && !ALLOWED_FORWARDED_TARGET_METHODS.has(msg.method)) {
 				throw new Error(`${msg.method} is not allowed through the omp browser relay`);
 			}
+			const params = msg.method === "Target.setAutoAttach" ? sanitizeAutoAttach(msg.params) : msg.params;
 			await assertTabInScope(msg.tabId);
 			return await chrome.debugger.sendCommand(
 				msg.sessionId ? { tabId: msg.tabId, sessionId: msg.sessionId } : { tabId: msg.tabId },
 				msg.method,
-				msg.params,
+				params,
 			);
+		}
 		case "createTab": {
 			const tab = await chrome.tabs.create({ url: msg.url });
 			if (tab.id === undefined) throw new Error("created tab has no id");
@@ -379,18 +397,7 @@ async function connect(): Promise<void> {
 chrome.debugger.onEvent.addListener((source, method, params) => {
 	if (source.tabId === undefined) return;
 	if (!allTabs && (suspended.has(source.tabId) || !announced.has(source.tabId))) return;
-	const targetInfo = params?.targetInfo;
-	if (
-		!allTabs &&
-		method === "Target.attachedToTarget" &&
-		targetInfo !== null &&
-		typeof targetInfo === "object" &&
-		"tabId" in targetInfo &&
-		typeof targetInfo.tabId === "number" &&
-		targetInfo.tabId !== source.tabId
-	) {
-		return;
-	}
+	if (method === "Target.attachedToTarget" && !isTabLocalAutoAttachedChild(params)) return;
 	post({ t: "cdpEvent", tabId: source.tabId, sessionId: source.sessionId, method, params });
 });
 

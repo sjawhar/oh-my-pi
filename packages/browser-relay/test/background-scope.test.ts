@@ -153,7 +153,7 @@ describe("browser relay extension scope enforcement", () => {
 			}),
 		);
 	});
-	it("rejects Target escape commands while allowing same-tab auto-attach", async () => {
+	it("rejects Target escape commands and sanitizes same-tab auto-attach", async () => {
 		const socket = await prepareScope([{ ...scopedTab }], [{ ...ompGroup }]);
 		const forbidden = [
 			"Target.getTargets",
@@ -184,21 +184,114 @@ describe("browser relay extension scope enforcement", () => {
 			);
 		}
 
-		socket.receive(JSON.stringify({ t: "rpc", id: 30, op: "send", tabId: 1, method: "Target.setAutoAttach" }));
+		socket.receive(
+			JSON.stringify({
+				t: "rpc",
+				id: 30,
+				op: "send",
+				tabId: 1,
+				method: "Target.setAutoAttach",
+				params: {
+					autoAttach: true,
+					waitForDebuggerOnStart: true,
+					flatten: false,
+					filter: [{ type: "page" }],
+				},
+			}),
+		);
 		await flush();
 		expect(fake.calls.debugger.sendCommand).toContainEqual(
-			expect.objectContaining({ target: { tabId: 1 }, method: "Target.setAutoAttach" }),
+			expect.objectContaining({
+				target: { tabId: 1 },
+				method: "Target.setAutoAttach",
+				params: {
+					autoAttach: true,
+					waitForDebuggerOnStart: true,
+					flatten: true,
+					filter: [{ type: "iframe" }, { type: "worker" }, { exclude: true }],
+				},
+			}),
 		);
 		expect(messages(socket)).toContainEqual(expect.objectContaining({ t: "rpcResult", id: 30, ok: true }));
 	});
-	it("drops child-session events that Chrome identifies with another tab", async () => {
-		const socket = await prepareScope([{ ...scopedTab }], [{ ...ompGroup }]);
-		const before = messages(socket).length;
-		fake.events.debugger.onEvent.emit({ tabId: 1 }, "Target.attachedToTarget", {
-			sessionId: "foreign-child",
-			targetInfo: { tabId: 2 },
-		});
 
-		expect(messages(socket).slice(before)).not.toContainEqual(expect.objectContaining({ t: "cdpEvent" }));
+	it("forwards only relationship-proven same-tab OOPIF and dedicated-worker child events", async () => {
+		const socket = await prepareScope([{ ...scopedTab }], [{ ...ompGroup }]);
+		const beforeAllowed = messages(socket).length;
+		for (const params of [
+			{
+				sessionId: "same-tab-oopif",
+				targetInfo: {
+					targetId: "oopif",
+					type: "iframe",
+					title: "",
+					url: "https://example.com/frame",
+					attached: false,
+					canAccessOpener: false,
+					parentId: "parent-page",
+				},
+			},
+			{
+				sessionId: "same-tab-worker",
+				targetInfo: {
+					targetId: "worker",
+					type: "worker",
+					title: "",
+					url: "https://example.com/worker.js",
+					attached: false,
+					canAccessOpener: false,
+					parentFrameId: "parent-frame",
+				},
+			},
+		]) {
+			fake.events.debugger.onEvent.emit({ tabId: 1 }, "Target.attachedToTarget", params);
+		}
+		expect(
+			messages(socket)
+				.slice(beforeAllowed)
+				.filter(message => message.t === "cdpEvent"),
+		).toHaveLength(2);
+
+		const beforeRejected = messages(socket).length;
+		for (const params of [
+			{
+				sessionId: "popup",
+				targetInfo: {
+					targetId: "popup",
+					type: "page",
+					title: "",
+					url: "https://example.com/popup",
+					attached: false,
+					canAccessOpener: true,
+					openerId: "parent-page",
+				},
+			},
+			{
+				sessionId: "shared-worker",
+				targetInfo: {
+					targetId: "shared-worker",
+					type: "shared_worker",
+					title: "",
+					url: "https://example.com/shared.js",
+					attached: false,
+					canAccessOpener: false,
+					parentFrameId: "parent-frame",
+				},
+			},
+			{
+				sessionId: "service-worker",
+				targetInfo: {
+					targetId: "service-worker",
+					type: "service_worker",
+					title: "",
+					url: "https://example.com/service.js",
+					attached: false,
+					canAccessOpener: false,
+				},
+			},
+		]) {
+			fake.events.debugger.onEvent.emit({ tabId: 1 }, "Target.attachedToTarget", params);
+		}
+		expect(messages(socket).slice(beforeRejected)).not.toContainEqual(expect.objectContaining({ t: "cdpEvent" }));
 	});
 });
