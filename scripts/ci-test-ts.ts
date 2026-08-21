@@ -103,6 +103,7 @@ const fastWorkspacePackages = [
 const nativeAndIntegrationPackages = [
 	"packages/natives",
 	"packages/tui",
+	"packages/browser-relay",
 	"packages/collab-web",
 	"packages/typescript-edit-benchmark",
 ];

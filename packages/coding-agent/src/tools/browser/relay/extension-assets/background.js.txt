@@ -3,9 +3,13 @@ var DEFAULT_PORT = 9224;
 var PING_INTERVAL_MS = 20000;
 var RECONNECT_MIN_MS = 1000;
 var RECONNECT_MAX_MS = 1e4;
+var OMP_GROUP = { title: "omp", color: "cyan" };
 var ws = null;
 var reconnectDelay = RECONNECT_MIN_MS;
 var pingTimer = null;
+var allTabs = false;
+var announced = new Set;
+var suspended = new Map;
 async function loadSettings() {
   const stored = await chrome.storage.local.get({ port: DEFAULT_PORT, token: "" });
   const port = Number(stored.port);
@@ -27,62 +31,37 @@ function snapshot(tab) {
     groupId: tab.groupId
   };
 }
-var ompGroupTitle = null;
-var groupOps = Promise.resolve();
-function enqueueGroupOp(fn) {
-  const result = groupOps.then(fn, fn);
-  groupOps = result.catch(() => {});
+var scopeOps = Promise.resolve();
+function enqueueScopeOp(fn) {
+  const result = scopeOps.then(fn, fn);
+  scopeOps = result.catch(() => {});
   return result;
 }
-async function groupTabs(tabIds, title, color) {
-  ompGroupTitle = title;
-  chrome.storage.session.set({ ompGroupTitle: title });
-  const byWindow = new Map;
-  for (const tabId of tabIds) {
-    try {
-      const tab = await chrome.tabs.get(tabId);
-      if (tab.pinned || tab.id === undefined)
-        continue;
-      const bucket = byWindow.get(tab.windowId) ?? [];
-      bucket.push(tab.id);
-      byWindow.set(tab.windowId, bucket);
-    } catch {}
-  }
-  const grouped = {};
-  for (const [windowId, ids] of byWindow) {
-    const existing = await chrome.tabGroups.query({ title, windowId });
-    let groupId;
-    if (existing[0]) {
-      groupId = existing[0].id;
-      for (const dupe of existing.slice(1)) {
-        const dupeTabs = await chrome.tabs.query({ groupId: dupe.id });
-        const dupeIds = dupeTabs.map((tab) => tab.id).filter((id) => id !== undefined);
-        if (dupeIds.length > 0)
-          await chrome.tabs.group({ tabIds: dupeIds, groupId });
-      }
-      await chrome.tabs.group({ tabIds: ids, groupId });
-    } else {
-      groupId = await chrome.tabs.group({ tabIds: ids });
-    }
-    await chrome.tabGroups.update(groupId, { title, color });
-    for (const id of ids)
-      grouped[String(id)] = groupId;
-  }
-  return { grouped };
+function suspend(tabId) {
+  suspended.set(tabId, (suspended.get(tabId) ?? 0) + 1);
 }
-async function restoreGroups() {
-  if (!ompGroupTitle) {
-    const stored = await chrome.storage.session.get({ ompGroupTitle: "" }).catch(() => ({ ompGroupTitle: "" }));
-    ompGroupTitle = typeof stored.ompGroupTitle === "string" && stored.ompGroupTitle ? stored.ompGroupTitle : null;
-  }
-  if (!ompGroupTitle)
+function release(tabId) {
+  const count = suspended.get(tabId);
+  if (count === undefined)
     return;
-  const groups = await chrome.tabGroups.query({ title: ompGroupTitle }).catch(() => []);
-  for (const group of groups) {
-    const tabs = await chrome.tabs.query({ groupId: group.id }).catch(() => []);
-    const ids = tabs.map((tab) => tab.id).filter((id) => id !== undefined);
-    if (ids.length > 0)
-      await chrome.tabs.ungroup(ids).catch(() => {});
+  if (count <= 1) {
+    suspended.delete(tabId);
+    return;
+  }
+  suspended.set(tabId, count - 1);
+}
+async function ompGroupIds() {
+  const groups = await chrome.tabGroups.query({ title: OMP_GROUP.title }).catch(() => []);
+  return new Set(groups.filter((group) => group.title === OMP_GROUP.title).map((group) => group.id));
+}
+async function tabInScope(tabId) {
+  if (allTabs)
+    return true;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return (await ompGroupIds()).has(tab.groupId);
+  } catch {
+    return false;
   }
 }
 function post(msg) {
@@ -95,58 +74,191 @@ async function setBadge(connected) {
     await chrome.action.setBadgeBackgroundColor({ color: connected ? "#1a7f37" : "#8b8b8b" });
   } catch {}
 }
+async function revoke(tabId) {
+  await chrome.debugger.detach({ tabId }).catch(() => {});
+  if (announced.delete(tabId))
+    post({ t: "tabRemoved", tabId });
+}
+async function applyScopeTransition(tab, member) {
+  if (!tab)
+    return;
+  if (member) {
+    if (announced.has(tab.tabId)) {
+      post({ t: "tabUpdated", tab });
+      return;
+    }
+    announced.add(tab.tabId);
+    post({ t: "tabCreated", tab });
+    return;
+  }
+  if (!announced.delete(tab.tabId))
+    return;
+  await chrome.debugger.detach({ tabId: tab.tabId }).catch(() => {});
+  post({ t: "tabRemoved", tabId: tab.tabId });
+}
+async function transitionSnapshot(tab) {
+  const snap = snapshot(tab);
+  if (!snap)
+    return;
+  const member = allTabs || (await ompGroupIds()).has(snap.groupId);
+  await applyScopeTransition(snap, member);
+}
+function queueScopeCheck(tabId) {
+  enqueueScopeOp(async () => {
+    try {
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      const snap = tab === null ? null : snapshot(tab);
+      const member = snap !== null && (allTabs || (await ompGroupIds()).has(snap.groupId));
+      await applyScopeTransition(snap, member);
+      if (!member && snap === null && announced.delete(tabId)) {
+        await chrome.debugger.detach({ tabId }).catch(() => {});
+        post({ t: "tabRemoved", tabId });
+      }
+    } catch {
+      await revoke(tabId);
+    } finally {
+      release(tabId);
+    }
+  });
+}
+async function reconcileScope(tabIds) {
+  try {
+    const tabs = await chrome.tabs.query({});
+    const groupIds = await ompGroupIds();
+    const seen = new Set;
+    for (const tab of tabs) {
+      const snap = snapshot(tab);
+      if (!snap)
+        continue;
+      seen.add(snap.tabId);
+      await applyScopeTransition(snap, allTabs || groupIds.has(snap.groupId));
+    }
+    for (const tabId of tabIds) {
+      if (!seen.has(tabId) && announced.delete(tabId)) {
+        await chrome.debugger.detach({ tabId }).catch(() => {});
+        post({ t: "tabRemoved", tabId });
+      }
+    }
+  } catch {
+    for (const tabId of tabIds)
+      await revoke(tabId);
+  } finally {
+    for (const tabId of tabIds)
+      release(tabId);
+  }
+}
+function queueScopeReconcile() {
+  if (allTabs)
+    return;
+  const tabIds = [...announced];
+  for (const tabId of tabIds)
+    suspend(tabId);
+  enqueueScopeOp(() => reconcileScope(tabIds));
+}
+async function joinOmpGroup(tabId, windowId) {
+  const groups = (await chrome.tabGroups.query({ title: OMP_GROUP.title, windowId })).filter((group) => group.title === OMP_GROUP.title);
+  let groupId;
+  if (groups[0]) {
+    groupId = groups[0].id;
+    for (const duplicate of groups.slice(1)) {
+      const duplicateTabs = await chrome.tabs.query({ groupId: duplicate.id });
+      const duplicateIds = duplicateTabs.map((tab) => tab.id).filter((id) => id !== undefined);
+      if (duplicateIds.length > 0)
+        await chrome.tabs.group({ tabIds: duplicateIds, groupId });
+    }
+    await chrome.tabs.group({ tabIds: [tabId], groupId });
+  } else {
+    groupId = await chrome.tabs.group({ tabIds: [tabId] });
+  }
+  await chrome.tabGroups.update(groupId, OMP_GROUP);
+}
 async function buildHello() {
-  const [tabs, targets] = await Promise.all([chrome.tabs.query({}), chrome.debugger.getTargets()]);
-  const snapshots = [];
-  for (const tab of tabs) {
-    const snap = snapshot(tab);
-    if (snap)
-      snapshots.push(snap);
-  }
-  const attachedTabIds = [];
-  for (const target of targets) {
-    if (target.attached && target.tabId !== undefined)
+  return await enqueueScopeOp(async () => {
+    const [tabs, targets] = await Promise.all([chrome.tabs.query({}), chrome.debugger.getTargets()]);
+    const groupIds = await ompGroupIds();
+    const snapshots = tabs.map(snapshot).filter((snap) => snap !== null && (allTabs || groupIds.has(snap.groupId)));
+    announced.clear();
+    for (const snap of snapshots)
+      announced.add(snap.tabId);
+    suspended.clear();
+    const tabsById = new Map(tabs.flatMap((tab) => tab.id === undefined ? [] : [[tab.id, tab]]));
+    const attachedTabIds = [];
+    for (const target of targets) {
+      if (!target.attached || target.tabId === undefined)
+        continue;
+      const tab = tabsById.get(target.tabId);
+      if (!allTabs && (!tab || !groupIds.has(tab.groupId))) {
+        await chrome.debugger.detach({ tabId: target.tabId }).catch(() => {});
+        continue;
+      }
       attachedTabIds.push(target.tabId);
-  }
-  const versionMatch = /Chrome\/[\d.]+/.exec(navigator.userAgent);
-  return {
-    t: "hello",
-    userAgent: navigator.userAgent,
-    browserVersion: versionMatch?.[0] ?? "Chrome/unknown",
-    tabs: snapshots,
-    attachedTabIds
-  };
+    }
+    const versionMatch = /Chrome\/[\d.]+/.exec(navigator.userAgent);
+    return {
+      t: "hello",
+      userAgent: navigator.userAgent,
+      browserVersion: versionMatch?.[0] ?? "Chrome/unknown",
+      tabs: snapshots,
+      attachedTabIds
+    };
+  });
+}
+async function assertTabInScope(tabId) {
+  if (allTabs)
+    return;
+  if (suspended.has(tabId))
+    await enqueueScopeOp(() => Promise.resolve());
+  if (await tabInScope(tabId))
+    return;
+  await chrome.debugger.detach({ tabId }).catch(() => {});
+  if (announced.delete(tabId))
+    post({ t: "tabRemoved", tabId });
+  throw new Error(`tab ${tabId} is not in the omp tab group`);
 }
 async function runRpc(msg) {
   switch (msg.op) {
     case "attach":
+      await assertTabInScope(msg.tabId);
       await chrome.debugger.attach({ tabId: msg.tabId }, "1.3");
       return {};
     case "detach":
       await chrome.debugger.detach({ tabId: msg.tabId });
       return {};
     case "send":
+      await assertTabInScope(msg.tabId);
       return await chrome.debugger.sendCommand(msg.sessionId ? { tabId: msg.tabId, sessionId: msg.sessionId } : { tabId: msg.tabId }, msg.method, msg.params);
     case "createTab": {
       const tab = await chrome.tabs.create({ url: msg.url });
-      const snap = snapshot(tab);
+      if (tab.id === undefined)
+        throw new Error("created tab has no id");
+      if (!allTabs) {
+        try {
+          await enqueueScopeOp(() => joinOmpGroup(tab.id, tab.windowId));
+        } catch {
+          await chrome.tabs.remove(tab.id).catch(() => {});
+          throw new Error("created tab could not join the omp tab group");
+        }
+      }
+      const fresh = await chrome.tabs.get(tab.id);
+      const snap = snapshot(fresh);
       if (!snap)
         throw new Error("created tab has no id");
+      announced.add(snap.tabId);
       return { tab: snap };
     }
     case "removeTab":
+      await assertTabInScope(msg.tabId);
       await chrome.tabs.remove(msg.tabId);
       return {};
     case "activateTab": {
+      await assertTabInScope(msg.tabId);
       const tab = await chrome.tabs.get(msg.tabId);
       await chrome.windows.update(tab.windowId, { focused: true });
       await chrome.tabs.update(msg.tabId, { active: true });
       return {};
     }
-    case "group":
-      return await enqueueGroupOp(() => groupTabs(msg.tabIds, msg.title, msg.color));
     case "ungroup":
-      await enqueueGroupOp(() => chrome.tabs.ungroup(msg.tabIds).catch(() => {}));
+      await enqueueScopeOp(() => chrome.tabs.ungroup(msg.tabIds).catch(() => {}));
       return {};
   }
 }
@@ -159,6 +271,13 @@ function handleRelayMessage(raw) {
   }
   if (msg.t === "pong")
     return;
+  if (msg.t === "config") {
+    const changed = allTabs !== msg.allTabs;
+    allTabs = msg.allTabs;
+    if (changed)
+      buildHello().then((hello) => post(hello));
+    return;
+  }
   runRpc(msg).then((result) => post({ t: "rpcResult", id: msg.id, ok: true, result })).catch((err) => {
     post({ t: "rpcResult", id: msg.id, ok: false, error: err instanceof Error ? err.message : String(err) });
   });
@@ -177,6 +296,7 @@ async function connect() {
   ws = socket;
   socket.onopen = () => {
     reconnectDelay = RECONNECT_MIN_MS;
+    allTabs = false;
     setBadge(true);
     buildHello().then((hello) => post(hello));
     clearInterval(pingTimer ?? undefined);
@@ -195,7 +315,6 @@ async function connect() {
       pingTimer = null;
     }
     setBadge(false);
-    restoreGroups();
     scheduleReconnect();
   };
   socket.onerror = () => {
@@ -205,6 +324,8 @@ async function connect() {
 chrome.debugger.onEvent.addListener((source, method, params) => {
   if (source.tabId === undefined)
     return;
+  if (!allTabs && (suspended.has(source.tabId) || !announced.has(source.tabId)))
+    return;
   post({ t: "cdpEvent", tabId: source.tabId, sessionId: source.sessionId, method, params });
 });
 chrome.debugger.onDetach.addListener((source, reason) => {
@@ -213,18 +334,42 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   post({ t: "detached", tabId: source.tabId, reason });
 });
 chrome.tabs.onCreated.addListener((tab) => {
-  const snap = snapshot(tab);
-  if (snap)
-    post({ t: "tabCreated", tab: snap });
+  enqueueScopeOp(() => transitionSnapshot(tab));
 });
-chrome.tabs.onUpdated.addListener((_tabId, _changeInfo, tab) => {
-  const snap = snapshot(tab);
-  if (snap)
-    post({ t: "tabUpdated", tab: snap });
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!allTabs && changeInfo.groupId !== undefined) {
+    suspend(tabId);
+    queueScopeCheck(tabId);
+    return;
+  }
+  enqueueScopeOp(() => transitionSnapshot(tab));
+});
+chrome.tabs.onMoved.addListener((tabId) => {
+  if (!allTabs && announced.has(tabId)) {
+    suspend(tabId);
+    queueScopeCheck(tabId);
+  }
+});
+chrome.tabs.onDetached.addListener((tabId) => {
+  if (!allTabs && announced.has(tabId)) {
+    suspend(tabId);
+    queueScopeCheck(tabId);
+  }
+});
+chrome.tabs.onAttached.addListener((tabId) => {
+  if (!allTabs) {
+    suspend(tabId);
+    queueScopeCheck(tabId);
+  }
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
+  announced.delete(tabId);
+  suspended.delete(tabId);
   post({ t: "tabRemoved", tabId });
 });
+chrome.tabGroups.onCreated.addListener(() => queueScopeReconcile());
+chrome.tabGroups.onUpdated.addListener(() => queueScopeReconcile());
+chrome.tabGroups.onRemoved.addListener(() => queueScopeReconcile());
 chrome.alarms.create("omp-relay-keepalive", { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "omp-relay-keepalive")

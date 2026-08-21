@@ -27,13 +27,15 @@ export type RelayRpcRequest =
 	| { op: "createTab"; url: string }
 	| { op: "removeTab"; tabId: number }
 	| { op: "activateTab"; tabId: number }
-	/** Add tabs to the per-window omp group (created/reused by title), remembering prior membership. */
-	| { op: "group"; tabIds: number[]; title: string; color: string }
 	/** Return tabs to their pre-omp group (or ungroup); no-op for tabs the relay never grouped. */
 	| { op: "ungroup"; tabIds: number[] };
 
 /** Messages sent relay → extension. */
-export type RelayToExtMessage = ({ t: "rpc"; id: number } & RelayRpcRequest) | { t: "pong" };
+export type RelayToExtMessage =
+	| ({ t: "rpc"; id: number } & RelayRpcRequest)
+	| { t: "pong" }
+	/** Relay scope; sent once per extension connection. Absent (old relay) means group-scoped. */
+	| { t: "config"; allTabs: boolean };
 
 /** Messages sent extension → relay. */
 export type ExtToRelayMessage =

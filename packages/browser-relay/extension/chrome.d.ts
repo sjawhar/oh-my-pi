@@ -23,10 +23,19 @@ interface ChromeTab {
 	groupId: number;
 }
 
+interface ChromeTabGroup {
+	id: number;
+	windowId: number;
+	title?: string;
+	color?: string;
+	collapsed?: boolean;
+}
+
 interface ChromeTabChangeInfo {
 	url?: string;
 	title?: string;
 	status?: string;
+	groupId?: number;
 }
 
 /** Debuggee with the Chrome 125+ flat-session extension. */
@@ -56,10 +65,16 @@ declare const chrome: {
 		onCreated: ChromeEvent<(tab: ChromeTab) => void>;
 		onUpdated: ChromeEvent<(tabId: number, changeInfo: ChromeTabChangeInfo, tab: ChromeTab) => void>;
 		onRemoved: ChromeEvent<(tabId: number, removeInfo: { windowId: number }) => void>;
+		onMoved: ChromeEvent<(tabId: number, moveInfo: { windowId: number; fromIndex: number; toIndex: number }) => void>;
+		onDetached: ChromeEvent<(tabId: number, detachInfo: { oldWindowId: number; oldPosition: number }) => void>;
+		onAttached: ChromeEvent<(tabId: number, attachInfo: { newWindowId: number; newPosition: number }) => void>;
 	};
 	tabGroups: {
-		query(queryInfo: { title?: string; windowId?: number }): Promise<Array<{ id: number; windowId: number; title?: string }>>;
+		query(queryInfo: { title?: string; windowId?: number }): Promise<ChromeTabGroup[]>;
 		update(groupId: number, updateProperties: { title?: string; color?: string; collapsed?: boolean }): Promise<unknown>;
+		onCreated: ChromeEvent<(group: ChromeTabGroup) => void>;
+		onUpdated: ChromeEvent<(group: ChromeTabGroup) => void>;
+		onRemoved: ChromeEvent<(group: ChromeTabGroup) => void>;
 	};
 	windows: {
 		update(windowId: number, updateInfo: { focused?: boolean }): Promise<unknown>;

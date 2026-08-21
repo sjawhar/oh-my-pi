@@ -15,6 +15,7 @@
 	"scripts": {
 		"build": "bun scripts/build-extension.ts",
 		"check": "biome check . && tsgo -p tsconfig.json --noEmit",
+		"test": "bun test",
 		"lint": "biome lint .",
 		"fix": "biome check --write --unsafe .",
 		"fmt": "biome format --write ."
