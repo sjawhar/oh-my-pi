@@ -26,8 +26,8 @@ export default class BrowserRelay extends Command {
 		dir: Flags.string({
 			description: "Extension install directory (install; default ~/.omp/browser-relay/extension)",
 		}),
-		"no-group": Flags.boolean({
-			description: "Don't gather controllable tabs into an 'omp' tab group",
+		"all-tabs": Flags.boolean({
+			description: "Expose every tab to the agent instead of only the 'omp' tab group",
 			default: false,
 		}),
 		verbose: Flags.boolean({ char: "v", description: "Log relay traffic summaries to stderr", default: false }),
@@ -46,7 +46,7 @@ export default class BrowserRelay extends Command {
 			port: flags.port,
 			token: flags.token,
 			dir: flags.dir,
-			group: !flags["no-group"],
+			allTabs: flags["all-tabs"],
 			verbose: flags.verbose,
 		});
 	}

@@ -22,8 +22,8 @@ export interface BrowserRelayCommandArgs {
 	token?: string;
 	/** Install target directory; defaults to ~/.omp/browser-relay/extension. */
 	dir?: string;
-	/** Gather tabs the agent actively drives into an 'omp' Chrome tab group (default true). */
-	group?: boolean;
+	/** Expose every tab instead of only the 'omp' tab group (default false). */
+	allTabs?: boolean;
 	verbose?: boolean;
 }
 
@@ -58,7 +58,7 @@ async function runInstall(dirOverride: string | undefined): Promise<void> {
 	console.log("  3. Enable the mode:  omp config set browser.relay true");
 	console.log("");
 	console.log("omp starts the relay automatically when the browser tool needs it;");
-	console.log("run `omp browser-relay` yourself only for --token or --no-group.");
+	console.log("run `omp browser-relay` yourself only for --token or --all-tabs.");
 	console.log("The extension badge shows 'on' once it reaches a relay.");
 }
 
@@ -70,7 +70,7 @@ async function runServe(args: BrowserRelayCommandArgs): Promise<void> {
 		: undefined;
 	let relay: RelayServer;
 	try {
-		relay = startRelayServer({ port: args.port, token: args.token, group: args.group !== false, log });
+		relay = startRelayServer({ port: args.port, token: args.token, allTabs: args.allTabs === true, log });
 	} catch (err) {
 		// The port is machine-global while relays can be started by any project's
 		// broker (or by hand): losing the bind to a live relay is success.

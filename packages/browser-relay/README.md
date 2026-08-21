@@ -9,9 +9,9 @@ The companion relay server lives in the omp CLI (`omp browser-relay`, see `packa
 1. `omp browser-relay install` — writes the bundled extension to `~/.omp/browser-relay/extension`, then load it via `chrome://extensions` → Developer mode → *Load unpacked*. (Or grab `omp-browser-relay-extension.zip` from GitHub releases.)
 2. `omp config set browser.relay true` — routes the browser tool through the relay. Per-call `app.relay: true` works without the setting.
 
-That's it: the relay server auto-starts under omp's profile-independent global daemon broker the first time the browser tool needs it. Every relay consumer holds a broker lease, so one project exiting cannot interrupt another; the server stops after the last consumer across all projects exits. The extension badge turns **on** when connected. Run `omp browser-relay` manually only for `--token`, `--no-group`, or a non-default port — a relay already serving the port is adopted, never fought over.
+That's it: the relay server auto-starts under omp's profile-independent global daemon broker the first time the browser tool needs it. Every relay consumer holds a broker lease, so one project exiting cannot interrupt another; the server stops after the last consumer across all projects exits. The extension badge turns **on** when connected. Run `omp browser-relay` manually only for `--token`, `--all-tabs`, or a non-default port — `--all-tabs` restores unscoped access to every tab, and a relay already serving the port is adopted, never fought over.
 
-`app.target` picks a specific tab by URL/title substring; without it, omp adopts the visible tab without stealing focus. Tabs omp is **actively driving** are gathered into a per-window **"omp" tab group** (cyan) — released when omp lets go of the tab and dissolved on disconnect; the rest of your tabs, pinned tabs, tabs in your own groups, and tabs you drag out are left alone. Disable with `omp browser-relay --no-group`.
+`app.target` picks a specific tab by URL/title substring; without it, omp adopts the visible tab without stealing focus. The **"omp" tab group** is the shared set: drag a tab into it to share access, or drag a tab out to revoke access mid-session. New tabs opened by agents join the group automatically, but agents can never pull an existing tab into it. The group persists across relay restarts.
 
 ## Development
 
