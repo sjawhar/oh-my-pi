@@ -418,12 +418,6 @@ export class RelayBridge {
 			this.#reply(conn, msg, {});
 			return;
 		}
-		// Relay-private compatibility no-op: the omp tab worker still sends this
-		// marker, but tab-group membership now belongs solely to the extension ACL.
-		if (msg.method === "OMP.claimTarget") {
-			this.#reply(conn, msg, {});
-			return;
-		}
 		if (msg.method.startsWith("Target.") && !ALLOWED_FORWARDED_TARGET_METHODS.has(msg.method)) {
 			this.#replyError(conn, msg, `${msg.method} is not allowed through the omp browser relay`);
 			return;

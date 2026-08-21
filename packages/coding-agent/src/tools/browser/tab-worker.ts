@@ -894,7 +894,6 @@ export class WorkerCore {
 				const page = await target.page();
 				if (!page) throw new ToolError(`Target ${payload.targetId} is no longer available on the attached browser`);
 				this.#page = page;
-				await this.#claimRelayTarget(page);
 				this.#observeDialogs();
 				if (payload.dialogs) this.#applyDialogPolicy(payload.dialogs);
 				if (payload.url) {
@@ -919,26 +918,6 @@ export class WorkerCore {
 			return target;
 		}
 		throw new ToolError(`Target ${targetId} is no longer available on the attached browser`);
-	}
-
-	/**
-	 * Send the relay-private compatibility marker retained for older relay
-	 * clients. The relay treats it as a no-op: agents never pull existing tabs
-	 * into the "omp" group. Plain CDP backends reject the marker.
-	 */
-	async #claimRelayTarget(page: Page): Promise<void> {
-		let session: CDPSession | undefined;
-		try {
-			session = await page.createCDPSession();
-			// Puppeteer's protocol map cannot express the relay-private method; the
-			// send signature is otherwise identical.
-			const raw = session as unknown as { send(method: string): Promise<unknown> };
-			await raw.send("OMP.claimTarget");
-		} catch {
-			// Not the omp relay; nothing to claim.
-		} finally {
-			await session?.detach().catch(() => undefined);
-		}
 	}
 
 	/**

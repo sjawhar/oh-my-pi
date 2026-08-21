@@ -57,4 +57,3 @@ describe("omp browser-relay", () => {
 		}
 	});
 });
-

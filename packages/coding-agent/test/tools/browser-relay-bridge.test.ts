@@ -508,4 +508,20 @@ describe("RelayBridge scope enforcement", () => {
 		}
 		expect(ext.rpcs("send")).toHaveLength(0);
 	});
+	it("does not retain a relay-private claim marker", async () => {
+		const bridge = new RelayBridge();
+		const ext = new FakeExtSocket();
+		connect(bridge, ext, [tab({ tabId: 1 })]);
+		const cdp = new FakeCdpSocket();
+		const connectionId = bridge.cdpConnected(cdp);
+		const sessionId = await attachPage(bridge, ext, cdp, connectionId, 1);
+		const id = ++messageId;
+		bridge.cdpMessage(connectionId, JSON.stringify({ id, sessionId, method: "OMP.claimTarget" }));
+		await flush();
+
+		expect(ext.rpcs("send")).toContainEqual(expect.objectContaining({ method: "OMP.claimTarget" }));
+		ack(bridge, ext, "send");
+		await flush();
+		expect(cdp.messages).toContainEqual(expect.objectContaining({ id, result: {} }));
+	});
 });
