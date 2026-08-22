@@ -5,6 +5,7 @@
 ### Fixed
 
 - Discovered skills nested one namespace level deep (`skills/<namespace>/<skill>/SKILL.md`) in every skill source (Claude, OpenCode, native), matching the curated-pool layouts both other harnesses already load.
+- Fixed the `resources_discover` extension event never firing: the runner's emit had no caller, so extension `skillPaths` (documented in the extension API and used by real extensions) silently went nowhere. Sessions now emit it once the extension runner is constructed at startup and again on `/reload-plugins`, and returned skill directories join skill discovery as an explicitly configured source — scanned like `skills.customDirectories`, honoring `ignoredSkills`/`includeSkills`, deduplicated by real path, and losing name collisions to `customDirectories` entries.
 
 ## [18.0.0] - 2026-08-22
 
