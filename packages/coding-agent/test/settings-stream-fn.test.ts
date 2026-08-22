@@ -245,5 +245,31 @@ describe("createSettingsAwareStreamFn", () => {
 
 			expect(calls[0]?.options?.fallbacks).toEqual([{ model: "claude-sonnet-5" }]);
 		});
+
+		it("forwards a configured multi-model chain in order", () => {
+			const settings = Settings.isolated({
+				"providers.anthropic.serverSideFallback": true,
+				"providers.anthropic.serverSideFallbackModels": ["claude-opus-5", "claude-opus-4-8"],
+			});
+			const { fn: base, calls } = captureBase();
+			const wrapped = createSettingsAwareStreamFn(settings, base);
+
+			wrapped(stubFableModel, stubContext, { apiKey: "k" });
+
+			expect(calls[0]?.options?.fallbacks).toEqual([{ model: "claude-opus-5" }, { model: "claude-opus-4-8" }]);
+		});
+
+		it("sends no fallbacks when the configured chain is empty, even with the toggle on", () => {
+			const settings = Settings.isolated({
+				"providers.anthropic.serverSideFallback": true,
+				"providers.anthropic.serverSideFallbackModels": [],
+			});
+			const { fn: base, calls } = captureBase();
+			const wrapped = createSettingsAwareStreamFn(settings, base);
+
+			wrapped(stubFableModel, stubContext, { apiKey: "k" });
+
+			expect(calls[0]?.options?.fallbacks).toBeUndefined();
+		});
 	});
 });

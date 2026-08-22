@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `providers.anthropic.serverSideFallbackModels`: ordered model-id chain for the Anthropic server-side fallback beta, replacing the hardcoded single-hop Opus 4.8 fallback (still the default). An empty list sends no fallbacks even when the toggle is on.
+
 ## [17.3.8] - 2026-08-19
 
 ### Added
