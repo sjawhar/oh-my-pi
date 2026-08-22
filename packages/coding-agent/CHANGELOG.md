@@ -5,6 +5,7 @@
 ### Fixed
 
 - Discovered skills nested one namespace level deep (`skills/<namespace>/<skill>/SKILL.md`) in every skill source (Claude, OpenCode, native), matching the curated-pool layouts both other harnesses already load.
+- Extension-contributed skill paths (`resources_discover`) are now honored at session start and `/reload-plugins`.
 
 ## [18.0.0] - 2026-08-22
 
