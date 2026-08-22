@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `omp.skills` and legacy `pi.skills` manifest directories for plugin-provided skills. Declared directories replace the conventional plugin `skills/` scan and remain constrained to the plugin root.
+
 ### Fixed
 
 - Discovered skills nested one namespace level deep (`skills/<namespace>/<skill>/SKILL.md`) in every skill source (Claude, OpenCode, native), matching the curated-pool layouts both other harnesses already load.

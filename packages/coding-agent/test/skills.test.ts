@@ -511,7 +511,7 @@ enabled: false
 				expect(shared).toHaveLength(1);
 				expect(shared[0].filePath).toBe(customPath);
 				expect(shared[0].source).toBe("custom:user");
-				expect(warnings.some(w => w.message.includes(`name collision: \"shared-name\"`))).toBe(true);
+				expect(warnings.some(w => w.message.includes(`name collision: "shared-name"`))).toBe(true);
 			} finally {
 				await removeWithRetries(customDir);
 				await removeWithRetries(extensionDir);
@@ -549,7 +549,7 @@ enabled: false
 				});
 
 				expect(skills.filter(s => s.name === "overlap-skill")).toHaveLength(1);
-				expect(warnings.some(w => w.message.includes(`name collision: \"overlap-skill\"`))).toBe(false);
+				expect(warnings.some(w => w.message.includes(`name collision: "overlap-skill"`))).toBe(false);
 			} finally {
 				await removeWithRetries(tempDir);
 			}
