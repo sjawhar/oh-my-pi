@@ -79,6 +79,7 @@ import { normalizeLocalScheme } from "../../tools/path-utils";
 import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import { DEFAULT_TTS_VOICE, TTS_LOCAL_MODELS, TTS_LOCAL_VOICE_OPTIONS } from "../../tts/models";
 import { canonicalizeMessage } from "@oh-my-pi/pi-tui/chat/thinking-display";
+import { createExtensionAgentActions } from "../runtime-init";
 import { createAcpClientBridge } from "./acp-client-bridge";
 import {
 	extractAssistantMessageText,
@@ -2573,6 +2574,7 @@ export class AcpAgent implements Agent {
 				appendEntry: (customType, data) => {
 					record.session.sessionManager.appendCustomEntry(customType, data);
 				},
+				...createExtensionAgentActions(),
 				setLabel: (targetId, label) => {
 					record.session.sessionManager.appendLabelChange(targetId, label);
 				},
