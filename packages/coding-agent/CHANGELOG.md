@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Extension API: `api.agents` — list/get/ensureLive/prompt for named registry agents.
+
 ## [18.1.15] - 2026-09-08
 
 ### Added
@@ -527,7 +531,6 @@
 
 - Added nonblocking shared model-catalog refresh with cached startup hydration and source freshness diagnostics, allowing newly published models for known providers to appear without a binary release.
 - Added `omp usage clients` to report per-client token usage recorded by the auth broker, including the machine and application responsible for usage by provider. Supports `--days` and `--json` output.
-- Extension API: `api.agents` — list/get/ensureLive/prompt for named registry agents.
 
 ### Changed
 
