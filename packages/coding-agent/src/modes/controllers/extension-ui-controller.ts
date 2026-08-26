@@ -190,7 +190,10 @@ export class ExtensionUiController {
 			appendEntry: (customType, data) => {
 				this.ctx.sessionManager.appendCustomEntry(customType, data);
 			},
-			...createExtensionAgentActions({ scopeAgentId: this.ctx.session.getAgentId() ?? MAIN_AGENT_ID }),
+			...createExtensionAgentActions({
+				scopeAgentId: this.ctx.session.getAgentId() ?? MAIN_AGENT_ID,
+				scopeSessionFile: this.ctx.sessionManager?.getSessionFile?.() ?? null,
+			}),
 			setLabel: (targetId, label) => {
 				this.ctx.sessionManager.appendLabelChange(targetId, label);
 			},
@@ -422,7 +425,10 @@ export class ExtensionUiController {
 			appendEntry: (customType, data) => {
 				this.ctx.sessionManager.appendCustomEntry(customType, data);
 			},
-			...createExtensionAgentActions({ scopeAgentId: this.ctx.session.getAgentId() ?? MAIN_AGENT_ID }),
+			...createExtensionAgentActions({
+				scopeAgentId: this.ctx.session.getAgentId() ?? MAIN_AGENT_ID,
+				scopeSessionFile: this.ctx.sessionManager?.getSessionFile?.() ?? null,
+			}),
 			setLabel: (targetId, label) => {
 				this.ctx.sessionManager.appendLabelChange(targetId, label);
 			},
