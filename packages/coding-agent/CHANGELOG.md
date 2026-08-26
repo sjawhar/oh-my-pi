@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Extension API: `api.agents` — list/get/ensureLive/prompt for named registry agents.
+
 ### Fixed
 
 - Fixed `read` middle-eliding large file pages into an artifact; a page past the output spill threshold now stops at a line boundary with an exact `:N` continuation ([#16277](https://github.com/can1357/oh-my-pi/issues/16277))
