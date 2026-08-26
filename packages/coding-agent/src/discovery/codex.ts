@@ -156,6 +156,7 @@ async function loadTomlConfig(_ctx: LoadContext, path: string): Promise<Record<s
 /** Codex MCP server config format (from config.toml) */
 interface CodexMCPConfig {
 	enabled?: boolean;
+	lazy?: boolean;
 	command?: string;
 	args?: string[];
 	env?: Record<string, string>;
@@ -197,6 +198,7 @@ function extractMCPServersFromToml(
 			// lower-priority source disabled) and remain overridable via the user
 			// force-enable allowlist. Dropping here would defeat both.
 			...(config.enabled === false && { enabled: false }),
+			...(config.lazy !== undefined && { lazy: config.lazy === true }),
 			...(rooted.command !== undefined && { command: rooted.command }),
 			args: config.args,
 			url: config.url,
