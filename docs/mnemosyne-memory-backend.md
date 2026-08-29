@@ -45,7 +45,7 @@ Read the full content and metadata for a recalled result with `read memory://<me
 | ----------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `memory.backend`              | `off`              | Set to `mnemopi` to enable this backend.                                                                                                                                                                                                                                               |
 | `mnemopi.dbPath`              | agent memories dir | Optional SQLite database path.                                                                                                                                                                                                                                                         |
-| `mnemopi.bank`                | unset              | Optional shared bank base name passed to `Mnemopi`; the coding-agent wrapper scopes from this base according to `mnemopi.scoping`. Unset → shared bank `default`; per-project modes derive a project bank from the working-directory basename plus a stable hash of its absolute path. |
+| `mnemopi.bank`                | unset              | Optional shared bank base name passed to `Mnemopi`; the coding-agent wrapper scopes from this base according to `mnemopi.scoping`. Unset → shared bank `default`; per-project modes derive a project bank from the resolved primary project root's basename plus a stable hash of that resolved path (see [Scoping](#scoping)). |
 | `mnemopi.scoping`             | `per-project`      | Memory visibility mode: `global` = one shared bank, `per-project` = isolated project memory, `per-project-tagged` = project-local writes plus global recall visibility.                                                                                                                |
 | `mnemopi.autoRecall`          | `true`             | Recall memory on the first turn of a session.                                                                                                                                                                                                                                          |
 | `mnemopi.autoRetain`          | `true`             | Retain completed turns automatically.                                                                                                                                                                                                                                                  |
@@ -73,7 +73,7 @@ Read the full content and metadata for a recalled result with `read memory://<me
 The coding-agent wrapper applies scoping on top of the underlying `Mnemopi` package:
 
 - `global` uses one shared bank for recall and writes.
-- `per-project` writes to and recalls from a bank derived from the current working directory alone — its basename plus a stable hash of its absolute path, independent of the surrounding git layout.
+- `per-project` writes to and recalls from a bank derived from the current working directory's **resolved primary project root** — its basename plus a stable hash of that resolved path.
 - `per-project-tagged` writes to the project-local bank and recalls from both the project-local bank and the shared global bank, with duplicate recall results merged.
 
 Under `global` and `per-project-tagged`, the `retain` and `learn` tools also accept `scope: "global"`, which writes an item or lesson to the shared bank so every project recalls it. Under `per-project` the option is not offered, because no bank is recalled by every project.
@@ -82,6 +82,25 @@ Non-global modes also recall legacy sibling banks whose working-memory rows all 
 
 The combined project-plus-global behavior lives in the wrapper. The `@oh-my-pi/pi-mnemopi` package itself still exposes banks and constructor options directly, including `bank` for selecting a bank name. Project-local banks other than the shared bank are stored as sibling bank databases managed by Mnemopi's `BankManager`.
 
+### Project root resolution
+
+The resolved primary project root mirrors the Hindsight backend's `projectLabel` (`hindsight/bank.ts`), so both backends collapse the same repository layouts to one location:
+
+1. A plain git checkout resolves to itself.
+2. A linked git worktree (`git worktree add`) resolves to the primary checkout's common `.git` directory's parent, via the native `vcs.repo()` discovery's `primaryRoot()`.
+3. A colocated Jujutsu workspace (`jj workspace add --colocate`, the default when the parent workspace is colocated) is implemented by jj as a real git worktree, so case 2 already covers it.
+4. A non-colocated Jujutsu workspace (no `.git` at all) resolves through the shared jj store — which `jj workspace add` points at the primary workspace's repo — via the same `vcs.repo()` discovery.
+5. A directory outside any git or jj repository resolves to itself, unchanged.
+
+Every linked worktree or workspace of one repository therefore derives the same per-project bank, matching how `per-project`/`per-project-tagged` already behave for Hindsight.
+
+### Migration from the previous per-worktree scheme
+
+Before this change, `per-project`/`per-project-tagged` derived the project bank from the raw working directory alone, so each git worktree or jj workspace of one repository had its own isolated bank. Existing installs therefore have one legacy bank per worktree/workspace, named from that worktree's own path, instead of one shared bank named from the primary checkout.
+
+No bank is renamed or merged automatically — `BankManager.renameBank` refuses when the destination bank already exists, which the primary checkout's bank normally does, so an automatic rename/merge across every worktree cannot be done safely in general. Instead, the existing legacy-bank rescue (`extendRecallWithLegacyBanks`, originally added for #2412) already widens recall to include any sibling bank under `<dbDir>/banks/` whose `working_memory` rows are all tagged with the active cwd, so old per-worktree banks keep showing up in recall from the worktree they were written from. New writes go to the new shared, primary-root-derived bank. There is no supported way to force every worktree's old memories into the new shared bank immediately: `BankManager` exposes only create/delete/list/rename, rename refuses when the destination already exists (as the primary checkout's bank normally does), and there is no bank-merge operation. Leaving the old banks in place for the legacy-bank rescue above to surface is the safe default; consolidating them sooner would require a bank-merge capability this release does not have.
+
+
 ## Recall previews and full-row reads
 
 Recall results carry clipped content previews, not full rows. Content longer than the preview cap is truncated with a trailing `…`; the result also sets `truncated: true` and `full_length` (original character count), so callers can detect clipping without parsing the marker. The cap is `RecallOptions.contentPreviewChars` (default `500`; `0` disables clipping).
@@ -89,6 +108,25 @@ Recall results carry clipped content previews, not full rows. Content longer tha
 The full row is always reachable by reading `memory://<memory-id>`, which resolves the live working or episodic row and returns its full content behind a small YAML frontmatter header (`id`, `bank`, `store`, `memory_type`, timestamps, `importance`, `veracity`, `session_id`, `metadata`). The coding-agent's model-facing prompts require this read before any `memory_edit update`, since `update` replaces content wholesale and would otherwise discard the unseen tail of a clipped preview.
 
 Retention writes a marker-free transcript projection: when the host supplies an `embedText` override alongside the stored transcript, that projection is used for embedding, working-memory FTS indexing (`COALESCE(embed_text, content)`), and rebuild-reembedding, so retention protocol markers in the stored transcript do not pollute vector and full-text recall.
+
+## Recall ranking weights
+
+Recall multiplies each memory's score by a weight for its stored `veracity` label and, for episodic memories, by a weight for its degradation tier. Each weight is read from its environment variable on every recall, and a negative value counts as 0:
+
+| Variable                  | Default | Applies to                                                                           |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------ |
+| `MNEMOPI_STATED_WEIGHT`   | `1.0`   | `veracity: stated`, which the coding agent's explicit memory save (the extension `memory.save` API) writes |
+| `MNEMOPI_UNKNOWN_WEIGHT`  | `0.8`   | `veracity: unknown`, which the coding agent's automatic transcript retention writes, and any write that names no label |
+| `MNEMOPI_INFERRED_WEIGHT` | `0.7`   | `veracity: inferred`                                                                 |
+| `MNEMOPI_IMPORTED_WEIGHT` | `0.6`   | `veracity: imported`                                                                 |
+| `MNEMOPI_TOOL_WEIGHT`     | `0.5`   | `veracity: tool`, which the coding agent's `retain` and `learn` tools write          |
+| `MNEMOPI_TIER1_WEIGHT`    | `1.0`   | episodic memories at degradation tier 1                                              |
+| `MNEMOPI_TIER2_WEIGHT`    | `0.85`  | episodic memories at degradation tier 2                                              |
+| `MNEMOPI_TIER3_WEIGHT`    | `0.7`   | episodic memories at degradation tier 3 or beyond                                    |
+
+Sleep consolidation labels each episode with the most common label among the working memories it summarises, ignoring `unknown` unless every source is `unknown`; a tie goes to the lower-weighted label.
+
+Memories labelled `true` always weigh `1.0`, and `false` weighs `0`. With `mnemopi.polyphonicRecall`, these weights order the standard ranking that becomes the fused `hybrid` voice; the vector, graph, fact and temporal voices do not apply them.
 
 ## LLM and embeddings
 

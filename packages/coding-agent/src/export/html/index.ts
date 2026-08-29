@@ -6,6 +6,7 @@ import { getResolvedThemeColors, getThemeExportColors } from "@oh-my-pi/pi-tui/t
 import type { SessionEntry, SessionHeader } from "../../session/session-entries";
 import { loadEntriesFromFile } from "../../session/session-loader";
 import { SessionManager } from "../../session/session-manager";
+import { applyToolResultPrunes } from "../../session/tool-result-prunes";
 import type { ExportThemeNames } from "./args";
 import templateCssPath from "./template.css" with { type: "file" };
 import templateHtmlPath from "./template.html" with { type: "file" };
@@ -239,6 +240,7 @@ async function collectSubSessionsFromDir(
 		const fileEntries = await loadEntriesFromFile(path.join(dir, name));
 		// Empty/corrupt files (no valid session header) load as [] — skip silently.
 		if (fileEntries.length > 0) {
+			applyToolResultPrunes(fileEntries);
 			const header = (fileEntries.find(e => e.type === "session") as SessionHeader | undefined) ?? null;
 			const entries = fileEntries.filter((e): e is SessionEntry => e.type !== "session");
 			out[key] = {

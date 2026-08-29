@@ -24,18 +24,13 @@ import {
 	type ExtensionWidgetOptions,
 	getExtensionUISelectOptionLabel,
 } from "../../extensibility/extensions";
-import {
-	type BuiltSkillPromptMessage,
-	buildSkillPromptMessage,
-	parseSkillInvocation,
-	type Skill,
-	type SkillPromptInput,
-} from "../../extensibility/skills";
+import { buildSkillPromptMessage } from "../../extensibility/skills";
+import { type RpcSkillCommandSession, resolveRpcSkillInvocation, runRpcSkillCommand } from "./rpc-skill-invocation";
 import { type Theme, theme } from "@oh-my-pi/pi-tui/theme";
 import type { AgentSession } from "../../session/agent-session";
 import { CACHE_WARMING_MODES } from "../../session/cache-warmer";
 import { findMostRecentNonEmptySession } from "../../session/session-listing";
-import { SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/messages";
+import { USER_INTERRUPT_LABEL } from "../../session/messages";
 import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins";
 import { buildAvailableSlashCommands } from "../../slash-commands/available-commands";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
@@ -137,54 +132,7 @@ export type RpcSessionChangeResult =
 
 export type RpcSessionChangeSession = Pick<AgentSession, "newSession" | "switchSession" | "branch">;
 
-export type RpcSkillCommandSession = Pick<AgentSession, "promptCustomMessage" | "skills" | "skillsSettings">;
 export type RpcSkillCommandResult = { agentInvoked: true };
-
-export interface RpcSkillInvocation extends SkillPromptInput {
-	skill: Skill;
-	queueChipText: string;
-}
-
-/**
- * Fast in-memory pre-check for a skill invocation: settings gate, text shape,
- * and skill lookup. Returns null when the message is not a runnable skill
- * command. Performs no I/O — safe to run on the RPC serial queue.
- */
-export function resolveRpcSkillInvocation(session: RpcSkillCommandSession, text: string): RpcSkillInvocation | null {
-	if (!session.skillsSettings?.enableSkillCommands) return null;
-	const parsed = parseSkillInvocation(text);
-	if (!parsed) return null;
-	const skill = session.skills.find(candidate => candidate.name === parsed.name);
-	if (!skill) return null;
-	return { skill, args: parsed.args, prompt: parsed.prompt, queueChipText: text };
-}
-
-/**
- * Slow half of a skill invocation: builds the skill prompt message (file I/O)
- * and dispatches it through the full prompt pipeline (usage preflight,
- * compaction checks, provider calls). Resolves once the turn is scheduled.
- * Must not run on the RPC serial queue's response path — register it with
- * watchAndReportPromptResult and answer the command once it is admitted.
- */
-export async function runRpcSkillCommand(
-	session: RpcSkillCommandSession,
-	invocation: RpcSkillInvocation,
-	streamingBehavior: "steer" | "followUp" = "steer",
-	prebuilt?: BuiltSkillPromptMessage,
-	onPromptAdmitted?: () => void,
-): Promise<boolean> {
-	const built = prebuilt ?? (await buildSkillPromptMessage(invocation.skill, invocation, "user"));
-	return session.promptCustomMessage(
-		{
-			customType: SKILL_PROMPT_MESSAGE_TYPE,
-			content: built.message,
-			display: true,
-			details: built.details,
-			attribution: "user",
-		},
-		{ streamingBehavior, queueChipText: invocation.queueChipText, onPromptAdmitted },
-	);
-}
 
 /**
  * Skill branch of the `prompt` command: resolves the invocation cheaply, then
@@ -1036,6 +984,12 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	const onPromptError = (id: string | undefined, command: string) => (promptError: Error) =>
 		output(error(id, command, promptError.message));
 
+	// Output all agent events as JSON; prompt results follow the frame that settled them.
+	session.subscribe(event => {
+		sessionEvents.forward(event);
+		promptResults.observe(event);
+		settleWatcher.observe(event);
+	});
 	// Set up extensions with RPC-based UI context
 	await initializeExtensions(session, {
 		mode: "rpc",
@@ -1053,13 +1007,6 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		},
 		// Headless hosts get the extension runner's no-op UI: hasUI=false, dialogs resolve to defaults.
 		uiContext: headless ? undefined : rpcUiContext,
-	});
-
-	// Output all agent events as JSON; prompt results follow the frame that settled them.
-	session.subscribe(event => {
-		sessionEvents.forward(event);
-		promptResults.observe(event);
-		settleWatcher.observe(event);
 	});
 
 	// Discriminates a store failure from any other dispose rejection below.
