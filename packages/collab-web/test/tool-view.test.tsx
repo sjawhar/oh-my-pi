@@ -88,9 +88,7 @@ describe("ToolView xd:// dispatches", () => {
 	});
 
 	it("defaults a running xd://reject to discard before details arrive", () => {
-		const html = renderToStaticMarkup(
-			<ToolView name="reject" defaultOpen running args={{ reason: "" }} />,
-		);
+		const html = renderToStaticMarkup(<ToolView name="reject" defaultOpen running args={{ reason: "" }} />);
 
 		expect(html).toContain("proposed → rejected");
 	});
@@ -160,13 +158,69 @@ describe("ToolView xd:// dispatches", () => {
 					content: [],
 					details: {
 						op: "wait",
-						jobs: [{ id: "a1b2", type: "bash", status: "completed", label: "build", durationMs: 25, resultText: "Built", errorText: "" }],
+						jobs: [
+							{
+								id: "a1b2",
+								type: "bash",
+								status: "completed",
+								label: "build",
+								durationMs: 25,
+								resultText: "Built",
+								errorText: "",
+							},
+						],
 					},
 				}}
 			/>,
 		);
 		expect(html).toContain("Built");
 		expect(html).toContain("1 done");
+	});
+});
+
+describe("ToolView task missing-yield provenance", () => {
+	const initialWarning = "SYSTEM WARNING: Subagent exited without calling yield tool after 3 reminders.";
+	const wakeWarning = "SYSTEM WARNING: Structured subagent replied without calling yield.";
+
+	function renderTask(result: Record<string, unknown>): string {
+		return renderToStaticMarkup(
+			<ToolView
+				name="task"
+				defaultOpen
+				args={{}}
+				result={{ content: [], details: { results: [result], totalDurationMs: 1 } }}
+			/>,
+		);
+	}
+
+	it("renders metadata-backed initial and wake warnings as callouts", () => {
+		for (const [missingYield, warning] of [
+			["initial", initialWarning],
+			["wake", wakeWarning],
+		] as const) {
+			const html = renderTask({
+				id: missingYield,
+				agent: "task",
+				exitCode: 0,
+				output: `${warning}\n\nreport`,
+				missingYield,
+			});
+			expect(html).toContain("tv-note--warn");
+			expect(html).toContain(warning);
+			expect(html).toContain("1 succeeded");
+			expect(html).not.toContain("1 failed");
+		}
+	});
+
+	it("leaves warning-looking report text alone without provenance", () => {
+		const html = renderTask({
+			id: "yielded",
+			agent: "task",
+			exitCode: 0,
+			output: `${initialWarning}\n\nordinary yielded report`,
+		});
+		expect(html).not.toContain("tv-note--warn");
+		expect(html).toContain(initialWarning);
 	});
 });
 
@@ -198,7 +252,7 @@ describe("ToolView ask renderer", () => {
 			/>,
 		);
 
-		expect(html).toContain('<span>OAuth2</span>');
+		expect(html).toContain("<span>OAuth2</span>");
 		expect(html).toContain("keep the redirect short-lived");
 	});
 
@@ -217,7 +271,13 @@ describe("ToolView ask renderer", () => {
 					content: [{ type: "text", text: "User answers:" }],
 					details: {
 						results: [
-							{ id: "db", question: "Storage backend?", multi: false, selectedOptions: ["Postgres"], note: "managed instance" },
+							{
+								id: "db",
+								question: "Storage backend?",
+								multi: false,
+								selectedOptions: ["Postgres"],
+								note: "managed instance",
+							},
 							{ id: "cache", question: "Cache?", multi: false, selectedOptions: ["Redis"] },
 						],
 					},
@@ -225,7 +285,7 @@ describe("ToolView ask renderer", () => {
 			/>,
 		);
 
-		expect(html).toContain('<span>Postgres</span>');
+		expect(html).toContain("<span>Postgres</span>");
 		expect(html).toContain("managed instance");
 		// The cache question answered without a note must not leak the db note.
 		expect(html.match(/managed instance/g)?.length).toBe(1);
