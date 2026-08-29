@@ -5,11 +5,27 @@
 ### Added
 
 - Added `lazy: true` for MCP servers in `mcp.json`: the server is not spawned at session startup — its tools are served from the tool cache and the first invocation (or `/mcp reconnect`) connects on demand. Useful for servers whose launch has side effects, such as credential prompts or approval flows.
+- Extension API: `api.agents` — list/get/ensureLive/prompt for named registry agents.
+- Added support for declaring skill directories in plugin manifests (`omp.skills` / `pi.skills`), including entries pointing directly at a single skill directory.
+- Added the `initializeExtensions` SDK export so direct-embed sessions can opt into `session_start`/`resources_discover` extension lifecycle events.
+- Extensions can ask an isolated `/btw`-compatible side question with `pi.askEphemeral`, receiving its answer without interrupting or recording it in the primary session.
 
 ### Fixed
 
 - MCP HTTP reconnects now release obsolete tool generations instead of growing session memory on every reconnect ([#11784](https://github.com/can1357/oh-my-pi/issues/11784)).
 - `/debug` memory reports now keep large heap snapshots out of JavaScript strings and reject empty snapshots instead of saving zero-byte files ([#11785](https://github.com/can1357/oh-my-pi/issues/11785)).
+- Fixed skill discovery not finding skills nested one namespace level deep (e.g. `skills/<namespace>/<skill>/SKILL.md`).
+- Extension-contributed skill paths (`resources_discover`) are now honored at session start — including in `/skill:` autocomplete — and on `/reload-plugins`.
+- Fixed freshly created task subagents missing extension-contributed skills that print, RPC, and TUI sessions already receive at startup.
+- Fixed `/reload-plugins` skipping the `resources_discover` event entirely for sessions with a fixed skill snapshot; it now fires (matching startup) and only skips the skill rescan.
+- Fixed task subagent startup dropping extension messages sent from a `resources_discover` handler by draining them before the first prompt.
+- Fixed task/eval/vibe subagents silently dropping skills their own `resources_discover` handlers discovered at startup; those directories now merge into the inherited snapshot instead of being scanned and thrown away.
+- Fixed print mode, RPC mode, and revived task subagents potentially throwing `AgentBusyError` or reordering the initial turn when a `session_start`/`resources_discover` extension handler sent a message during startup, by draining those sends the same way the task executor already does.
+- Fixed the status line pinning multiple CPU cores in worktrees created by `jj workspace add`. Their git index carries no file stat data, so every status call re-read and re-hashed the whole worktree (measured 2.2s and 47s of CPU per call on a 94k-file checkout) and leaked a `git-lfs filter-process` per call; the refreshed stat data is now written back, so the first call repairs the index and later calls are ~80x cheaper. Status refreshes also back off to five times the last call's duration, and a status call slower than a second is logged with its repository.
+- Fixed isolated subagent spawns exhausting host memory when the checkout's staged or unstaged diff is huge (for example a jj conflict commit exported to git); the spawn now fails with the isolation-budget error instead.
+- The status line no longer wipes other workspaces' recorded Git HEADs when it opens a Jujutsu repository over divergent operation heads; jj-lib is now 0.45, which knows the per-workspace `git_heads` view field the installed `jj` 0.45 writes. Agents in a shared jj store no longer see describes and bookmarks vanish after another session's turn.
+- Jujutsu status and diffs now report renames and copies (`R`/`C`, `rename from`/`rename to`) the way `jj status` and `jj diff` do, instead of a delete plus an add.
+- An `http`/`sse` MCP server that drops while the session is idle (a restart, a redeploy, a laptop waking) now reconnects on its own with a backoff instead of staying disconnected until the next tool call or `/mcp reconnect`, so its resource subscriptions and notifications come back with it ([#11803](https://github.com/can1357/oh-my-pi/pull/11803) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.1.18] - 2026-09-11
 
@@ -92,6 +108,7 @@
 - Live task dispatch now reloads added, changed, removed, and deleted project task and retry settings before resolving subagents ([#11191](https://github.com/can1357/oh-my-pi/issues/11191)).
 - Reset `/loop` iterations combined with `--while` / `--until` no longer keep submitting without resetting when vibe mode is enabled while the condition command is still running; the loop now disables itself instead ([#10858](https://github.com/can1357/oh-my-pi/pull/10858)).
 - Returning from a focused agent (Agent Hub) now re-renders the main session's queued steering/follow-up block instead of leaving it blank until the next repaint ([#11379](https://github.com/can1357/oh-my-pi/issues/11379)).
+- An extension-originated message that starts no agent turn (e.g. an idle steer superseded by a concurrent turn) no longer crashes a headless `--mode rpc` session with an unhandled rejection.
 
 ## [18.1.15] - 2026-09-08
 

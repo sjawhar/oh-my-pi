@@ -1626,6 +1626,7 @@ export class AgentSession {
 			skillWarnings: config.skillWarnings,
 			skillsSettings: config.skillsSettings,
 			skillsReloadable: config.skillsReloadable,
+			mergeDiscoveredSkillPaths: config.mergeDiscoveredSkillPaths,
 		});
 		this.#disconnectOwnedMcpManager = config.disconnectOwnedMcpManager;
 		const ttsrHost: TtsrCoordinatorHost = {
@@ -5324,9 +5325,17 @@ export class AgentSession {
 		return this.#tools.getSelectedMCPToolNames();
 	}
 
-	/** Rediscovers reloadable skills and refreshes prompt metadata. */
+	/** Rediscovers reloadable skills and refreshes prompt metadata. Used by `/reload-plugins`. */
 	refreshSkills(): Promise<void> {
 		return this.#tools.refreshSkills();
+	}
+
+	/**
+	 * One-time post-`session_start` `resources_discover` emission. Called by
+	 * every mode's extension-lifecycle init right after `session_start` fires.
+	 */
+	discoverStartupSkillPaths(): Promise<void> {
+		return this.#tools.discoverStartupSkillPaths();
 	}
 
 	/**
@@ -8846,6 +8855,9 @@ export class AgentSession {
 		signal?: AbortSignal;
 		dedupeReply?: boolean;
 	}): Promise<{ replyText: string; assistantMessage: AssistantMessage }> {
+		if (this.#isDisposed) {
+			throw new Error("Session disposed");
+		}
 		const model = this.model;
 		if (!model) {
 			throw new Error("No active model on session");
