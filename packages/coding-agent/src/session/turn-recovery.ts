@@ -25,6 +25,7 @@ import { resolveModelPolicy } from "@oh-my-pi/pi-catalog/compat/resolve";
 import { isFireworksFastModelId, toFireworksBaseModelId } from "@oh-my-pi/pi-catalog/fireworks-model-id";
 import { modelsAreEqual } from "@oh-my-pi/pi-catalog/models";
 import { isUnexpectedSocketCloseMessage, logger, prompt, sleepLong } from "@oh-my-pi/pi-utils";
+import { isApiKeyCommandFailureMessage } from "../config/api-key-resolver";
 import type { ModelRegistry } from "../config/model-registry";
 import { formatModelStringWithRouting, resolveModelOverride } from "../config/model-resolver";
 
@@ -99,6 +100,7 @@ const UNEXPECTED_STOP_TIMEOUT_MS = 15_000;
 const EMPTY_STOP_MAX_RETRIES = 3;
 const MALFORMED_FUNCTION_CALL_MAX_RETRIES = 3;
 const STREAM_STALL_CONTINUE_MAX_RETRIES = 3;
+const KEY_COMMAND_MAX_RETRIES = 3;
 const SIBLING_UNBLOCK_BUFFER_MS = 1_000;
 const NON_WHITESPACE_RE = /\S/;
 const USAGE_PREFLIGHT_BLOCKED_PREFIX = "Usage preflight blocked:";
@@ -139,6 +141,33 @@ function conversationEnd(messages: readonly AgentMessage[]): number {
 	let end = messages.length;
 	while (end > 0 && isEvalStateContext(messages[end - 1])) end--;
 	return end;
+}
+
+/** `auto_retry_end.kind` for a failed retry: the error's `AIError` label, absent when the message carries no error id. */
+function retryFailureKind(errorId: number | undefined): string | undefined {
+	return errorId ? AIError.stringify(errorId) : undefined;
+}
+
+/**
+ * `auto_retry_end.resetAtMs`: the latest reset the provider stated for the
+ * failing credential (error-text hint, complete usage-report window, or an
+ * earlier provider-timed block), never the wait recovery computed, which also
+ * folds in sibling blocks, merged heuristic blocks and our own backoff. A value
+ * outside the `Date` range (an absurd provider hint) is dropped; that bound
+ * also keeps it a safe integer and within int64.
+ */
+function providerStatedResetAtMs(
+	parsedRetryAtMs: number | undefined,
+	outcome: UsageLimitOutcome | undefined,
+): number | undefined {
+	const deadlines = [
+		parsedRetryAtMs,
+		outcome?.reportResetAtMs,
+		outcome?.priorBlockedUntilTimed ? outcome.priorBlockedUntilMs : undefined,
+	].filter((deadlineMs): deadlineMs is number => deadlineMs !== undefined);
+	if (deadlines.length === 0) return undefined;
+	const resetAtMs = Math.ceil(Math.max(...deadlines));
+	return Number.isNaN(new Date(resetAtMs).getTime()) ? undefined : resetAtMs;
 }
 
 function syntheticToolResultTailStart(messages: readonly AgentMessage[]): number {
@@ -366,10 +395,22 @@ export class TurnRecovery {
 	#usageReserveApproval: { model: string; sessionId: string } | undefined;
 	#pendingRetryErrors: PendingRetryError[] = [];
 	#usageLimitOutcomes = new WeakMap<AssistantMessage, Promise<UsageLimitOutcome>>();
+	/**
+	 * Credential rows that failed with a usage limit in the current retry saga.
+	 * A claimed credential switch is trusted only when the failure came from a
+	 * row not in this set. Cleared when a saga starts, when a new prompt starts,
+	 * when the retry is cancelled (`abortRetry`), and whenever the model changes:
+	 * a fallback applied by recovery or the usage-aware preflight
+	 * (`applyRetryFallbackCandidate`), the Fireworks Fast-to-base switch, and the
+	 * primary restore after its cooldown. A row whose quota a saved reset
+	 * restores is removed, so a later genuine switch away from it is trusted.
+	 */
+	#usageLimitFailedCredentialIds = new Set<number>();
 	#emptyStopRetryCount = 0;
 	#unexpectedStopRetryCount = 0;
 	#malformedFunctionCallRetryCount = 0;
 	#streamStallContinueCount = 0;
+	#keyCommandRetryCount = 0;
 	#acceptTerminalEmptyStopForPrompt = false;
 	// Three fields sit near the word "serve" and are deliberately distinct:
 	// `#activeRetryFallback.served` gates the one-shot `retry_fallback_succeeded`
@@ -508,8 +549,10 @@ export class TurnRecovery {
 		this.#unexpectedStopRetryCount = 0;
 		this.#malformedFunctionCallRetryCount = 0;
 		this.#streamStallContinueCount = 0;
+		this.#keyCommandRetryCount = 0;
 		this.#acceptTerminalEmptyStopForPrompt = false;
 		this.#activeFallbackCreditRedemption = undefined;
+		this.#usageLimitFailedCredentialIds.clear();
 	}
 
 	/** Sets whether one terminal empty stop is accepted for the current prompt. */
@@ -592,6 +635,7 @@ export class TurnRecovery {
 			success: false,
 			attempt,
 			finalError: message.errorMessage,
+			kind: retryFailureKind(message.errorId),
 		});
 		this.#clearPendingRetryErrors();
 	}
@@ -2175,6 +2219,7 @@ export class TurnRecovery {
 			if (this.#activeRetryFallback) this.#activeRetryFallback.served = servedBeforeSwap;
 			return false;
 		}
+		this.#usageLimitFailedCredentialIds.clear();
 		this.#host.sessionManager.appendModelChange(candidateSelector, EPHEMERAL_MODEL_CHANGE_ROLE, true);
 		this.#host.settings.getStorage()?.recordModelUsage(candidateSelector);
 		this.#host.setThinkingLevel(nextThinkingLevel);
@@ -2490,6 +2535,7 @@ export class TurnRecovery {
 		// as fallback-served.
 		this.clearActiveRetryFallback();
 		await this.#host.setModelWithProviderSessionReset(primaryModel);
+		this.#usageLimitFailedCredentialIds.clear();
 		this.#host.sessionManager.appendModelChange(primarySelector, EPHEMERAL_MODEL_CHANGE_ROLE);
 		this.#host.settings.getStorage()?.recordModelUsage(primarySelector);
 		this.#host.setThinkingLevel(thinkingToApply);
@@ -2547,6 +2593,7 @@ export class TurnRecovery {
 
 		const generation = this.#host.promptGeneration();
 		this.#retryAttempt++;
+		if (this.#retryAttempt === 1) this.#usageLimitFailedCredentialIds.clear();
 
 		// Create retry promise on first attempt so waitForRetry() can await it
 		// Ensure only one promise exists (avoid orphaned promises from concurrent calls)
@@ -2565,7 +2612,21 @@ export class TurnRecovery {
 		const maxRetries = this.#isBoundedThinkingStreamClose(message)
 			? Math.min(retrySettings.maxRetries, 1)
 			: retrySettings.maxRetries;
-		const retryBudgetExhausted = this.#retryAttempt > maxRetries;
+		// A failing apiKey command has its own cap, like the other per-kind retry
+		// limits, counted within this retry run (`#retryAttempt` is 1 on its first failure).
+		this.#keyCommandRetryCount = isApiKeyCommandFailureMessage(message.errorMessage)
+			? (this.#retryAttempt === 1 ? 0 : this.#keyCommandRetryCount) + 1
+			: 0;
+		const keyCommandCapReached = this.#keyCommandRetryCount > KEY_COMMAND_MAX_RETRIES;
+		if (keyCommandCapReached) {
+			logger.warn("apiKey command kept producing no key after retry cap", {
+				attempts: this.#keyCommandRetryCount - 1,
+				model: message.model,
+				provider: message.provider,
+			});
+			this.#keyCommandRetryCount = 0;
+		}
+		const retryBudgetExhausted = this.#retryAttempt > maxRetries || keyCommandCapReached;
 
 		const errorMessage = message.errorMessage || "Unknown error";
 		const id = this.#classifyRetryMessage(message);
@@ -2578,6 +2639,7 @@ export class TurnRecovery {
 		const accountPolicyDenial = AIError.is(id, AIError.Flag.AccountPolicy);
 		const recordedUsageLimitOutcome = await this.#usageLimitOutcomes.get(message);
 		const parsedRetryAfterMs = this.#parseRetryAfterMsFromError(errorMessage);
+		const parsedRetryAtMs = parsedRetryAfterMs === undefined ? undefined : Date.now() + parsedRetryAfterMs;
 		let delayMs = staleOpenAIResponsesReplayError
 			? 0
 			: calculateRetryBackoffDelayMs(retrySettings.baseDelayMs, this.#retryAttempt);
@@ -2614,17 +2676,25 @@ export class TurnRecovery {
 		// hits its quota. Past the budget only a confirmed reset may continue: a
 		// rotation that keeps claiming a usable sibling would otherwise retry forever.
 		if (!staleOpenAIResponsesReplayError && recordedUsageLimitOutcome) {
-			const rotated = recordedUsageLimitOutcome.switchedCredential && !retryBudgetExhausted;
+			// A failure from a row that already failed in this saga means the
+			// previous claimed switch never left that row: selection can refuse a
+			// sibling the rotation check calls free (a per-account model list, a
+			// plan gate) and serve the failed row again. Trusting this claim too
+			// would retry that row with no delay until the budget runs out.
+			const failedCredentialId = message.credentialId;
+			const repeatedCredential =
+				failedCredentialId !== undefined && this.#usageLimitFailedCredentialIds.has(failedCredentialId);
+			if (failedCredentialId !== undefined) this.#usageLimitFailedCredentialIds.add(failedCredentialId);
+			const rotated = recordedUsageLimitOutcome.switchedCredential && !retryBudgetExhausted && !repeatedCredential;
 			let restored = false;
 			if (!rotated) {
 				const resetAbortController = new AbortController();
 				this.#retryAbortController?.abort();
 				this.#retryAbortController = resetAbortController;
 				const startedAtMs = Date.now();
-				const unblockAtMs = parsedRetryAfterMs === undefined ? undefined : startedAtMs + parsedRetryAfterMs;
 				try {
 					for (let attempt = 0; ; attempt++) {
-						const result = await this.#host.maybeAutoRedeemReset(unblockAtMs);
+						const result = await this.#host.maybeAutoRedeemReset(parsedRetryAtMs);
 						resetAbortController.signal.throwIfAborted();
 						if (result.restored) {
 							restored = true;
@@ -2653,6 +2723,8 @@ export class TurnRecovery {
 			if (rotated || restored) {
 				switchedCredential = true;
 				delayMs = 0;
+				if (restored && failedCredentialId !== undefined)
+					this.#usageLimitFailedCredentialIds.delete(failedCredentialId);
 			} else {
 				// No sibling credential is usable right now. Wait for whichever
 				// comes first: the current account's actual unblock deadline, or
@@ -2833,6 +2905,7 @@ export class TurnRecovery {
 				switchedModel = await this.#tryFireworksFastFallback(currentSelector);
 			}
 			if (switchedModel) {
+				this.#usageLimitFailedCredentialIds.clear();
 				delayMs = 0;
 			} else if (usageLimitWaitMs === undefined && parsedRetryAfterMs && parsedRetryAfterMs > delayMs) {
 				delayMs = parsedRetryAfterMs;
@@ -2844,7 +2917,13 @@ export class TurnRecovery {
 				const attempt = this.#retryAttempt - 1;
 				message.errorMessage = `Retry budget exhausted after ${attempt} ${attempt === 1 ? "retry" : "retries"}: ${errorMessage}`;
 				await this.#closeRetrySaga(
-					{ success: false, attempt, finalError: errorMessage },
+					{
+						success: false,
+						attempt,
+						finalError: errorMessage,
+						kind: retryFailureKind(id),
+						resetAtMs: providerStatedResetAtMs(parsedRetryAtMs, recordedUsageLimitOutcome),
+					},
 					{ terminalTurn: message, retryErrors: { status: "superseded" } },
 				);
 				return false;
@@ -2864,7 +2943,12 @@ export class TurnRecovery {
 			// an announcement that never resolves.
 			if (this.#retryAttempt > 1) {
 				await this.#closeRetrySaga(
-					{ success: false, attempt: this.#retryAttempt - 1, finalError: errorMessage },
+					{
+						success: false,
+						attempt: this.#retryAttempt - 1,
+						finalError: errorMessage,
+						kind: retryFailureKind(id),
+					},
 					{ terminalTurn: message },
 				);
 			}
@@ -2885,7 +2969,12 @@ export class TurnRecovery {
 			// Same auto_retry_end backstop as the classifier-refusal branch above.
 			if (this.#retryAttempt > 1) {
 				await this.#closeRetrySaga(
-					{ success: false, attempt: this.#retryAttempt - 1, finalError: errorMessage },
+					{
+						success: false,
+						attempt: this.#retryAttempt - 1,
+						finalError: errorMessage,
+						kind: retryFailureKind(id),
+					},
 					{ terminalTurn: message },
 				);
 			}
@@ -2927,6 +3016,8 @@ export class TurnRecovery {
 					success: false,
 					attempt,
 					finalError: `Provider requested ${Math.ceil(delayMs)}ms wait, exceeds retry.maxDelayMs (${maxDelayMs}ms). Original error: ${errorMessage}`,
+					kind: retryFailureKind(id),
+					resetAtMs: providerStatedResetAtMs(parsedRetryAtMs, recordedUsageLimitOutcome),
 				},
 				{ terminalTurn: message },
 			);
@@ -3103,6 +3194,7 @@ export class TurnRecovery {
 	 */
 	abortRetry(): void {
 		this.#retryAbortController?.abort();
+		this.#usageLimitFailedCredentialIds.clear();
 		// Note: _retryAttempt is reset in the catch block of _autoRetry
 		this.resolveRetry();
 	}

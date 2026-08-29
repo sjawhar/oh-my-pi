@@ -594,7 +594,7 @@ fn spawn_async_ao_list_in_task<SE: extensions::ShellExtensions>(
 	params: &ExecutionParameters,
 ) -> jobs::Job {
 	// Clone the inputs.
-	let mut cloned_shell = shell.clone();
+	let mut cloned_shell = shell.clone_for_subshell();
 	let cloned_params = params.clone();
 	let cloned_ao_list = ao_list.clone();
 
@@ -603,9 +603,12 @@ fn spawn_async_ao_list_in_task<SE: extensions::ShellExtensions>(
 	cloned_shell.options_mut().interactive = false;
 
 	let join_handle = tokio::spawn(async move {
-		cloned_ao_list
+		let result = cloned_ao_list
 			.execute(&mut cloned_shell, &cloned_params)
-			.await
+			.await;
+
+		// Ends the job: runs the EXIT trap it set itself, if any.
+		Ok(cloned_shell.end_child_context(&cloned_params, result).await)
 	});
 
 	jobs::Job::new(
@@ -830,7 +833,7 @@ async fn spawn_pipeline_processes(
 
 			PipelineExecutionContext {
 				shell: commands::ShellForCommand::OwnedShell {
-					target: Box::new(shell.clone()),
+					target: Box::new(shell.clone_for_subshell()),
 					parent: shell,
 				},
 				process_group_id,
@@ -844,9 +847,20 @@ async fn spawn_pipeline_processes(
 			}
 		};
 
-		let spawn_result = command
-			.execute_in_pipeline(pipeline_context, cmd_params)
-			.await?;
+		// A stage in its own shell that fails to start reports the error on its own and
+		// fails only that stage, as an error inside it does. A cancelled run is left to
+		// the parent, which reports the interruption once.
+		let spawn_result = match command.execute_in_pipeline(pipeline_context, cmd_params).await {
+			Ok(spawn_result) => spawn_result,
+			Err(error) if !run_in_current_shell && !params.is_cancelled() => {
+				let mut stderr = params.stderr(shell);
+				let _ = shell.display_error(&mut stderr, &error).await;
+				ExecutionSpawnResult::Completed(ExecutionResult::from(
+					error.into_result(shell).exit_code,
+				))
+			},
+			Err(error) => return Err(error),
+		};
 
 		// Update the process group ID if something was spawned.
 		if let ExecutionSpawnResult::StartedProcess(child) = &spawn_result {
@@ -993,12 +1007,18 @@ impl<SE: extensions::ShellExtensions> ExecuteInPipeline<SE> for ast::Command {
 						let redirects = redirects.clone();
 						let mut params = params;
 						Ok(ExecutionSpawnResult::StartedTask(tokio::spawn(async move {
-							if let Some(redirects) = &redirects {
-								for redirect in &redirects.0 {
-									setup_redirect(&mut shell, &mut params, redirect).await?;
+							let result = async {
+								if let Some(redirects) = &redirects {
+									for redirect in &redirects.0 {
+										setup_redirect(&mut shell, &mut params, redirect).await?;
+									}
 								}
+								compound.execute(&mut shell, &params).await
 							}
-							compound.execute(&mut shell, &params).await
+							.await;
+
+							// Ends the stage: runs the EXIT trap it set itself, if any.
+							Ok(shell.end_child_context(&params, result).await)
 						})))
 					},
 					mut shell => {
@@ -1064,25 +1084,13 @@ impl Execute for ast::CompoundCommand {
 			Self::Subshell(ast::SubshellCommand { list, .. }) => {
 				// Clone off a new subshell, and run the body of the subshell there.
 				// TODO(source-info): Do we need to reset the line number?
-				let mut subshell = shell.clone();
+				let mut subshell = shell.clone_for_subshell();
 
-				// Handle errors within the subshell context to prevent fatal errors
-				// from propagating to the parent shell.
-				let subshell_result = match list.execute(&mut subshell, params).await {
-					Ok(result) => result,
-					Err(error) => {
-						// Display the error to stderr, but prevent fatal error propagation
-						let mut stderr = params.stderr(shell);
-						let _ = shell.display_error(&mut stderr, &error).await;
-
-						// Convert error to result in subshell context
-						error.into_result(&subshell)
-					},
-				};
-
-				// Preserve the subshell's exit code, but don't honor any of its requests to
-				// exit the shell, break out of loops, etc.
-				Ok(ExecutionResult::from(subshell_result.exit_code))
+				// The subshell ends here however its body ended; only its exit code
+				// reaches the parent, never a request to exit the shell, break out of
+				// loops, etc., and a fatal error in it does not end the parent.
+				let result = list.execute(&mut subshell, params).await;
+				Ok(subshell.end_child_context(params, result).await)
 			},
 			Self::ForClause(f) => f.execute(shell, params).await,
 			Self::CaseClause(c) => c.execute(shell, params).await,
@@ -1133,7 +1141,7 @@ impl Execute for ast::CoprocessCommand {
 		let stdin_fd = shell.open_files_mut().add(stdin_writer.into())?;
 
 		// Crete a subshell that the coprocess will own and run in.
-		let mut child_shell = shell.clone();
+		let mut child_shell = shell.clone_for_subshell();
 		child_shell.options_mut().interactive = false;
 
 		// Setup redirection for the coprocess's shell's stdin/stdout.
@@ -1147,19 +1155,26 @@ impl Execute for ast::CoprocessCommand {
 
 		let body = self.body.clone();
 		let cancel_token = child_params.cancel_token();
+		let exit_params = child_params.clone();
 		let join_handle = tokio::spawn(async move {
-			let pipeline_context = PipelineExecutionContext {
-				shell:            commands::ShellForCommand::ParentShell(&mut child_shell),
-				process_group_id: None,
-				in_pipeline:       false,
-			};
-			let spawn_result = body
-				.execute_in_pipeline(pipeline_context, child_params)
-				.await?;
-			match spawn_result.wait_with_cancel(cancel_token).await? {
-				ExecutionWaitResult::Completed(result) => Ok(result),
-				ExecutionWaitResult::Stopped(_) => Ok(ExecutionResult::stopped()),
+			let result = async {
+				let pipeline_context = PipelineExecutionContext {
+					shell:            commands::ShellForCommand::ParentShell(&mut child_shell),
+					process_group_id: None,
+					in_pipeline:       false,
+				};
+				let spawn_result = body
+					.execute_in_pipeline(pipeline_context, child_params)
+					.await?;
+				match spawn_result.wait_with_cancel(cancel_token).await? {
+					ExecutionWaitResult::Completed(result) => Ok(result),
+					ExecutionWaitResult::Stopped(_) => Ok(ExecutionResult::stopped()),
+				}
 			}
+			.await;
+
+			// Ends the coprocess: runs the EXIT trap it set itself, if any.
+			Ok(child_shell.end_child_context(&exit_params, result).await)
 		});
 
 		let job = shell.jobs_mut().add_as_current(jobs::Job::new(
@@ -2306,7 +2321,7 @@ fn setup_process_substitution(
 ) -> Result<(ShellFd, OpenFile), error::Error> {
 	// TODO(execute): Don't execute synchronously!
 	// Execute in a subshell.
-	let mut subshell = shell.clone();
+	let mut subshell = shell.clone_for_subshell();
 
 	// Set up execution parameters for the child execution.
 	let mut child_params = params.clone();
@@ -2341,11 +2356,14 @@ fn setup_process_substitution(
 	// completion.
 	let subshell_cmd = subshell_cmd.to_owned();
 	tokio::spawn(async move {
-		// Intentionally ignore the result of the subshell command.
-		let _ = subshell_cmd
+		let result = subshell_cmd
 			.list
 			.execute(&mut subshell, &child_params)
 			.await;
+
+		// Ends the substitution: runs the EXIT trap it set itself, if any. The
+		// result of the subshell command is intentionally ignored.
+		let _ = subshell.end_child_context(&child_params, result).await;
 	});
 
 
