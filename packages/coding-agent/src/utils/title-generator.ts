@@ -19,6 +19,7 @@ import type { ModelRegistry } from "../config/model-registry";
 
 import { formatModelStringWithRouting } from "../config/model-resolver";
 import { collectOnlineTinyCandidates, expandOnlineTinyModelFallbacks } from "../tiny/online-candidates";
+import { isReduceMotion } from "../config/reduce-motion";
 import type { Settings } from "../config/settings";
 import titleMarkerInstruction from "../prompts/system/title-marker-instruction.md" with { type: "text" };
 import titleSystemPrompt from "../prompts/system/title-system.md" with { type: "text" };
@@ -718,7 +719,14 @@ function stopTerminalTitleSpinner(): void {
 }
 
 function startTerminalTitleSpinner(): void {
-	if (isConPTYHosted() || terminalTitleRuntime.disposed || terminalTitleRuntime.timer || !process.stdout.isTTY) return;
+	if (
+		isReduceMotion() ||
+		isConPTYHosted() ||
+		terminalTitleRuntime.disposed ||
+		terminalTitleRuntime.timer ||
+		!process.stdout.isTTY
+	)
+		return;
 	terminalTitleRuntime.timer = setInterval(() => {
 		terminalTitleRuntime.frame =
 			(terminalTitleRuntime.frame + 1) % TERMINAL_TITLE_SPINNER_STYLES[terminalTitleRuntime.style].length;
@@ -784,6 +792,12 @@ export function initTerminalTitleState(): void {
 	// Releasing the latch alone would leave a stopped timer behind a `working`
 	// state — a frozen spinner frame. Mirror the enable path and re-arm.
 	if (terminalTitleRuntime.state === "working" && terminalTitleRuntime.enabled) startTerminalTitleSpinner();
+}
+
+export function applyTerminalTitleReduceMotion(): void {
+	if (isReduceMotion()) stopTerminalTitleSpinner();
+	else if (terminalTitleRuntime.enabled && terminalTitleRuntime.state === "working") startTerminalTitleSpinner();
+	emitTerminalTitle();
 }
 
 /**

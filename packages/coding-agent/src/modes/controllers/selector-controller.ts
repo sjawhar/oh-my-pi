@@ -57,7 +57,7 @@ import type { SessionEntry, SessionTreeNode } from "../../session/session-entrie
 import type { SessionInfo } from "../../session/session-listing";
 import { SessionManager } from "../../session/session-manager";
 import { loadPinnedSessionIds } from "../../session/session-pins";
-import { FileSessionStorage } from "../../session/session-storage";
+import { defaultSessionStorage } from "../../session/session-storage";
 import { type LogoutAccount, toLogoutAccounts } from "../../slash-commands/helpers/logout";
 import {
 	describeRedeemOutcome,
@@ -1887,7 +1887,7 @@ export class SelectorController {
 					if (!(await this.#detachActiveSessionBeforeDeletion(session.path))) {
 						return false;
 					}
-					const storage = new FileSessionStorage();
+					const storage = defaultSessionStorage();
 					try {
 						await storage.deleteSessionWithArtifacts(session.path);
 						return true;
@@ -2039,7 +2039,7 @@ export class SelectorController {
 		}
 
 		// Check if session file exists (may not exist for brand new sessions)
-		const storage = new FileSessionStorage();
+		const storage = defaultSessionStorage();
 		const fileExists = await storage.exists(sessionFile);
 		if (!fileExists) {
 			this.ctx.showError("Session has not been saved yet");
