@@ -14,7 +14,11 @@ import * as path from "node:path";
 import { expandPromptTemplate, type PromptTemplate } from "@oh-my-pi/pi-coding-agent/config/prompt-templates";
 import { expandSlashCommand, type FileSlashCommand } from "@oh-my-pi/pi-coding-agent/extensibility/slash-commands";
 import { AgentRegistry, MAIN_AGENT_ID } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
-import { collectIrcPeerRoster } from "@oh-my-pi/pi-coding-agent/task/executor";
+import {
+	collectIrcPeerRoster,
+	type IrcPeerRosterSnapshot,
+	snapshotIrcPeerRoster,
+} from "@oh-my-pi/pi-coding-agent/task/executor";
 import { parseCommandArgs, substituteArgs } from "@oh-my-pi/pi-coding-agent/utils/command-args";
 import { prompt } from "@oh-my-pi/pi-utils";
 
@@ -386,5 +390,38 @@ describe("subagent peer roster prompt", () => {
 		expect(rendered).not.toContain("ParkedSecretId");
 		expect(rendered).not.toContain("secret parked label");
 		expect(rendered).not.toContain("reviewing classified.diff");
+	});
+
+	// Peer rows carry live activity: a rebuild that re-collects them changes the prompt's bytes and the
+	// provider writes the whole cached conversation again. A rebuild whose default blocks changed loses
+	// the cached prefix anyway, so it catches the roster up.
+	test("a rebuilt prompt keeps its roster until the default prompt or the roster root changes", () => {
+		const registry = new AgentRegistry();
+		registry.register({
+			id: "Peer",
+			displayName: "deep",
+			kind: "sub",
+			session: null,
+			status: "running",
+			activity: "reading a.ts",
+		});
+		const inputs: { ircRoster?: IrcPeerRosterSnapshot } = {};
+		const base = ["default: read"];
+
+		const first = snapshotIrcPeerRoster(inputs, registry, "Child", "/root-a.jsonl", base);
+		registry.setActivity("Peer", "editing b.ts");
+		registry.register({ id: "Late", displayName: "reviewer", kind: "sub", session: null, status: "running" });
+		const rebuilt = snapshotIrcPeerRoster(inputs, registry, "Child", "/root-a.jsonl", [...base]);
+		expect(rebuilt).toEqual(first);
+		expect(rebuilt.peers.map(peer => peer.activity)).toEqual(["reading a.ts"]);
+
+		const toolsChanged = snapshotIrcPeerRoster(inputs, registry, "Child", "/root-a.jsonl", ["default: read,grep"]);
+		expect(toolsChanged.peers.map(peer => peer.id).sort()).toEqual(["Late", "Peer"]);
+		expect(toolsChanged.peers.find(peer => peer.id === "Peer")?.activity).toBe("editing b.ts");
+
+		// A revive into another roster root collects again, so stale trees stay hidden.
+		registry.unregister("Late");
+		const moved = snapshotIrcPeerRoster(inputs, registry, "Child", "/root-b.jsonl", ["default: read,grep"]);
+		expect(moved.peers.map(peer => peer.id)).toEqual(["Peer"]);
 	});
 });

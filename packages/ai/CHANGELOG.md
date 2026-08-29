@@ -2,9 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `CredentialUnavailableError`, a transient error for a configured credential source that produced no key; unlike `MissingApiKeyError`, a retry may succeed ([#14031](https://github.com/can1357/oh-my-pi/pull/14031) by [@sjawhar](https://github.com/sjawhar)).
+- Added **Anthropic Console** to `/login`: sign in with a Claude Console account to use Claude models billed to your Console organization, without creating an API key. Console logins sit alongside Claude Pro/Max logins for the same organization.
+- `UserMessage` has an optional `tag`, a caller correlation id that stays with the message and is never sent to providers ([#14323](https://github.com/can1357/oh-my-pi/pull/14323) by [@sjawhar](https://github.com/sjawhar))
+
 ### Fixed
 
 - Fixed finalized signed reasoning disappearing from displayed thinking when no deltas streamed ([#16227](https://github.com/can1357/oh-my-pi/issues/16227))
+- Fixed Anthropic responses through a custom `baseUrl` (a gateway in front of Anthropic) losing their server-side fallback marker and redacted thinking from the saved turn, so the next request replays that turn's reasoning instead of being refused and retried without it ([#12352](https://github.com/can1357/oh-my-pi/pull/12352) by [@sjawhar](https://github.com/sjawhar))
+- For a tool with `lenientArgValidation` (the flag now lives on the base `Tool` type), `validateToolArguments` keeps every argument repair but puts back any unrecognized key it deleted to reach success, so a tool that owns its refusal sees every key the model wrote instead of a silently narrowed "valid" subset (a key the null-is-absent repair drops, such as a null optional field or an unknown null-valued key inside a closed nested object, stays dropped) ([#12871](https://github.com/can1357/oh-my-pi/pull/12871) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed processes that share one credential store disabling a working OAuth login: a 401 recovery now uses the stored token while it is not the token the provider rejected, instead of exchanging the refresh token again (every needless exchange revoked the access token the other processes were using), and a token already exchanged is saved through a busy database (retried, with the refresh lease re-armed) instead of being dropped, which left a spent refresh token for the next process to fail on with `invalid_grant`. A refresher that takes over a lease whose owner stalled now hands it back rather than disabling the login when that owner's token is rejected. Each successful exchange logs short fingerprints of the spent and the new token, so a log names the process that rotated a shared login
 
 ## [18.12.2] - 2026-10-18
 

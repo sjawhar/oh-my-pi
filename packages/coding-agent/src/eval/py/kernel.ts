@@ -24,9 +24,10 @@ import { PYTHON_PRELUDE } from "./prelude";
 import RUNNER_SCRIPT from "./runner.py" with { type: "text" };
 import {
 	enumeratePythonRuntimes,
-	filterEnv,
 	type PythonRuntime,
+	rebasePythonRuntime,
 	resolveExplicitPythonRuntime,
+	resolvePythonBaseEnv,
 	resolvePythonRuntime,
 } from "./runtime";
 import { hostHasInheritableConsole, shouldDetachKernel, shouldHideKernelWindow } from "./spawn-options";
@@ -80,7 +81,10 @@ export interface PythonKernelAvailability {
 	ok: boolean;
 	pythonPath?: string;
 	reason?: string;
-	/** The probed-working runtime, when one was found. */
+	/**
+	 * The probed-working runtime, when one was found. Its `env` is the one in force at probe time;
+	 * a kernel start rebuilds it from the current shell config.
+	 */
 	runtime?: PythonRuntime;
 }
 
@@ -109,6 +113,8 @@ interface PythonKernelExecuteOptions extends KernelExecuteOptions {
 // otherwise pays one (or two — backend.isAvailable + ensureKernelAvailable)
 // interpreter spawns even when the kernel is already hot. Failures are not
 // cached so installing a Python mid-session is picked up on the next attempt.
+// Only the interpreter choice is reused: PythonKernel.start rebuilds the
+// environment, so a shell-config refresh (a session switch) reaches new kernels.
 const availabilityCache = new Map<string, Promise<PythonKernelAvailability>>();
 
 export async function checkPythonKernelAvailability(
@@ -137,8 +143,7 @@ async function probePythonKernelAvailability(
 ): Promise<PythonKernelAvailability> {
 	try {
 		const settings = await Settings.init();
-		const { env } = settings.getShellConfig();
-		const baseEnv = filterEnv(env);
+		const baseEnv = resolvePythonBaseEnv(settings);
 		const runtimes = interpreter
 			? [resolveExplicitPythonRuntime(interpreter, cwd, baseEnv)]
 			: enumeratePythonRuntimes(cwd, baseEnv);
@@ -285,13 +290,14 @@ export class PythonKernel extends BaseKernel<PythonKernelExecuteOptions> {
 			throw new Error(availability.reason ?? "Python kernel unavailable");
 		}
 
-		let runtime = availability.runtime;
-		if (!runtime) {
-			const { env: shellEnv } = (await Settings.init()).getShellConfig();
-			runtime = options.interpreter
-				? resolveExplicitPythonRuntime(options.interpreter, options.cwd, filterEnv(shellEnv))
-				: resolvePythonRuntime(options.cwd, filterEnv(shellEnv));
-		}
+		// The probe may be cached from before a shell-config refresh (a session switch, an
+		// extension exporting session-scoped variables): start from the current environment.
+		const baseEnv = resolvePythonBaseEnv(await Settings.init());
+		const runtime = availability.runtime
+			? rebasePythonRuntime(availability.runtime, baseEnv)
+			: options.interpreter
+				? resolveExplicitPythonRuntime(options.interpreter, options.cwd, baseEnv)
+				: resolvePythonRuntime(options.cwd, baseEnv);
 		const spawnEnv: Record<string, string> = {};
 		for (const [key, value] of Object.entries(runtime.env)) {
 			if (typeof value === "string") spawnEnv[key] = value;

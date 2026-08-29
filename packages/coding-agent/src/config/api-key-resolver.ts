@@ -1,4 +1,9 @@
-import { type ApiKeyResolution, type ApiKeyResolver, markAfterSiblingWait } from "@oh-my-pi/pi-ai/auth-retry";
+import {
+	type ApiKeyResolution,
+	type ApiKeyResolver,
+	createOAuthProvenance,
+	markAfterSiblingWait,
+} from "@oh-my-pi/pi-ai/auth-retry";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import { isUsageLimitOutcome } from "@oh-my-pi/pi-ai/error/rate-limit";
 import type { AuthApiKeyOptions, AuthStorage } from "@oh-my-pi/pi-ai/auth-storage";
@@ -14,6 +19,28 @@ export interface ApiKeyResolverOptions {
 	baseUrl?: string;
 	/** Provider model id forwarded to model-scoped usage ranking/backoff. */
 	modelId?: string;
+}
+
+/**
+ * A provider's configured `!command` apiKey ran but produced no key (failed,
+ * timed out, or printed nothing). Transient, so turn auto-retry resolves again;
+ * `retryAfterMs` (the command's remaining failure backoff) rides on the message
+ * as the standard `retry-after-ms` hint, so each retry re-runs the command. The
+ * message never includes the command, which can carry credentials.
+ */
+export class ApiKeyCommandError extends AIError.CredentialUnavailableError {
+	constructor(provider: string, retryAfterMs: number | undefined) {
+		const hint = retryAfterMs ? ` retry-after-ms=${retryAfterMs}` : "";
+		super(`The apiKey command for provider ${provider} produced no key${hint}`);
+		this.name = "ApiKeyCommandError";
+	}
+}
+
+const API_KEY_COMMAND_FAILURE_PATTERN = /\bThe apiKey command for provider \S+ produced no key\b/;
+
+/** Whether a turn's error text is an {@link ApiKeyCommandError}, which turn recovery retries on its own cap. */
+export function isApiKeyCommandFailureMessage(errorMessage: string | undefined): boolean {
+	return errorMessage !== undefined && API_KEY_COMMAND_FAILURE_PATTERN.test(errorMessage);
 }
 
 /**
@@ -55,19 +82,28 @@ export function createApiKeyResolver(
 	options: ApiKeyResolverOptions = {},
 ): ApiKeyResolver {
 	const { sessionId, baseUrl, modelId } = options;
-	const resolveKey = (
+	// One resolver serves many requests, and they fail out of order, so the
+	// token a 401 rejected is looked up from the bearer that request sent.
+	const provenance = createOAuthProvenance();
+	const resolveKey = async (
 		forceRefresh: boolean | undefined,
 		signal?: AbortSignal,
 		refreshReason?: AuthApiKeyOptions["refreshReason"],
-	): Promise<ApiKeyResolution> =>
-		registry.getApiKeyWithCredentialForProvider(provider, sessionId, {
+		rejectedAccessToken?: string,
+	): Promise<ApiKeyResolution> => {
+		const resolved = await registry.getApiKeyWithCredentialForProvider(provider, sessionId, {
 			baseUrl,
 			modelId,
 			forceRefresh,
 			signal,
 			refreshReason,
+			rejectedAccessToken,
 		});
+		provenance.record(resolved);
+		return resolved;
+	};
 	return async ({ lastChance, error, signal, previousKey }) => {
+		const rejectedAccessToken = provenance.accessFor(previousKey);
 		if (error === undefined) {
 			return resolveKey(undefined);
 		}
@@ -95,6 +131,6 @@ export function createApiKeyResolver(
 			const resolved = await resolveKey(undefined);
 			return rotation.afterSiblingWait ? markAfterSiblingWait(resolved) : resolved;
 		}
-		return resolveKey(true, signal, AIError.status(error) === 401 ? "auth-recovery" : undefined);
+		return resolveKey(true, signal, AIError.status(error) === 401 ? "auth-recovery" : undefined, rejectedAccessToken);
 	};
 }
