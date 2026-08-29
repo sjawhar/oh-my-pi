@@ -42,6 +42,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent/session/codex-auto-reset";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { mockSchedulerWaitWithClock } from "./helpers/mock-scheduler-clock";
+import { servedByCredential } from "./helpers/served-by-credential";
 
 const ACCOUNT_ID = "acct-1";
 const EMAIL = "user@example.com";
@@ -156,6 +157,8 @@ describe("codex saved-reset trigger integration", () => {
 		report: UsageReport | null;
 		liveCredits: ResetCreditAccountStatus[];
 		streamErrorFirst?: boolean;
+		/** Leading requests that fail with the usage limit, each tagged with the stored row that served it. */
+		failuresServedBy?: number[];
 		storage?: AuthStorage;
 		accountId?: string;
 	}
@@ -187,6 +190,11 @@ describe("codex saved-reset trigger integration", () => {
 			initialState: { model, systemPrompt: ["Test"], tools: [], messages: [] },
 			streamFn: (requestedModel, context, options) => {
 				calls++;
+				const servedBy = opts.failuresServedBy?.[calls - 1];
+				if (servedBy !== undefined) {
+					mock.push({ throw: CODEX_USAGE_LIMIT_ERROR });
+					return servedByCredential(mock.stream(requestedModel, context, options), servedBy);
+				}
 				if (opts.streamErrorFirst && calls === 1) {
 					mock.push({ throw: CODEX_USAGE_LIMIT_ERROR });
 				} else {
@@ -253,6 +261,38 @@ describe("codex saved-reset trigger integration", () => {
 					),
 			);
 		expect(recovered).toBe(true);
+	});
+
+	it("trusts a later credential switch after a saved reset restores the failing account", async () => {
+		// Row 1 hits the limit with no free sibling and a saved reset restores it.
+		// When row 1 hits the limit again and the rotation check now finds a free
+		// sibling, that switch is genuine, not a repeat of the restored row.
+		const { session, redeemTargets } = buildSession({
+			settings: {
+				"codexResets.autoRedeem": "yes",
+				"codexResets.salvageHorizonHours": 0,
+				"retry.maxRetries": 3,
+			},
+			report: codexReport({ primaryUsed: 0.6, weeklyUsed: 0.5, limitReached: false, credits: 1 }),
+			liveCredits: [liveCreditStatus(1)],
+			failuresServedBy: [1, 1],
+		});
+		vi.spyOn(authStorage.limits, "markReached")
+			.mockResolvedValueOnce({ switched: false })
+			.mockResolvedValue({ switched: true });
+		mockSchedulerWaitWithClock();
+		const retryOutcomes: boolean[] = [];
+		session.subscribe(event => {
+			if (event.type === "auto_retry_end") retryOutcomes.push(event.success);
+		});
+
+		await session.prompt("trigger a codex usage limit twice");
+		await session.waitForIdle();
+
+		expect(redeemTargets).toEqual([
+			{ provider: "openai-codex", credentialId: 1, accountId: ACCOUNT_ID, email: EMAIL },
+		]);
+		expect(retryOutcomes).toEqual([true]);
 	});
 
 	it("recovers from a missing usage report only when live status supplies the unique credential", async () => {
