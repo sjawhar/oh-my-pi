@@ -1387,7 +1387,10 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		// A queued job launches (or adopts) its run when it starts; until then
 		// its widget has no tool tap to read.
 		let spawnRun: SpawnRun | undefined = run;
-		const buildFollowUpHint = async (aborted: boolean): Promise<string> => {
+		const buildFollowUpHint = async (
+			aborted: boolean,
+			budget?: { requests: number; limit: number },
+		): Promise<string> => {
 			// Isolated runs are parked without a reviver once the run ends
 			// (`finalizeSubagentLifecycle`), so "message it" would point the
 			// caller at a follow-up path that no longer exists. The template says
@@ -1402,6 +1405,9 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 				ircEnabled,
 				resumable: !isolated && isResumable(ref),
 				transcriptAvailable: aborted ? await hasResolvableTranscript(agentId) : true,
+				budgetCrossed: budget !== undefined,
+				budgetRequests: budget?.requests,
+				budgetLimit: budget?.limit,
 			})}`;
 		};
 		return manager.register(
@@ -1423,6 +1429,9 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						progress.resolvedThinkingLevel = nextProgress.resolvedThinkingLevel;
 						progress.resolvedModelIsFallback = nextProgress.resolvedModel
 							? nextProgress.resolvedModelIsFallback
+							: undefined;
+						progress.resolvedModelFallbackReason = nextProgress.resolvedModel
+							? nextProgress.resolvedModelFallbackReason
 							: undefined;
 						progress.advisor = nextProgress.advisor ?? progress.advisor;
 						progress.completionPercent = nextProgress.completionPercent ?? progress.completionPercent;
@@ -1527,18 +1536,25 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						progress.resolvedModelIdentity = singleResult.resolvedModelIdentity;
 						progress.resolvedThinkingLevel = singleResult.resolvedThinkingLevel;
 						progress.resolvedModelIsFallback = singleResult.resolvedModelIsFallback;
+						progress.resolvedModelFallbackReason = singleResult.resolvedModelFallbackReason;
 					} else {
 						delete progress.resolvedModel;
 						delete progress.resolvedModelIdentity;
 						delete progress.resolvedThinkingLevel;
 						delete progress.resolvedModelIsFallback;
+						delete progress.resolvedModelFallbackReason;
 					}
 					onSettled?.(resultFailed);
 					const statusText = resultFailed
 						? `Background task ${agentId} failed.`
 						: `Background task ${agentId} complete.`;
 					await reportProgress(statusText, buildDetails() as unknown as Record<string, unknown>);
-					const deliveryText = `${finalText}${await buildFollowUpHint(singleResult?.aborted === true)}`;
+					const deliveryText = `${finalText}${await buildFollowUpHint(
+						singleResult?.aborted === true,
+						singleResult?.budgetCrossed
+							? { requests: singleResult.requests, limit: singleResult.softRequestBudget ?? 0 }
+							: undefined,
+					)}`;
 					const structured = singleResult?.structuredOutput;
 					if (resultFailed) {
 						// Mark the job itself failed; the failed agent stays interrogable.
