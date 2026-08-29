@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parseArgs } from "@oh-my-pi/pi-coding-agent/cli/args";
 import { importRoomKey } from "@oh-my-pi/pi-coding-agent/collab/crypto";
@@ -20,10 +21,13 @@ import {
 	stopPendingStartupComposer,
 	takeStartupComposerLease,
 } from "@oh-my-pi/pi-coding-agent/modes/startup-composer";
+import { EXIT_FLUSH_MAX_ROWS } from "@oh-my-pi/pi-tui";
+import { TranscriptContainer } from "@oh-my-pi/pi-tui/chrome/transcript-container";
+import { Text } from "@oh-my-pi/pi-tui/components/text";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
-import { getProjectDir, setProjectDir } from "@oh-my-pi/pi-utils";
+import { getProjectDir, postmortem, setProjectDir } from "@oh-my-pi/pi-utils";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal";
 import { installInMemoryRelay, uninstallInMemoryRelay } from "./collab/helpers/in-memory-relay";
 import { createTestSession } from "./utilities";
@@ -500,6 +504,136 @@ describe("Composer prepaint", () => {
 		}
 	});
 
+	it("caps the exit flush only when the session file keeps the rows the cap skips", async () => {
+		// An unsaved (`--no-session`) transcript lives only in scrollback, so its
+		// quit keeps the full flush; `omp --resume` restores a saved one's messages.
+		const blocks = 1_100; // one row and one blank each: 2,200 rows, over the cap
+		for (const saved of [false, true]) {
+			const terminal = new VirtualTerminal(40, 10, 10_000);
+			const composer = new Composer({ preferences: config, terminal });
+			composer.start({ playWelcomeIntro: false });
+			const lease = new ComposerLease(composer);
+			const testSession = await createTestSession({ inMemory: !saved });
+			if (saved) await testSession.session.sessionManager.ensureOnDisk();
+			const mode = new InteractiveMode(
+				testSession.session,
+				"test",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				lease.composer,
+			);
+			lease.adopt();
+			const transcript = new TranscriptContainer();
+			for (let i = 0; i < blocks; i++) transcript.addChild(new Text(`row-${i}`, 0, 0));
+			lease.composer.setRuntimeChildren([transcript]);
+			try {
+				mode.stop();
+				await terminal.flush();
+				const rows = terminal
+					.getScrollBuffer()
+					.map(row => Bun.stripANSI(row).trim())
+					.filter(row => row.startsWith("row-"));
+				expect(rows.length).toBe(saved ? EXIT_FLUSH_MAX_ROWS / 2 : blocks);
+			} finally {
+				lease.dispose();
+				await testSession.cleanup();
+				vi.restoreAllMocks();
+			}
+		}
+	});
+
+	it("flushes a fatal-error or failed-teardown restore as a quit would, and caps a hangup's", async () => {
+		// Postmortem restores the terminal when the process ends with the TUI still
+		// running. Only a saved session's file keeps the rows a cap skips, and only
+		// while it is still being written; after a hangup no terminal is left to
+		// show them.
+		const blocks = 1_100; // one row and one blank each: 2,200 rows, over the cap
+		const capped = EXIT_FLUSH_MAX_ROWS / 2;
+		const cases = [
+			{ saved: false, state: "healthy", reason: postmortem.Reason.UNCAUGHT_EXCEPTION, kept: blocks },
+			{ saved: true, state: "healthy", reason: postmortem.Reason.UNCAUGHT_EXCEPTION, kept: capped },
+			// The escape hatch: `postmortem.quit()` after a failed teardown, which
+			// quits without writing the session log and finds the TUI running.
+			{ saved: true, state: "teardown failed", reason: postmortem.Reason.MANUAL, kept: blocks },
+			// After a latched disk failure the newest entries live only in memory.
+			{ saved: true, state: "disk failure", reason: postmortem.Reason.UNCAUGHT_EXCEPTION, kept: blocks },
+			{ saved: false, state: "healthy", reason: postmortem.Reason.SIGHUP, kept: capped },
+		] as const;
+		for (const { saved, state, reason, kept } of cases) {
+			const callbacks = new Map<string, (reason: postmortem.Reason) => void | Promise<void>>();
+			vi.spyOn(postmortem, "register").mockImplementation((id, callback) => {
+				callbacks.set(id, callback);
+				return () => {
+					callbacks.delete(id);
+				};
+			});
+			const terminal = new VirtualTerminal(40, 10, 10_000);
+			const composer = new Composer({ preferences: config, terminal });
+			// An animating welcome intro holds retirement, flush included.
+			composer.start({ playWelcomeIntro: false });
+			const lease = new ComposerLease(composer);
+			const testSession = await createTestSession({ inMemory: !saved });
+			if (saved) await testSession.session.sessionManager.ensureOnDisk();
+			const mode = new InteractiveMode(
+				testSession.session,
+				"test",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				lease.composer,
+			);
+			lease.adopt();
+			const transcript = new TranscriptContainer();
+			for (let i = 0; i < blocks; i++) transcript.addChild(new Text(`row-${i}`, 0, 0));
+			lease.composer.setRuntimeChildren([transcript]);
+			try {
+				if (state === "disk failure") {
+					// #12238: with the session directory replaced by a regular file,
+					// every write fails for real and the manager latches the failure.
+					const sessionDir = path.dirname(testSession.session.sessionManager.getSessionFile()!);
+					await fs.rm(sessionDir, { recursive: true, force: true });
+					await Bun.write(sessionDir, "not a directory\n");
+					await testSession.session.sessionManager.rewriteEntries().catch(() => undefined);
+				}
+				if (state === "teardown failed") {
+					// dispose() begins, then fails to write the session log.
+					vi.spyOn(testSession.session, "dispose").mockImplementation(async () => {
+						testSession.session.beginDispose();
+						throw new Error("session log not written");
+					});
+					vi.spyOn(mode, "showError").mockImplementation(() => {});
+					vi.spyOn(postmortem, "quit").mockImplementation(async () => {
+						await callbacks.get("tui-restore")?.(reason);
+					});
+					await mode.shutdown(); // the teardown fails and arms the escape hatch
+					await mode.shutdown();
+				} else {
+					await callbacks.get("tui-restore")!(reason);
+				}
+				await terminal.flush();
+				const rows = terminal
+					.getScrollBuffer()
+					.map(row => Bun.stripANSI(row).trim())
+					.filter(row => row.startsWith("row-"));
+				expect(rows).toEqual(Array.from({ length: kept }, (_, i) => `row-${blocks - kept + i}`));
+			} finally {
+				mode.stop();
+				lease.dispose();
+				// The real dispose, not the failing spy, releases the session.
+				vi.restoreAllMocks();
+				// Closing rethrows the latched disk failure; nothing else may fail here.
+				await testSession.cleanup().catch(error => {
+					if (state !== "disk failure") throw error;
+				});
+			}
+		}
+	});
+
 	it("tracks terminal ownership until a lease is adopted", () => {
 		const abandonedTerminal = new CountingTerminal();
 		const abandonedComposer = new Composer({ preferences: config, terminal: abandonedTerminal });
@@ -818,22 +952,30 @@ describe("Composer prepaint", () => {
 			.join("\n");
 		expect(output).toContain("rust-analyzer");
 	});
-	it("starts recent-session I/O only after the prepaint turn and transfers it across ownership", async () => {
+	it("starts the recent-session load once preferences arrive and transfers it across composer ownership", async () => {
+		// The list reads through the process-wide session storage, which main.ts
+		// installs right after settings resolve — the same moment preferences are
+		// applied. Loading at begin time would list the file tree under `sql`.
 		const terminal = new CountingTerminal(80, 32);
 		const load = Promise.withResolvers<Array<{ name: string; timeAgo: string }>>();
-		let calls = 0;
+		let loads = 0;
 		beginStartupComposer({
 			preferences: config,
 			terminal,
 			version: "9.9.9",
 			cache: false,
 			recentSessions: () => {
-				calls++;
+				loads++;
 				return load.promise;
 			},
 		});
+		expect(loads).toBe(0);
 
-		expect(calls).toBe(0);
+		// Preferences arm the load; the I/O itself still waits for the prepaint
+		// turn to yield, so nothing runs synchronously here either.
+		applyStartupComposerPreferences({ ...config, theme: {} });
+		expect(loads).toBe(0);
+
 		const lease = takeStartupComposerLease();
 		expect(lease).toBeDefined();
 		const updateWelcome = vi.spyOn(lease!.composer, "updateWelcome");
@@ -841,8 +983,26 @@ describe("Composer prepaint", () => {
 		const rows = [{ name: "already loading", timeAgo: "just now" }];
 		load.resolve(rows);
 		expect(await lease?.recentSessions).toEqual(rows);
-		expect(calls).toBe(1);
+		expect(loads).toBe(1);
 		expect(updateWelcome).not.toHaveBeenCalled();
+	});
+	it("a lease taken before preferences carries no recent-session load", () => {
+		const terminal = new CountingTerminal(80, 32);
+		let loads = 0;
+		beginStartupComposer({
+			preferences: config,
+			terminal,
+			version: "9.9.9",
+			cache: false,
+			recentSessions: () => {
+				loads++;
+				return Promise.resolve([]);
+			},
+		});
+		const lease = takeStartupComposerLease();
+		expect(lease?.recentSessions).toBeUndefined();
+		expect(loads).toBe(0);
+		lease?.dispose();
 	});
 	it("defers raw input until resolved settings arrive, adoption as fallback", async () => {
 		// Regression contract: losing the deferral re-blinds typing during the
