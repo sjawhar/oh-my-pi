@@ -17,7 +17,7 @@ import { buildSessionContext } from "./session-context";
 import type { FileEntry, RawFileEntry, SessionEntry, SessionHeader } from "./session-entries";
 import { migrateToCurrentVersion } from "./session-migrations";
 import { isExternalizableImagePosition, isPersistenceTruncatedString } from "./session-persistence";
-import { FileSessionStorage, type SessionStorage } from "./session-storage";
+import { defaultSessionStorage, FileSessionStorage, type SessionStorage } from "./session-storage";
 import { enotdir } from "./session-storage-errors";
 import {
 	parseTitleSlotFromContent,
@@ -25,13 +25,17 @@ import {
 	type SessionTitleUpdate,
 	titleUpdateFromSlot,
 } from "./session-title-slot";
+import { applyToolResultPrunes } from "./tool-result-prunes";
 
 const LF = new Uint8Array([0x0a]);
 
 const STREAM_LOAD_THRESHOLD_BYTES = 8 * 1024 * 1024;
 const STREAM_YIELD_BYTES = 1 * 1024 * 1024;
+const DIGEST_READ_BYTES = 1 * 1024 * 1024;
 const STREAM_YIELD_ENTRIES = 8_192;
 const BLOB_READ_CONCURRENCY = 8;
+/** Hash for snapshot freshness digests; collisions must not be producible by ordinary edits. */
+const SNAPSHOT_DIGEST_ALGORITHM = "sha256";
 
 /**
  * Complete optional accounting fields from persisted/imported assistant turns.
@@ -103,16 +107,18 @@ export interface VisitEntriesFromFileStreamOptions {
 	/** Rethrow missing source instead of visiting nothing (fork backstop). */
 	throwIfMissing?: boolean;
 	/**
-	 * Called with each stream chunk's byte length as it is consumed. Lets
-	 * callers derive the exact snapshot size without re-stating the file.
+	 * Called with each stream chunk as it is consumed. Lets callers derive the
+	 * exact snapshot size and digest without reading the file again.
 	 */
-	onBytesConsumed?: (bytes: number) => void;
+	onChunk?: (chunk: Uint8Array) => void;
 }
 
 /** Controls how a missing session file is handled. */
 export interface LoadSessionOptions {
 	/** Propagate ENOENT instead of treating the path as a new empty session. */
 	throwIfMissing?: boolean;
+	/** Record {@link SessionLoadResult.sourceDigest} for a later {@link sessionContentDigest} comparison. */
+	digest?: boolean;
 }
 
 /** Parsed session entries plus corruption metadata needed by writable loaders. */
@@ -122,6 +128,8 @@ export interface SessionLoadResult {
 	malformedRecords: number;
 	/** Byte length of the snapshot actually parsed, or `null` when the path did not exist. */
 	sourceSize?: number | null;
+	/** {@link sessionContentDigest} of the parsed snapshot, when the load was asked for one. */
+	sourceDigest?: string;
 	/** Whether non-empty session data was found without a valid leading session header. */
 	invalidHeader: boolean;
 }
@@ -331,7 +339,7 @@ export async function visitEntriesFromFileStream(
 		for await (const chunk of source.stream()) {
 			if (stopped) break;
 			bytesSinceYield += chunk.byteLength;
-			options.onBytesConsumed?.(chunk.byteLength);
+			options.onChunk?.(chunk);
 			// Parsing before the chunk closes a line re-scans the unfinished record
 			// on every chunk, which is quadratic for large records.
 			if (chunk.lastIndexOf(0x0a) === -1) {
@@ -394,11 +402,12 @@ export async function visitEntriesFromFileStream(
 /** Exported for testing — the ≥8MiB streaming path (works on any file size). */
 export async function loadEntriesFromFileStream(
 	filePath: string,
-	options?: Pick<VisitEntriesFromFileStreamOptions, "throwIfMissing">,
+	options?: Pick<LoadSessionOptions, "throwIfMissing" | "digest">,
 ): Promise<SessionLoadResult> {
 	const entries: FileEntry[] = [];
 	let malformedRecords = 0;
 	let bytesConsumed = 0;
+	const hasher = options?.digest ? new Bun.CryptoHasher(SNAPSHOT_DIGEST_ALGORITHM) : undefined;
 	const titleSlot = await visitEntriesFromFileStream(
 		filePath,
 		entry => {
@@ -409,8 +418,9 @@ export async function loadEntriesFromFileStream(
 				malformedRecords++;
 			},
 			throwIfMissing: options?.throwIfMissing,
-			onBytesConsumed: bytes => {
-				bytesConsumed += bytes;
+			onChunk: chunk => {
+				bytesConsumed += chunk.byteLength;
+				hasher?.update(chunk);
 			},
 		},
 	);
@@ -419,6 +429,7 @@ export async function loadEntriesFromFileStream(
 		titleSlot,
 		malformedRecords,
 		sourceSize: bytesConsumed,
+		sourceDigest: hasher?.digest("hex"),
 		invalidHeader: entries.length > 0 ? !isValidSessionHeader(entries[0]) : malformedRecords > 0,
 	};
 }
@@ -430,19 +441,51 @@ function shouldStreamEntries(storage: SessionStorage, size: number): boolean {
 	return storage instanceof FileSessionStorage && size >= STREAM_LOAD_THRESHOLD_BYTES;
 }
 
+/**
+ * Digest of `filePath`'s current content, read the way {@link loadSessionFile}
+ * reads a file of its size: raw bytes for a large file-backed journal, the
+ * storage's text otherwise. Equal to a load's
+ * {@link SessionLoadResult.sourceDigest} only when the content is unchanged, so
+ * it is a freshness check that trusts no size, mtime, or inode. Throws ENOENT
+ * when the session is gone, including a row an indexed backend no longer holds.
+ * A large journal is hashed through one reused buffer, so the check adds no
+ * memory proportional to the file on top of the parse it follows.
+ */
+export async function sessionContentDigest(filePath: string, storage: SessionStorage): Promise<string> {
+	const hasher = new Bun.CryptoHasher(SNAPSHOT_DIGEST_ALGORITHM);
+	if (shouldStreamEntries(storage, storage.statSync(filePath).size)) {
+		const handle = await fs.open(filePath, "r");
+		try {
+			const buffer = Buffer.allocUnsafe(DIGEST_READ_BYTES);
+			for (;;) {
+				const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null);
+				if (bytesRead === 0) break;
+				hasher.update(buffer.subarray(0, bytesRead));
+			}
+		} finally {
+			await handle.close();
+		}
+	} else {
+		hasher.update(await storage.readText(filePath));
+	}
+	return hasher.digest("hex");
+}
+
 async function loadWithKnownSize(
 	filePath: string,
 	storage: SessionStorage,
 	size: number,
-	options?: { throwIfMissing?: boolean },
+	options?: LoadSessionOptions,
 ): Promise<{ loaded: SessionLoadResult; sourceSize: number }> {
 	if (shouldStreamEntries(storage, size)) {
-		const loaded = await loadEntriesFromFileStream(filePath, { throwIfMissing: options?.throwIfMissing });
+		const loaded = await loadEntriesFromFileStream(filePath, options);
 		const sourceSize = loaded.sourceSize ?? 0;
 		return { loaded: loaded.invalidHeader ? { ...loaded, entries: [] } : loaded, sourceSize };
 	}
 	const content = await storage.readText(filePath);
 	const loaded = parseSessionContent(content);
+	if (options?.digest)
+		loaded.sourceDigest = new Bun.CryptoHasher(SNAPSHOT_DIGEST_ALGORITHM).update(content).digest("hex");
 	return {
 		loaded: loaded.invalidHeader ? { ...loaded, entries: [] } : loaded,
 		sourceSize: Buffer.byteLength(content, "utf8"),
@@ -472,7 +515,7 @@ export async function hasFileAsPathComponent(filePath: string): Promise<boolean>
 /** Load and validate a session while retaining malformed-record diagnostics. */
 export async function loadSessionFile(
 	filePath: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 	options: LoadSessionOptions = {},
 ): Promise<SessionLoadResult> {
 	try {
@@ -512,7 +555,7 @@ export async function loadSessionFile(
  */
 export async function loadEntriesFromFile(
 	filePath: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 	options?: { throwIfMissing?: boolean },
 ): Promise<FileEntry[]> {
 	return (await loadSessionFile(filePath, storage, options)).entries;
@@ -525,7 +568,7 @@ export async function loadEntriesFromFile(
 export async function visitEntriesFromFile(
 	filePath: string,
 	visit: (entry: FileEntry) => void | boolean,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 ): Promise<void> {
 	const size = storage.statSync(filePath).size;
 	if (shouldStreamEntries(storage, size)) {
@@ -695,16 +738,18 @@ export function resolveBlobRefsInEntriesSync(entries: FileEntry[], blobStore: Bl
 
 /**
  * Read-only transcript view of a session file: load entries, migrate to the
- * current version, resolve blob refs, and build the display transcript along
- * the persisted leaf path (last entry). Uses transcript mode (collapsed to the
- * latest compaction) so failed/aborted tail turns stay visible, unlike the
- * provider-context builder which drops them. Does NOT create a writer or take
- * the session lock — safe to call against a file another session is writing.
+ * current version, apply prune records, resolve blob refs, and build the
+ * display transcript along the persisted leaf path (last entry). Uses
+ * transcript mode (collapsed to the latest compaction) so failed/aborted tail
+ * turns stay visible, unlike the provider-context builder which drops them.
+ * Does NOT create a writer or take the session lock — safe to call against a
+ * file another session is writing.
  */
 export async function loadSessionMessagesReadOnly(filePath: string): Promise<AgentMessage[]> {
 	const entries = await loadEntriesFromFile(filePath);
 	if (entries.length === 0) return [];
 	migrateToCurrentVersion(entries);
+	applyToolResultPrunes(entries);
 	for (const entry of entries) repairTruncatedSnapcompactFrames(entry);
 	const blobs = new BlobStore(getBlobsDir());
 	const sessionEntries = entries.filter((e): e is SessionEntry => e.type !== "session");
