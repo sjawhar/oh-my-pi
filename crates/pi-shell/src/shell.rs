@@ -1929,6 +1929,7 @@ const fn session_keepalive(result: &ExecutionResult) -> bool {
 		ExecutionControlFlow::ContinueLoop { .. } => false,
 		ExecutionControlFlow::ReturnFromFunctionOrScript => false,
 		ExecutionControlFlow::ExitShell => false,
+		ExecutionControlFlow::ExitShellOnFatalError => false,
 	}
 }
 
