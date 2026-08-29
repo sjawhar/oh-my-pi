@@ -21,6 +21,7 @@ import type {
 	SendUserMessageHandler,
 	TerminalInputHandler,
 } from "../../extensibility/extensions";
+import { createAskEphemeralHandler } from "../../extensibility/extensions/ask-ephemeral";
 import { getSessionSlashCommands } from "../../extensibility/extensions/get-commands-handler";
 import { AskDialogComponent, boundPromptTitle, normalizeDialogQuestions } from "../../modes/components/ask-dialog";
 import { installExtensionComposerShape } from "../../modes/components/composer-shape-registry";
@@ -30,9 +31,11 @@ import { HookInputComponent } from "../../modes/components/hook-input";
 import { HookSelectorComponent, type HookSelectorSlider } from "../../modes/components/hook-selector";
 import { getAvailableThemesWithPaths, getThemeByName, setTheme, type Theme, theme } from "../../modes/theme/theme";
 import type { InteractiveModeContext, InteractiveSelectorDialogOptions } from "../../modes/types";
+import { MAIN_AGENT_ID } from "../../registry/agent-registry";
 import { normalizeCustomMessagePayload, USER_INTERRUPT_LABEL } from "../../session/messages";
 import { disambiguateDisplayLabels, sanitizeCarriageReturns } from "../../tools/render-utils";
 import { setExtensionTerminalTitle, setSessionTerminalTitle } from "../../utils/title-generator";
+import { createExtensionAgentActions } from "../runtime-init";
 
 const MAX_WIDGET_LINES = 10;
 const ASK_OTHER_OPTION = "Other (type your own)";
@@ -178,9 +181,14 @@ export class ExtensionUiController {
 					});
 			},
 			sendUserMessage: this.#sendExtensionUserMessage,
+			askEphemeral: createAskEphemeralHandler(this.ctx.session),
 			appendEntry: (customType, data) => {
 				this.ctx.sessionManager.appendCustomEntry(customType, data);
 			},
+			...createExtensionAgentActions({
+				scopeAgentId: this.ctx.session.getAgentId() ?? MAIN_AGENT_ID,
+				getScopeSessionFile: () => this.ctx.sessionManager?.getSessionFile?.() ?? null,
+			}),
 			setLabel: (targetId, label) => {
 				this.ctx.sessionManager.appendLabelChange(targetId, label);
 			},
@@ -315,6 +323,11 @@ export class ExtensionUiController {
 		await extensionRunner.emit({
 			type: "session_start",
 		});
+		// resources_discover fires after `session_start` (extensibility/extensions/types.ts) —
+		// only now are runtime actions and the error listener above wired, so
+		// extension-contributed skill directories are folded into the session's
+		// skill snapshot before the first prompt.
+		await this.ctx.session.discoverStartupSkillPaths();
 	}
 
 	/**
@@ -414,9 +427,14 @@ export class ExtensionUiController {
 					});
 			},
 			sendUserMessage: this.#sendExtensionUserMessage,
+			askEphemeral: createAskEphemeralHandler(this.ctx.session),
 			appendEntry: (customType, data) => {
 				this.ctx.sessionManager.appendCustomEntry(customType, data);
 			},
+			...createExtensionAgentActions({
+				scopeAgentId: this.ctx.session.getAgentId() ?? MAIN_AGENT_ID,
+				getScopeSessionFile: () => this.ctx.sessionManager?.getSessionFile?.() ?? null,
+			}),
 			setLabel: (targetId, label) => {
 				this.ctx.sessionManager.appendLabelChange(targetId, label);
 			},

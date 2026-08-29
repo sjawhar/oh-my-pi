@@ -17,6 +17,7 @@ import { type Settings, withActiveSettings } from "../../config/settings";
 import type { LocalProtocolOptions } from "../../internal-urls/local-protocol";
 import type { MemoryRuntimeContext } from "../../memory-backend";
 import { type Theme, theme } from "../../modes/theme/theme";
+import { MAIN_AGENT_ID } from "../../registry/agent-registry";
 import type { AsyncJobSnapshot } from "../../session/agent-session";
 import type { SessionManager } from "../../session/session-manager";
 import { addFileDeleteFallback, addFileWriteFallback } from "../../tools/file-write-fallback";
@@ -36,6 +37,7 @@ import type {
 	ContextEventResult,
 	ContextUsage,
 	Extension,
+	ExtensionAgentIdentity,
 	ExtensionActions,
 	ExtensionCommandContext,
 	ExtensionCommandContextActions,
@@ -88,6 +90,14 @@ let extensionHandlerTimeoutMs = EXTENSION_HANDLER_TIMEOUT_MS;
 
 function throwUnsupportedServiceTierAction(): never {
 	throw new Error("This extension host does not support service-tier actions");
+}
+
+function throwUnsupportedAgentsAction(): never {
+	throw new Error("This extension host does not support agents actions");
+}
+
+function throwUnsupportedAskEphemeralAction(): never {
+	throw new Error("This extension host does not support ephemeral questions");
 }
 
 export function testSetExtensionHandlerTimeoutMs(timeoutMs: number): void {
@@ -607,6 +617,8 @@ export class ExtensionRunner {
 		private readonly settings?: Settings,
 		private readonly localProtocolOptions?: LocalProtocolOptions,
 		getAsyncJobSnapshot?: () => AsyncJobSnapshot | null,
+		/** Defaults to the top-level identity; `createAgentSession` always passes the session's own. */
+		private readonly agent: ExtensionAgentIdentity = { id: MAIN_AGENT_ID, isSubagent: false },
 	) {
 		this.#uiContext = noOpUIContext;
 		this.#getMemoryFn = getMemory;
@@ -653,7 +665,12 @@ export class ExtensionRunner {
 		// Copy actions into the shared runtime (all extension APIs reference this)
 		this.runtime.sendMessage = actions.sendMessage;
 		this.runtime.sendUserMessage = actions.sendUserMessage;
+		this.runtime.askEphemeral = actions.askEphemeral ?? throwUnsupportedAskEphemeralAction;
 		this.runtime.appendEntry = actions.appendEntry;
+		this.runtime.agentsList = actions.agentsList ?? throwUnsupportedAgentsAction;
+		this.runtime.agentsGet = actions.agentsGet ?? throwUnsupportedAgentsAction;
+		this.runtime.agentsEnsureLive = actions.agentsEnsureLive ?? throwUnsupportedAgentsAction;
+		this.runtime.agentsPrompt = actions.agentsPrompt ?? throwUnsupportedAgentsAction;
 		this.runtime.getActiveTools = actions.getActiveTools;
 		this.runtime.getAllTools = actions.getAllTools;
 		this.runtime.setActiveTools = async toolNames => {
@@ -1170,6 +1187,7 @@ export class ExtensionRunner {
 		return {
 			ui: this.#uiContext,
 			mode: this.#mode,
+			agent: this.agent,
 			getContextUsage: () => this.#getContextUsageFn(),
 			compact: instructionsOrOptions => this.#compactFn(instructionsOrOptions),
 			getAsyncJobSnapshot: () => this.#getAsyncJobSnapshotFn(),
@@ -1558,6 +1576,33 @@ export class ExtensionRunner {
 		const promptPaths: Array<{ path: string; extensionPath: string }> = [];
 		const themePaths: Array<{ path: string; extensionPath: string }> = [];
 
+		// Handler throws are isolated inside #runHandlerWithTimeout, but a
+		// malformed *return value* (e.g. `{ skillPaths: "./skills" }`, whose
+		// truthy `.length` used to reach `.map`) would throw here in the
+		// aggregation — and startup awaits this emitter in every mode, so one
+		// bad extension return would abort session initialization. Validate
+		// each field, report through the extension error listener, and skip.
+		const validatedPaths = (ext: Extension, field: string, value: unknown): string[] => {
+			if (value === undefined || value === null) return [];
+			if (!Array.isArray(value)) {
+				this.emitError({
+					extensionPath: ext.path,
+					event: "resources_discover",
+					error: `resources_discover result field \`${field}\` must be an array of strings, got ${typeof value}`,
+				});
+				return [];
+			}
+			const strings = value.filter((entry): entry is string => typeof entry === "string");
+			if (strings.length !== value.length) {
+				this.emitError({
+					extensionPath: ext.path,
+					event: "resources_discover",
+					error: `resources_discover result field \`${field}\` contains ${value.length - strings.length} non-string entr${value.length - strings.length === 1 ? "y" : "ies"}; they were skipped`,
+				});
+			}
+			return strings;
+		};
+
 		for (const ext of this.extensions) {
 			const handlers = ext.handlers.get("resources_discover");
 			if (!handlers || handlers.length === 0) continue;
@@ -1572,16 +1617,20 @@ export class ExtensionRunner {
 					extensionHandlerTimeoutMs,
 				);
 				const result = handlerResult as ResourcesDiscoverResult | undefined;
+				if (!result) continue;
 
-				if (result?.skillPaths?.length) {
-					skillPaths.push(...result.skillPaths.map(path => ({ path, extensionPath: ext.path })));
-				}
-				if (result?.promptPaths?.length) {
-					promptPaths.push(...result.promptPaths.map(path => ({ path, extensionPath: ext.path })));
-				}
-				if (result?.themePaths?.length) {
-					themePaths.push(...result.themePaths.map(path => ({ path, extensionPath: ext.path })));
-				}
+				skillPaths.push(
+					...validatedPaths(ext, "skillPaths", result.skillPaths).map(path => ({ path, extensionPath: ext.path })),
+				);
+				promptPaths.push(
+					...validatedPaths(ext, "promptPaths", result.promptPaths).map(path => ({
+						path,
+						extensionPath: ext.path,
+					})),
+				);
+				themePaths.push(
+					...validatedPaths(ext, "themePaths", result.themePaths).map(path => ({ path, extensionPath: ext.path })),
+				);
 			}
 		}
 
