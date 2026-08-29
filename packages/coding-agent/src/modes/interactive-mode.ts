@@ -35,7 +35,7 @@ import {
 	setTuiTight,
 	TERMINAL,
 	Text,
-	type TUI,
+	TUI,
 	renderProgressBar,
 	visibleWidth,
 	wrapTextWithAnsi,
@@ -62,6 +62,7 @@ import type { CollabGuestLink } from "../collab/guest";
 import { CollabController } from "../collab/controller";
 import type { CollabHost } from "../collab/host";
 import { formatKeyHint, KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
+import { reduceMotionLevel } from "@oh-my-pi/pi-tui/reduce-motion";
 import { formatModelString, type ResolvedModelRoleValue } from "../config/model-resolver";
 import { isSettingsInitialized, Settings, settings } from "../config/settings";
 import { clearClaudePluginRootsCache } from "../discovery/helpers";
@@ -182,6 +183,7 @@ import { getSessionAccentAnsi, getSessionAccentHex } from "@oh-my-pi/pi-tui/them
 import { messageHasDisplayableThinking } from "@oh-my-pi/pi-tui/chat/thinking-display";
 import type { TokenRateMeter } from "../utils/token-rate";
 import {
+	applyTerminalTitleReduceMotion,
 	disposeTerminalTitleState,
 	initTerminalTitleState,
 	popTerminalTitle,
@@ -304,6 +306,7 @@ import {
 	cfgDisplayCollapseCompacted,
 	cfgDisplayHideToolActivity,
 	cfgDisplayPinnedAgents,
+	cfgDisplayReduceMotion,
 	cfgDisplayShowTokenUsage,
 	cfgDisplayShowTurnTime,
 	cfgGitEnabled,
@@ -379,6 +382,7 @@ const cfgLiveUiSettings = combine({
 	"tui.vimMode": cfgTuiVimMode,
 	"tui.vimModeDisplay": cfgTuiVimModeDisplay,
 	"display.pinnedAgents": cfgDisplayPinnedAgents,
+	"display.reduceMotion": cfgDisplayReduceMotion,
 	"compaction.idleEnabled": cfgCompactionIdleEnabled,
 	"compaction.idleThresholdTokens": cfgCompactionIdleThresholdTokens,
 	"compaction.idleTimeoutSeconds": cfgCompactionIdleTimeoutSeconds,
@@ -1452,6 +1456,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		setTuiTight(cfgTuiTight.get(settings));
 		setMarkdownMermaidRendering(cfgTuiRenderMermaid.get(settings));
 		this.#applyTextSizingSetting();
+		this.#applyReduceMotion();
 		// Keep generic pi-tui renderers aligned with the coding-agent setting.
 		applyHyperlinkSetting();
 		this.ui.setInlineMouseTrackingProvider(() => {
@@ -2147,6 +2152,23 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 
 		return [...builtinCommands, ...hookCommands, ...customCommands, ...skillCommandList];
+	}
+
+	/**
+	 * Rebuilds the pending slash commands, including `/skill:<name>` entries, from
+	 * live session state and re-points the editor's autocomplete provider at the
+	 * result. The provider snapshots `#pendingSlashCommands` when
+	 * `refreshSlashCommandState` builds it, and `init:slashCommands` runs before
+	 * the startup `resources_discover` pass — so without the rebuild, skills an
+	 * extension contributes at startup are invocable but never offered in
+	 * autocomplete until the next reload. Reuses the session's already
+	 * discovered file commands, so this never re-walks the providers.
+	 */
+	#syncSkillSlashCommands(): void {
+		this.#pendingSlashCommands = this.#buildPendingSlashCommands();
+		if (this.#baseAutocompleteProvider) {
+			this.#rebuildSlashCommandAutocomplete(this.sessionManager.getCwd());
+		}
 	}
 
 	/** Reload session skills and the `/skill:<name>` command list. */
@@ -2922,6 +2944,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		return computeEditorMaxHeight(this.ui.terminal.rows);
 	}
 
+	#applyReduceMotion(): void {
+		TUI.setMinRenderInterval(reduceMotionLevel() === "strict" ? 250 : 1000 / 30);
+		applyTerminalTitleReduceMotion();
+		this.ui.requestRender();
+	}
+
 	#syncEditorMaxHeight(): void {
 		this.editor.setMaxHeight(this.#computeEditorMaxHeight());
 	}
@@ -2978,6 +3006,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (any("composer.shape")) this.syncComposerShape();
 		if (any("tui.vimMode", "tui.vimModeDisplay")) this.#applyVimModeSetting();
 		if (any("display.pinnedAgents")) this.applyPinnedAgentsSetting();
+		if (any("display.reduceMotion")) this.#applyReduceMotion();
 		if (any("compaction.idleEnabled", "compaction.idleThresholdTokens", "compaction.idleTimeoutSeconds")) {
 			this.#eventController.refreshIdleCompactionTimer();
 		}
@@ -7432,8 +7461,15 @@ export class InteractiveMode implements InteractiveModeContext {
 	}
 
 	// Hook UI methods
-	initHooksAndCustomTools(): Promise<void> {
-		return this.#extensionUiController.initHooksAndCustomTools();
+	async initHooksAndCustomTools(): Promise<void> {
+		await this.#extensionUiController.initHooksAndCustomTools();
+		// The controller's startup resources_discover pass may have
+		// contributed a new skill directory (session.skills), but the
+		// subscribeCommandMetadataChanged listener that keeps skillCommands
+		// in sync is registered later, in init() — sync once here so a skill
+		// discovered at startup is immediately recognized by `/skill:<name>`
+		// and offered in autocomplete instead of waiting for a later reload.
+		this.#syncSkillSlashCommands();
 	}
 
 	getToolUIContext(): ExtensionUIContext | undefined {

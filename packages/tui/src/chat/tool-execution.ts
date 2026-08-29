@@ -7,6 +7,7 @@ import { Text } from "../components/text";
 import { getImageDimensions, ImageProtocol, imageFallback, TERMINAL } from "../terminal-capabilities";
 import { type Component, Container, type TUI } from "../tui";
 import { truncateToWidth } from "../utils";
+import { isReduceMotion } from "../reduce-motion";
 import { getProjectDir, isRecord, logger, sanitizeText } from "@oh-my-pi/pi-utils";
 import type { Theme } from "../theme/theme";
 import { ensureThemeSync, getThemeEpoch, theme } from "../theme/theme";
@@ -645,6 +646,12 @@ export class ToolExecutionComponent extends Container {
 		const completedTasks = (this.#result?.details as { completedTasks?: unknown[] } | undefined)?.completedTasks;
 		if (!completedTasks || completedTasks.length === 0) {
 			this.#stopTodoStrikeAnimation();
+			return;
+		}
+		if (isReduceMotion()) {
+			this.#stopTodoStrikeAnimation();
+			this.#spinnerFrame = TODO_STRIKE_TOTAL_FRAMES;
+			this.#renderState.spinnerFrame = TODO_STRIKE_TOTAL_FRAMES;
 			return;
 		}
 		if (this.#todoStrikeInterval) return;
