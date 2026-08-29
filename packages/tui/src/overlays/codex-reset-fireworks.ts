@@ -7,6 +7,7 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "../index";
+import { isReduceMotion } from "../reduce-motion";
 import { type ThemeColor, theme } from "../theme/theme";
 import { formatKeyHint } from "../app-keybindings";
 
@@ -344,6 +345,7 @@ export class CodexResetFireworksController {
 
 	/** Present a celebration unless another one already owns the modal overlay. */
 	show(event: CodexResetFireworksEvent): boolean {
+		if (isReduceMotion()) return false;
 		if (this.#active) return false;
 		const component = new CodexResetFireworksComponent(this.host, event);
 		const overlay = this.host.ui.showOverlay(component, {
