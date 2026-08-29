@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed `PruneResult.undo()` from `pruneToolOutputs` and `pruneSupersededToolResults`; persist `PruneResult.pruned` instead of rolling the prune back when saving it fails.
+
+### Added
+
+- Added `PruneResult.pruned`, a list of exported `ToolResultPrune` records (each blanked tool result's entry id, notice, and `prunedAt`), and `blankToolResult()`, which applies one record to a loaded copy of its tool result.
+
+### Fixed
+
+- A turn that fails with a thrown `CredentialUnavailableError` now carries its transient classification (`errorId`) on the error message, so a host's turn retry can treat it as retryable.
+
 ## [18.6.0] - 2026-10-03
 
 ### Fixed

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `TtyWriter.discard()`, which drops terminal output that was queued but not yet written; the chunk already being written still finishes ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+
+### Fixed
+
+- Fixed a command backgrounded inside a subshell, such as `( yes > /dev/null & )`, running forever after the shell that started it ended. Its job was recorded only in the subshell, so nothing owned it: a builtin kept a thread busy until the host process exited, and an external command was killed the moment the subshell closed. Both now behave as in bash, and end with the session.
+- Fixed `TtyWriter.flushSync()` and `stop()` sometimes waiting out their whole timeout after the queued output had already been written ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed `TtyWriter.stop()` occasionally hanging forever when the queue had already drained ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed a `git status` that exceeded its deadline leaving a stale `.git/index.lock` behind, which made every later git or jj write in that worktree fail until the lock was deleted by hand ([#13405](https://github.com/can1357/oh-my-pi/pull/13405) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed stalls when highlighting Markdown tool previews with many inline spans or backslash escapes ([#13838](https://github.com/can1357/oh-my-pi/pull/13838) by [@sjawhar](https://github.com/sjawhar)).
+
 ## [18.5.1] - 2026-10-03
 
 ### Fixed

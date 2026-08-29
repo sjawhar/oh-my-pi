@@ -406,7 +406,7 @@ import { SessionMemory, type SessionMemoryHost } from "./session-memory";
 import { buildSessionMetadata } from "./session-metadata";
 import { SessionProviderBoundary, type SessionProviderBoundaryHost } from "./session-provider-boundary";
 import { SessionStatsTracker, type SessionStatsTrackerHost } from "./session-stats";
-import { SessionTools, type SessionToolsHost } from "./session-tools";
+import { type RefreshSkillsOptions, SessionTools, type SessionToolsHost } from "./session-tools";
 import { resolveOpenAIWebsocketPreference } from "./settings-stream-fn";
 import type { ShakeMode, ShakeResult } from "./shake-types";
 import { skillPromptTitleInput } from "@oh-my-pi/pi-tui/chat/skill-title-input";
@@ -1885,6 +1885,7 @@ export class AgentSession implements SettingsScope {
 			skillWarnings: config.skillWarnings,
 			skillsSettings: config.skillsSettings,
 			skillsReloadable: config.skillsReloadable,
+			mergeDiscoveredSkillPaths: config.mergeDiscoveredSkillPaths,
 		});
 		this.#disconnectOwnedMcpManager = config.disconnectOwnedMcpManager;
 		const ttsrHost: TtsrCoordinatorHost = {
@@ -3394,6 +3395,7 @@ export class AgentSession implements SettingsScope {
 					// otherwise records emission time, which on rebuild excludes
 					// provider preparation / hook time from the prompt→yield anchor.
 					message.timestamp,
+					message.role === "custom" ? message.tag : undefined,
 				);
 			}
 			if (message.role === "custom" && message.customType === "ttsr-injection") {
@@ -5998,15 +6000,17 @@ export class AgentSession implements SettingsScope {
 		return this.#tools.getSelectedMCPToolNames();
 	}
 
-	/** Rediscovers reloadable skills and refreshes prompt metadata. */
-	refreshSkills(): Promise<void> {
-		return this.#tools.refreshSkills();
+	/** Rediscovers reloadable skills and refreshes prompt metadata; `rediscover` re-emits `resources_discover`. */
+	refreshSkills(options?: RefreshSkillsOptions): Promise<void> {
+		return this.#tools.refreshSkills(options);
 	}
 
 	/**
 	 * Rediscovers skills and file-based slash commands for the current cwd, rebuilds the
 	 * system prompt, and notifies command-metadata listeners (TUI autocomplete, RPC/ACP
-	 * command lists). Serialized so overlapping reloads apply in call order.
+	 * command lists). Serialized so overlapping reloads apply in call order. Always
+	 * re-emits `resources_discover`: its callers (cwd change, `/reload-plugins`, extension-source
+	 * edits) all change which directories extensions contribute.
 	 */
 	refreshSkillsAndCommands(): Promise<void> {
 		const refresh = this.#skillsAndCommandsRefresh
@@ -6019,10 +6023,18 @@ export class AgentSession implements SettingsScope {
 				});
 				// Resets the capability cache again, rediscovers skills, rebuilds the prompt,
 				// and fires the command-metadata notification after both lists are current.
-				await this.#tools.refreshSkills();
+				await this.#tools.refreshSkills({ rediscover: true });
 			});
 		this.#skillsAndCommandsRefresh = refresh;
 		return refresh;
+	}
+
+	/**
+	 * One-time post-`session_start` `resources_discover` emission. Called by
+	 * every mode's extension-lifecycle init right after `session_start` fires.
+	 */
+	discoverStartupSkillPaths(): Promise<void> {
+		return this.#tools.discoverStartupSkillPaths();
 	}
 
 	/**
@@ -6986,6 +6998,7 @@ export class AgentSession implements SettingsScope {
 				attribution: promptAttribution,
 				prependMessages: keywordNotices,
 				rawText: typedText,
+				tag: options?.tag,
 				onPromptAdmitted: options?.onPromptAdmitted,
 				promptGeneration: queueGeneration,
 			});
@@ -7061,6 +7074,7 @@ export class AgentSession implements SettingsScope {
 				attribution: promptAttribution,
 				prependMessages: keywordNotices,
 				rawText: typedText,
+				tag: options?.tag,
 				preprocessed: {
 					images: normalizedImages,
 					descriptionNotice: imageDescriptionNotice,
@@ -7086,7 +7100,13 @@ export class AgentSession implements SettingsScope {
 					synthetic: true,
 					userInitiated: options?.userInitiated === true ? true : undefined,
 				}
-			: { role: "user" as const, content: userContent, attribution: promptAttribution, timestamp: submittedAt };
+			: {
+					role: "user" as const,
+					content: userContent,
+					attribution: promptAttribution,
+					timestamp: submittedAt,
+					...(options?.tag !== undefined && { tag: options.tag }),
+				};
 
 		const preludeMessages: AgentMessage[] = [];
 		if (eagerTodoPrelude) {
@@ -7150,7 +7170,7 @@ export class AgentSession implements SettingsScope {
 	 * stop instead of hanging.
 	 */
 	async promptCustomMessage<T = unknown>(
-		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
+		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution" | "tag">,
 		options?: Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted"> & {
 			queueChipText?: string;
 			queueOnly?: boolean;
@@ -7160,7 +7180,7 @@ export class AgentSession implements SettingsScope {
 	}
 
 	async #promptCustomMessage<T = unknown>(
-		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
+		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution" | "tag">,
 		options?: Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted"> & {
 			queueChipText?: string;
 			queueOnly?: boolean;
@@ -7180,7 +7200,7 @@ export class AgentSession implements SettingsScope {
 	}
 
 	async #dispatchCustomPrompt<T = unknown>(
-		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
+		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution" | "tag">,
 		options:
 			| (Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted"> & {
 					queueChipText?: string;
@@ -7242,6 +7262,7 @@ export class AgentSession implements SettingsScope {
 			display: message.display,
 			details: message.details,
 			attribution: message.attribution ?? "agent",
+			...(message.tag !== undefined && { tag: message.tag }),
 			timestamp: Date.now(),
 		};
 		const hasSkillImages =
@@ -7466,9 +7487,10 @@ export class AgentSession implements SettingsScope {
 				);
 			}
 
-			// Validate API key
+			// Validate API key. A `!command` key that produced nothing is left to the
+			// turn, whose resolver fails retryably so auto-retry covers the helper.
 			const apiKey = await this.#modelRegistry.getApiKey(this.model, this.sessionId);
-			if (!apiKey) {
+			if (!apiKey && !this.#modelRegistry.retriesFailedCommandKey(this.model.provider)) {
 				throw new Error(
 					`No API key found for ${this.model.provider}.\n\n` +
 						`Use /login, set an API key environment variable, or create ${getAgentDbPath()}`,
@@ -7660,6 +7682,24 @@ export class AgentSession implements SettingsScope {
 			this.#endInFlight();
 			if (this.#promptSetupAbortController === setupAbort) this.#promptSetupAbortController = undefined;
 		}
+	}
+
+	/**
+	 * Whether `prompt()` treats the leading `/name` of `text` as a command or template: an extension command,
+	 * a custom or MCP prompt command, a file slash command, or a prompt template. `sendUserInput` uses it to
+	 * refuse a slash command nothing defines instead of sending it to the model.
+	 */
+	namesPromptCommand(text: string): boolean {
+		if (!text.startsWith("/")) return false;
+		const spaceIndex = text.indexOf(" ");
+		const name = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+		return (
+			this.#extensionRunner?.getCommand(name) !== undefined ||
+			this.#customCommands.some(loaded => loaded.command.name === name) ||
+			this.#mcpPromptCommands.some(loaded => loaded.command.name === name) ||
+			this.#slashCommands.some(command => command.name === name) ||
+			this.#promptTemplates.some(template => template.name === name)
+		);
 	}
 
 	/**
@@ -7935,6 +7975,8 @@ export class AgentSession implements SettingsScope {
 			 *  it later. Defaults to `text` (the common case: no transformation ran,
 			 *  so raw and queued content are identical). */
 			rawText?: string;
+			/** Caller correlation id recorded as `tag` on the queued user message. */
+			tag?: string;
 			/**
 			 * Set only when image normalization and the vision description already
 			 * ran for this prompt; its presence suppresses both here. Companions
@@ -7960,6 +8002,7 @@ export class AgentSession implements SettingsScope {
 		const rawText = options?.rawText ?? text;
 		const preprocessed = options?.preprocessed;
 		const prependMessages = options?.prependMessages ?? [];
+		const tagField = options?.tag !== undefined ? { tag: options.tag } : undefined;
 		// Captured before any await below so the aside branch can detect a
 		// newSession()/switchSession() that completed while normalization/vision
 		// description was in flight and drop a record that would otherwise land in a
@@ -7996,7 +8039,13 @@ export class AgentSession implements SettingsScope {
 			if (await this.#sessionGenerationChanged(sessionGeneration)) return false;
 			const records: AgentMessage[] = [...prependMessages, ...attachmentSourceNotices];
 			if (imageDescriptionNotice) records.push(imageDescriptionNotice);
-			const userMessage: AgentMessage = { role: "user", content, attribution, timestamp: timestamp ?? Date.now() };
+			const userMessage: AgentMessage = {
+				role: "user",
+				content,
+				attribution,
+				timestamp: timestamp ?? Date.now(),
+				...tagField,
+			};
 			this.#queuedMessageRawText.set(userMessage, rawText);
 			records.push(userMessage);
 			this.#irc.queueAside(records);
@@ -8019,6 +8068,7 @@ export class AgentSession implements SettingsScope {
 				content,
 				attribution,
 				timestamp: timestamp ?? Date.now(),
+				...tagField,
 			};
 			this.#queuedMessageRawText.set(userMessage, rawText);
 			this.agent.followUp(userMessage);
@@ -8032,6 +8082,7 @@ export class AgentSession implements SettingsScope {
 				steering: true,
 				attribution,
 				timestamp: timestamp ?? Date.now(),
+				...tagField,
 			};
 			this.#queuedMessageRawText.set(userMessage, rawText);
 			this.agent.steer(userMessage);
@@ -8230,7 +8281,7 @@ export class AgentSession implements SettingsScope {
 
 	/** Queue a custom message without starting a turn, matching steer/follow-up/aside delivery. */
 	async #queueCustomMessage<T = unknown>(
-		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
+		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution" | "tag">,
 		deliverAs: "steer" | "followUp" | "aside",
 		options?: {
 			queueChipText?: string;
@@ -8261,6 +8312,7 @@ export class AgentSession implements SettingsScope {
 			display: message.display,
 			details,
 			attribution: message.attribution ?? "agent",
+			...(message.tag !== undefined && { tag: message.tag }),
 			timestamp: Date.now(),
 		};
 		const preprocessed = options?.preprocessed;

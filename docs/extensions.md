@@ -33,7 +33,7 @@ Extensions can combine all of the following in one module:
 - slash commands (`pi.registerCommand(...)`)
 - keyboard shortcuts and flags
 - custom message rendering
-- session/message injection APIs (`sendMessage`, `sendUserMessage`, `appendEntry`)
+- session/message injection APIs (`sendMessage`, `sendUserMessage`, `sendUserInput`, `appendEntry`)
 
 ## Runtime model
 
@@ -120,7 +120,7 @@ Core methods:
 - `registerMessageRenderer`, `registerAssistantThinkingRenderer`
 - `registerComposerShape`
 - `setLabel`, `getFlag`
-- `sendMessage`, `sendUserMessage`, `appendEntry`, `exec`
+- `sendMessage`, `sendUserMessage`, `sendUserInput`, `appendEntry`, `exec`
 - `getActiveTools`, `getAllTools`, `setActiveTools`
 - `getCommands`
 - `getSessionName`, `setSessionName`
@@ -261,6 +261,16 @@ injects at the next step boundary while a run is live and starts a turn when
 idle. The message is recorded with `attribution: "user"` unless you pass
 `attribution: "agent"`; use `"agent"` for text the extension generated or relayed
 from another agent.
+
+`pi.sendUserInput(text, { deliverAs, tag })` runs text as if the user typed it, the way RPC mode runs a `prompt` command, and resolves with how it was handled:
+
+- `/skill:<name>` is submitted as the user's skill prompt → `{ handled: "skill" }`.
+- A built-in slash command with a headless handler (the set RPC and ACP run, e.g. `/jobs`, `/compact`, `/retry`) runs → `{ handled: "command", output? }`, where `output` is what it printed; one that returns prompt text submits it → `{ handled: "prompt" }`. A built-in only the interactive terminal runs (e.g. `/new`, `/resume`, `/quit`) sends nothing → `{ handled: "terminal-only" }`.
+- A leading `/` that names no extension, custom or MCP prompt command, file slash command or prompt template sends nothing → `{ handled: "unknown" }`.
+- Otherwise the text goes through the prompt flow: extension and custom commands run locally → `{ handled: "command" }`; plain text, templates and file slash commands submit a user message → `{ handled: "prompt" }`.
+- A host that does not wire the action answers `{ handled: "unavailable" }`.
+
+`deliverAs` picks how a submitted message queues while the agent is streaming (default steer, like Enter); an idle session starts a turn either way. `tag` is recorded on the message the input submits (the user message, or the skill prompt message) and so appears on its `message_start`/`message_end` events and in the session file, letting a bridge match the message to the input it forwarded. `listUserInputBuiltinCommands()` (exported from `extensibility/extensions/send-user-input-handler`) lists the built-ins with a `terminalOnly` flag, for completion. SDK embedders that build their own `ExtensionActions` can wire the optional `sendUserInput` action with `sendSessionUserInput(session, text, options)` from the same module.
 
 Payloads passed to `pi.sendMessage` are normalized before delivery
 (`normalizeCustomMessagePayload` in `packages/tui/src/chat/messages.ts`,
@@ -519,8 +529,17 @@ The runtime handles the JSON-RPC transport and its own list/update refresh first
 
 ### `resources_discover`
 
-`resources_discover` exists in extension types and `ExtensionRunner`.
-Current runtime note: `ExtensionRunner.emitResourcesDiscover(...)` is implemented, but there are no `AgentSession` callsites invoking it in the current codebase.
+Fired once per session, after `session_start`, and again on `/reload-plugins`, on `/move` or any other working-directory change, when a plugin is enabled or disabled, when the configured extension sources change, and when skill or command discovery settings change. Payload: `{ cwd: string; reason: "startup" | "reload" }`. A handler may return `{ skillPaths?: string[]; promptPaths?: string[]; themePaths?: string[] }`; only `skillPaths` currently has a consumer (`promptPaths`/`themePaths` are collected but not yet acted on). Other skill rescans (`manage_skill`, `/skills install`/`update`) reuse the directories the last round returned without firing the event.
+
+A turn that a `session_start` or `resources_discover` handler starts with `sendMessage`/`sendUserMessage` waits until the returned skill directories are in the system prompt, so it sees the same skills as a prompt issued after startup or after the reload.
+
+Returned `skillPaths` join skill discovery as an explicitly configured source, scanned the same way as `skills.customDirectories`: `ignoredSkills`/`includeSkills` are honored, entries are deduplicated by real path, and a name collision with a `skills.customDirectories` entry loses to the user's custom directory (extension-contributed directories are the lower-priority configured source).
+
+```ts
+pi.on("resources_discover", (event) => {
+  return { skillPaths: [path.join(myExtensionDir, "skills")] };
+});
+```
 
 ## Tool authoring details
 

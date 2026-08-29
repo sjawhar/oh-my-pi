@@ -9,7 +9,16 @@ use futures::FutureExt;
 
 use crate::{ExecutionResult, error, processes, sys, trace_categories, traps};
 
-pub(crate) type JobJoinHandle = tokio::task::JoinHandle<Result<ExecutionResult, error::Error>>;
+/// An internal job's task handle. Aborting on drop is what keeps a dropped
+/// job table from leaving a shell-internal task running: a bare
+/// [`tokio::task::JoinHandle`] detaches its task when dropped, so the task
+/// runs on with nothing owning it, invisible to `jobs` and to session
+/// teardown, until the host process exits. Every path that hands a job on
+/// rather than ending it (a subshell's [`crate::Shell::adopt_jobs_from`], a
+/// builtin lease's `settle_lease`) moves the handle instead of dropping it,
+/// so this only fires where a job really is being abandoned.
+pub(crate) type JobJoinHandle =
+	tokio_util::task::AbortOnDropHandle<Result<ExecutionResult, error::Error>>;
 pub(crate) type JobResult = (Job, Result<ExecutionResult, error::Error>);
 
 const WAIT_NEXT_POLL_INTERVAL: Duration = Duration::from_millis(10);

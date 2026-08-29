@@ -595,7 +595,7 @@ fn spawn_async_ao_list_in_task<SE: extensions::ShellExtensions>(
 	});
 
 	jobs::Job::new(
-		[jobs::JobTask::Internal(join_handle)],
+		[jobs::JobTask::Internal(tokio_util::task::AbortOnDropHandle::new(join_handle))],
 		ao_list.to_string(),
 		jobs::JobState::Running,
 	)
@@ -1065,6 +1065,9 @@ impl Execute for ast::CompoundCommand {
 						error.into_result(&subshell)
 					},
 				};
+				// The subshell's job table dies with it, so anything still
+				// running there has to change hands first (`adopt_jobs_from`).
+				shell.adopt_jobs_from(&mut subshell);
 
 				// Preserve the subshell's exit code, but don't honor any of its requests to
 				// exit the shell, break out of loops, etc.
@@ -1149,7 +1152,7 @@ impl Execute for ast::CoprocessCommand {
 		});
 
 		let job = shell.jobs_mut().add_as_current(jobs::Job::new(
-			[jobs::JobTask::Internal(join_handle)],
+			[jobs::JobTask::Internal(tokio_util::task::AbortOnDropHandle::new(join_handle))],
 			format!("coproc {name}"),
 			jobs::JobState::Running,
 		));
