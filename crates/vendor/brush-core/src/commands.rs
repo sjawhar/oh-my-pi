@@ -640,9 +640,11 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
 	}
 
 	async fn execute_via_builtin(
-		self,
+		mut self,
 		builtin: builtins::Registration<SE>,
 	) -> Result<ExecutionSpawnResult, error::Error> {
+		// Only an external command's child can make deferred redirections.
+		interp::materialize_deferred_redirects(&self.shell, &mut self.params).await?;
 		match self.shell {
 			ShellForCommand::OwnedShell { target, .. } => {
 				Ok(Self::execute_via_builtin_in_owned_shell(
@@ -667,6 +669,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
 		args: Vec<CommandArg>,
 	) -> ExecutionSpawnResult {
 		let last_arg = Self::take_last_arg(&args);
+		let exit_params = params.clone();
 		let join_handle = tokio::task::spawn_blocking(move || {
 			let cmd_context = ExecutionContext { shell: &mut shell, command_name, params };
 
@@ -675,7 +678,9 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
 			// Update $_ after command execution.
 			shell.update_last_arg_variable(last_arg);
 
-			result
+			// Ends the stage: runs the EXIT trap it set itself, if any. The trap's
+			// builtins run on this blocking worker too, so mark it for them.
+			Ok(block_on_builtin(shell.end_child_context(&exit_params, result)))
 		});
 
 		ExecutionSpawnResult::StartedTask(join_handle)
@@ -743,9 +748,11 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
 	}
 
 	async fn execute_via_function(
-		self,
+		mut self,
 		func_registration: functions::Registration,
 	) -> Result<ExecutionSpawnResult, error::Error> {
+		// Only an external command's child can make deferred redirections.
+		interp::materialize_deferred_redirects(&self.shell, &mut self.params).await?;
 		let mut params = self.params;
 		params.disable_command_output_marking();
 
@@ -761,6 +768,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
 				let mut shell = *target;
 				let command_name = self.command_name;
 				let args = self.args;
+				let exit_params = params.clone();
 				let join_handle = tokio::spawn(async move {
 					let cmd_context = ExecutionContext { shell: &mut shell, command_name, params };
 					let result =
@@ -770,10 +778,17 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
 					// parent-shell path below.
 					shell.update_last_arg_variable(last_arg);
 
-					match result?.wait().await? {
-						ExecutionWaitResult::Completed(result) => Ok(result),
-						ExecutionWaitResult::Stopped(_) => Ok(ExecutionResult::stopped()),
-					}
+					let result = match result {
+						Ok(spawned) => match spawned.wait().await {
+							Ok(ExecutionWaitResult::Completed(result)) => Ok(result),
+							Ok(ExecutionWaitResult::Stopped(_)) => Ok(ExecutionResult::stopped()),
+							Err(error) => Err(error),
+						},
+						Err(error) => Err(error),
+					};
+
+					// Ends the stage: runs the EXIT trap it set itself, if any.
+					Ok(shell.end_child_context(&exit_params, result).await)
 				});
 				Ok(ExecutionSpawnResult::StartedTask(join_handle))
 			},
@@ -855,10 +870,13 @@ pub(crate) async fn execute_external_command(
 		.collect::<Vec<_>>();
 
 	// Before we lose ownership of the open files, figure out if stdin will be a
-	// terminal.
-	let child_stdin_is_terminal = context
-		.try_fd(openfiles::OpenFiles::STDIN_FD)
-		.is_some_and(|f| f.is_terminal());
+	// terminal. A deferred redirection of fd 0 is made in the child before the
+	// command runs (see `interp::DeferredRedirect`), so what this process holds
+	// there, which can still be its terminal, is not the command's input.
+	let child_stdin_is_terminal = !context.params.sets_deferred(openfiles::OpenFiles::STDIN_FD)
+		&& context
+			.try_fd(openfiles::OpenFiles::STDIN_FD)
+			.is_some_and(|f| f.is_terminal());
 
 	// Figure out if we should be setting up a new process group.
 	let new_pg = matches!(context.params.process_group_policy, ProcessGroupPolicy::NewProcessGroup);
@@ -869,14 +887,26 @@ pub(crate) async fn execute_external_command(
 	// command) unless the caller specified an explicit override.
 	let argv0 = argv0_override.unwrap_or(context.command_name.as_str());
 	#[allow(unused_mut, reason = "only mutated on unix platforms")]
-	let mut cmd = compose_std_command(
-		&context,
-		executable_path,
-		argv0,
-		cmd_args.as_slice(),
-		false, /* empty environment? */
-	)
-	.await?;
+	let mut cmd = if context.params.deferred_redirects().is_empty() {
+		compose_std_command(
+			&context,
+			executable_path,
+			argv0,
+			cmd_args.as_slice(),
+			false, /* empty environment? */
+		)
+		.await?
+	} else {
+		// Redirections to a FIFO left for the child (see
+		// `interp::DeferredRedirect`): `/bin/sh` makes them and then execs the
+		// command in place, so the pid the shell tracks is the command's. Its
+		// argv[0] is then the resolved path.
+		let script = interp::deferred_redirect_script(context.params.deferred_redirects());
+		let mut trampoline_args = vec!["-c".to_owned(), script, "sh".to_owned()];
+		trampoline_args.push(executable_path.to_owned());
+		trampoline_args.extend(cmd_args.iter().map(|arg| (*arg).clone()));
+		compose_std_command(&context, "/bin/sh", "sh", trampoline_args.as_slice(), false).await?
+	};
 	let mut marker_output = prepare_output_markers(&context, executable_path, cmd_args.as_slice());
 
 
@@ -1127,7 +1157,7 @@ pub(crate) async fn invoke_command_in_subshell_and_get_output(
 	s: String,
 ) -> Result<String, error::Error> {
 	// Instantiate a subshell to run the command in.
-	let mut subshell = shell.clone();
+	let mut subshell = shell.clone_for_subshell();
 
 	// Command substitutions don't inherit errexit by default. Only inherit it when
 	// command_subst_inherits_errexit is enabled, otherwise disable errexit in the
@@ -1177,9 +1207,13 @@ async fn run_substitution_command(
 	// If we failed to parse, then we'll fall below and handle it there.
 	if let Ok(program) = &parse_result {
 		if let Some(redir) = try_unwrap_bare_input_redir_program(program) {
-			interp::setup_redirect(&mut shell, &mut params, redir).await?;
-			openfiles::copy_async(&mut params.stdin(&shell), &mut params.stdout(&shell)).await?;
-			return Ok(ExecutionResult::new(0));
+			let result = async {
+				interp::setup_redirect(&mut shell, &mut params, redir).await?;
+				openfiles::copy_async(&mut params.stdin(&shell), &mut params.stdout(&shell)).await?;
+				Ok::<_, error::Error>(ExecutionResult::new(0))
+			}
+			.await;
+			return Ok(shell.end_child_context(&params, result).await);
 		}
 	}
 
@@ -1187,9 +1221,12 @@ async fn run_substitution_command(
 	let source_info = crate::SourceInfo::from("main");
 
 	// Handle the parse result using default shell behavior.
-	shell
+	let result = shell
 		.run_parsed_result(parse_result, &source_info, &params)
-		.await
+		.await;
+
+	// Ends the substitution: runs the EXIT trap it set itself, if any.
+	Ok(shell.end_child_context(&params, result).await)
 }
 
 // Detects a subshell command that consists solely of a single input redirection

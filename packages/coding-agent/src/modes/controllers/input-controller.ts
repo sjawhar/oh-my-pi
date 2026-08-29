@@ -567,10 +567,13 @@ export class InputController {
 				}
 				return;
 			}
-			if (this.ctx.loadingAnimation) {
-				if (this.ctx.cancelPendingSubmission()) {
-					return;
-				}
+			if (this.ctx.loadingAnimation && this.ctx.cancelPendingSubmission()) {
+				return;
+			}
+			// The turn is over and only background jobs can resume it; its row
+			// stays mounted, so this is checked before the loader's abort.
+			const awaitingAsyncWork = this.ctx.eventController.isAwaitingAsyncWork();
+			if (this.ctx.loadingAnimation && !awaitingAsyncWork) {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			} else if (this.ctx.session.isBashRunning) {
 				this.ctx.session.abortBash();
@@ -584,6 +587,10 @@ export class InputController {
 				this.ctx.editor.setText("");
 				this.ctx.isPythonMode = false;
 				this.ctx.updateEditorBorderColor();
+			} else if (awaitingAsyncWork) {
+				// End the wait. The jobs keep running; their results land in context
+				// for the next prompt instead of starting a turn.
+				void this.ctx.eventController.stopAwaitingAsyncWork();
 			} else if (this.ctx.session.isStreaming) {
 				this.#abortStreamingTurn();
 			} else if (this.ctx.editor.getText().trim()) {
@@ -1575,7 +1582,7 @@ export class InputController {
 
 		// Stop the TUI (restore terminal to normal mode) before sending the
 		// signal so the parent shell sees a sane terminal state.
-		this.ctx.ui.stop();
+		this.ctx.ui.stop({ resuming: true });
 
 		try {
 			// SIGSTOP — not SIGTSTP — to the foreground process group (pid=0).
@@ -1625,7 +1632,14 @@ export class InputController {
 	handleDequeue(): void {
 		const popped = this.#popLastQueuedMessage();
 		if (!popped) {
-			this.ctx.showStatus("No queued messages to restore");
+			// Chips still listed (beyond live-steered ones) are tagged extension input, which the
+			// dequeue steps over so its tag is never lost.
+			const { steering, followUp, liveSteered } = this.ctx.viewSession.getQueuedMessages();
+			this.ctx.showStatus(
+				steering.length + followUp.length > liveSteered
+					? "Queued extension input keeps its tag and cannot be edited"
+					: "No queued messages to restore",
+			);
 			return;
 		}
 		// Drop only the popped message's local-submission signature; the messages
@@ -1974,8 +1988,9 @@ export class InputController {
 
 	restoreQueuedMessagesToEditor(options?: { abort?: boolean; currentText?: string }): number {
 		this.ctx.locallySubmittedUserSignatures.clear();
-		// On Esc (abort) drop non-user internal steers so the post-abort drain can't
-		// auto-resume; plain Alt+Up dequeue preserves them for the continuing stream.
+		// On Esc (abort) the abort below records queued extension/agent messages in the
+		// transcript without a turn, so the post-abort drain can't auto-resume on them;
+		// plain Alt+Up dequeue leaves them queued for the continuing stream.
 		const { steering, followUp } = this.ctx.session.clearQueue({ forInterrupt: options?.abort });
 		// Messages typed while compacting live in `compactionQueuedMessages`, not the
 		// agent queue `clearQueue()` drains — but the pending bar shows the same
@@ -1993,6 +2008,8 @@ export class InputController {
 		const restored = this.#restoreEntriesToEditor(allQueued, options?.currentText);
 		if (options?.abort) {
 			void this.ctx.session.abort({ reason: USER_INTERRUPT_LABEL });
+			// The abort took queued tagged input (still shown as chips) out of the queues synchronously.
+			this.ctx.updatePendingMessagesDisplay();
 		}
 		return restored;
 	}
@@ -2819,7 +2836,7 @@ export class InputController {
 		const currentText = this.ctx.editor.getExpandedText?.() ?? this.ctx.editor.getText();
 
 		try {
-			this.ctx.ui.stop();
+			this.ctx.ui.stop({ resuming: true });
 			const result = await openInEditor(editorCmd, currentText, { extension: ".omp.md" });
 			if (result !== null) {
 				this.ctx.editor.setText(result);

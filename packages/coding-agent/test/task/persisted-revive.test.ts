@@ -11,13 +11,14 @@ import type { EffectiveExtensionRoots } from "@oh-my-pi/pi-coding-agent/capabili
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { cfgCompaction } from "@oh-my-pi/pi-coding-agent/session/context-settings";
+import { ExtensionSendQueue } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/send-queue";
 import type { PreparedExtension } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { MCPManager } from "@oh-my-pi/pi-coding-agent/mcp/manager";
 import { RpcSubagentRegistry } from "@oh-my-pi/pi-coding-agent/modes/rpc/rpc-subagents";
 import type { RpcSubagentFrame } from "@oh-my-pi/pi-coding-agent/modes/rpc/rpc-types";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import type { AgentRef } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
-import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
+import { AgentRegistry, qualifyPersistedAgentId } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { registerPersistedSubagents } from "@oh-my-pi/pi-coding-agent/registry/persisted-agents";
 import type { CreateAgentSessionOptions, CreateAgentSessionResult } from "@oh-my-pi/pi-coding-agent/sdk";
 import * as sdkModule from "@oh-my-pi/pi-coding-agent/sdk";
@@ -38,7 +39,11 @@ import { FileSessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-st
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
 import { createPersistedSubagentReviverFactory } from "@oh-my-pi/pi-coding-agent/task/persisted-revive";
 import { buildWakeRelayBody } from "@oh-my-pi/pi-coding-agent/task/executor";
+import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
+import { resolveEffectiveSubagentPolicy } from "@oh-my-pi/pi-coding-agent/task/structured-subagent";
+import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import type { SingleResult } from "@oh-my-pi/pi-tui/tools/task";
+import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import { IrcBus } from "@oh-my-pi/pi-coding-agent/irc/bus";
 import { type IrcMessage } from "@oh-my-pi/pi-tui/tools/irc";
@@ -48,6 +53,14 @@ import { createSessionDefaults } from "../helpers/session-defaults";
 import { cfgAdvisorEnabled } from "@oh-my-pi/pi-coding-agent/advisor/settings";
 
 const tempDirs: TempDir[] = [];
+
+/** Matches `DEFAULT_SPAWN_AGENT` — the agent an unqualified `task` spawn resolves to. */
+const TASK_AGENT: AgentDefinition = {
+	name: "task",
+	description: "Default spawn agent",
+	systemPrompt: "Do the assigned work.",
+	source: "bundled",
+};
 
 function makeTempDir(prefix: string): string {
 	const dir = TempDir.createSync(prefix);
@@ -111,6 +124,7 @@ function createRevivedSession(activeToolNames: string[][], extensionRunner?: unk
 	const trackedReplies: Promise<void>[] = [];
 	const session = {
 		...createSessionDefaults(),
+		getAgentId: () => "persisted-restricted",
 		getMountedXdevToolNames: () => [],
 		setActiveToolsByName: async (names: string[]) => {
 			activeToolNames.push(names);
@@ -124,6 +138,7 @@ function createRevivedSession(activeToolNames: string[][], extensionRunner?: unk
 		},
 		subscribeRunState: () => () => {},
 		getLastAssistantMessage: () => lastAssistant,
+		discoverStartupSkillPaths: async () => {},
 		extensionRunner,
 	} as unknown as AgentSession;
 	return {
@@ -206,9 +221,12 @@ interface ReviveOwnerOptions {
 	authStorage?: AuthStorage;
 	modelRegistry?: ModelRegistry;
 	settings?: Settings;
+	rootAgentId?: string;
+	mcpManager?: () => MCPManager | undefined;
 }
 
 function createFactory(cwd: string, eventBus?: EventBus, owner: ReviveOwnerOptions = {}) {
+	const { rootAgentId } = owner;
 	const parentSession = {
 		sessionManager: {
 			getCwd: () => cwd,
@@ -230,6 +248,7 @@ function createFactory(cwd: string, eventBus?: EventBus, owner: ReviveOwnerOptio
 		get preparedExtensions() {
 			return owner.preparedExtensions;
 		},
+		...(rootAgentId !== undefined ? { getAgentId: () => rootAgentId } : undefined),
 	} as unknown as AgentSession;
 	return createPersistedSubagentReviverFactory({
 		session: parentSession,
@@ -238,6 +257,7 @@ function createFactory(cwd: string, eventBus?: EventBus, owner: ReviveOwnerOptio
 		settings: owner.settings ?? Settings.isolated(),
 		enableLsp: true,
 		eventBus,
+		...(owner.mcpManager ? { mcpManager: owner.mcpManager } : undefined),
 	});
 }
 
@@ -255,7 +275,7 @@ describe("persisted subagent revival", () => {
 		const initialize = vi.fn();
 		const onError = vi.fn();
 		const emit = vi.fn(async () => undefined);
-		const extensionRunner = { initialize, onError, emit };
+		const extensionRunner = { initialize, onError, emit, sends: new ExtensionSendQueue() };
 		vi.spyOn(sdkModule, "createAgentSession").mockImplementation(
 			async () => ({ session: createRevivedSession([], extensionRunner).session }) as CreateAgentSessionResult,
 		);
@@ -430,6 +450,41 @@ describe("persisted subagent revival", () => {
 		AgentRegistry.resetGlobalForTests();
 	});
 
+	it("merges discovered startup skill paths on cold revival (regression: PR #9379 review, persisted-revive.ts mergeDiscoveredSkillPaths)", async () => {
+		const cwd = makeTempDir("@pi-revive-skill-discovery-");
+		const sessionFile = await createPersistedSession(cwd);
+		MCPManager.setInstance(fakeMcpManager(() => []));
+		const extensionRunner = {
+			initialize: vi.fn(),
+			onError: vi.fn(),
+			emit: vi.fn(async () => undefined),
+			sends: new ExtensionSendQueue(),
+		};
+		const revived = createRevivedSession([], extensionRunner);
+		const discoverStartupSkillPaths = vi.fn(async () => {});
+		// `createRevivedSession`'s stub is a plain test double with a known
+		// shape (not external/unchecked input), so a one-line assertion is the
+		// narrowest way to replace its no-op discovery method with a spy.
+		const revivedSession = revived.session as AgentSession & { discoverStartupSkillPaths: () => Promise<void> };
+		revivedSession.discoverStartupSkillPaths = discoverStartupSkillPaths;
+		let capturedOptions: CreateAgentSessionOptions | undefined;
+		vi.spyOn(sdkModule, "createAgentSession").mockImplementation(async options => {
+			capturedOptions = options;
+			return { session: revivedSession } as CreateAgentSessionResult;
+		});
+
+		const ref = createRef(sessionFile);
+		const reviver = await createFactory(cwd)(ref);
+		if (!reviver) throw new Error("Expected a persisted reviver");
+		await reviver(ref);
+
+		// A revived subagent re-runs its own resources_discover on session_start;
+		// without mergeDiscoveredSkillPaths the merge is a no-op even though
+		// discoverStartupSkillPaths itself is called.
+		expect(capturedOptions?.mergeDiscoveredSkillPaths).toBe(true);
+		expect(discoverStartupSkillPaths).toHaveBeenCalledTimes(1);
+	});
+
 	it("cold-revives a restricted contract without loading hostile same-name capabilities", async () => {
 		const cwd = makeTempDir("@pi-restricted-revive-");
 		const sessionFile = await createPersistedSession(cwd, true);
@@ -531,6 +586,41 @@ describe("persisted subagent revival", () => {
 		expect(capturedOptions?.mcpManager).toBe(hostileMcp);
 		expect(capturedOptions?.mcpTools?.map(tool => tool.name)).toEqual(["mcp__server_read"]);
 		expect(capturedOptions?.customTools).toBeUndefined();
+	});
+
+	it("binds a session-owned MCP manager instead of the process-global one and never discovers workspace MCP config", async () => {
+		const cwd = makeTempDir("@pi-owned-mcp-revive-");
+		const sessionFile = await createPersistedSession(cwd);
+		// A host that owns MCP per session (ACP: servers come from the client,
+		// never from `.mcp.json`) must not have a revived agent fall back to
+		// whatever manager the process holds globally, or to file discovery
+		// when it holds none.
+		MCPManager.setInstance(fakeMcpManager(() => [{ name: "mcp__global_read", label: "global/read" }]));
+		const capturedOptions: CreateAgentSessionOptions[] = [];
+		vi.spyOn(sdkModule, "createAgentSession").mockImplementation(async options => {
+			if (options) capturedOptions.push(options);
+			return { session: createRevivedSession([]).session } as CreateAgentSessionResult;
+		});
+		// Read live on every revive: the host connects its servers after the
+		// reviver factory already exists.
+		const owner: { mcp?: MCPManager } = {};
+		const factory = createFactory(cwd, undefined, { mcpManager: () => owner.mcp });
+		const ref = createRef(sessionFile);
+
+		const withoutServers = await factory(ref);
+		if (!withoutServers) throw new Error("Expected a persisted reviver");
+		await withoutServers(ref);
+		expect(capturedOptions[0]?.enableMCP).toBe(false);
+		expect(capturedOptions[0]?.mcpManager).toBeUndefined();
+		expect(capturedOptions[0]?.mcpTools).toBeUndefined();
+
+		owner.mcp = fakeMcpManager(() => [{ name: "mcp__client_read", label: "client/read" }]);
+		const withServers = await factory(ref);
+		if (!withServers) throw new Error("Expected a persisted reviver");
+		await withServers(ref);
+		expect(capturedOptions[1]?.enableMCP).toBe(false);
+		expect(capturedOptions[1]?.mcpManager).toBe(owner.mcp);
+		expect(capturedOptions[1]?.mcpTools?.map(tool => tool.name)).toEqual(["mcp__client_read"]);
 	});
 
 	it("leaves isolated sessions transcript-only even when the workspace still exists", async () => {
@@ -1193,6 +1283,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 		await Promise.all(sessions.splice(0).map(session => session.dispose()));
 		AgentLifecycleManager.resetGlobalForTests();
 		AgentRegistry.global().unregister("prompt-blocks");
+		AgentRegistry.global().unregister("Peer");
 	});
 
 	function createTool(name: string): AgentTool {
@@ -1232,6 +1323,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 		buildPrompt: (toolNames: string[]) => string[],
 		responses: MockResponseSource,
 		hooks: ExtensionHooks = {},
+		toolNames: string[] = ["read"],
 	): RecordingSession {
 		const mock = createMockModel({ responses, handler: { content: ["done"] } });
 		const requests: string[][] = [];
@@ -1245,7 +1337,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 				return `yield tool${items.map(item => ` ${item.id}#${item.index}`).join("")}`;
 			},
 		};
-		const tools = [createTool("read"), yieldTool];
+		const tools = [...toolNames.map(createTool), yieldTool];
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: {
@@ -1287,6 +1379,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 				initialize: () => {},
 				onError: () => () => {},
 				hasHandlers: () => false,
+				emitResourcesDiscover: async () => ({ skillPaths: [], promptPaths: [], themePaths: [] }),
 				emit: async (event: { type: string }) => {
 					if (event.type === "session_start") hooks.sessionStart?.();
 				},
@@ -1294,6 +1387,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 					const override = await hooks.beforeAgentStart?.(session, systemPrompt);
 					return override ? { systemPrompt: override } : undefined;
 				},
+				sends: new ExtensionSendQueue(),
 			} as unknown as ExtensionRunner,
 			rebuildSystemPrompt: async toolNames => ({ systemPrompt: buildPrompt(toolNames) }),
 		});
@@ -1312,13 +1406,20 @@ describe("cold revival replays the system prompt the last request sent", () => {
 	/** Spawns through runSubprocess on a real session, then returns its live session and requests. */
 	async function spawn(
 		cwd: string,
-		buildPrompt: (toolNames: string[]) => string[],
+		buildPrompt: (toolNames: string[], options?: CreateAgentSessionOptions) => string[],
 		responses: MockResponseSource,
 		hooks?: ExtensionHooks,
+		toolNames?: string[],
 	): Promise<RecordingSession> {
 		let spawned: RecordingSession | undefined;
 		vi.spyOn(sdkModule, "createAgentSession").mockImplementationOnce(async options => {
-			spawned = createRecordingSession(options!.sessionManager!, buildPrompt, responses, hooks);
+			spawned = createRecordingSession(
+				options!.sessionManager!,
+				names => buildPrompt(names, options),
+				responses,
+				hooks,
+				toolNames,
+			);
 			// The SDK registers a spawned child, which keeps it live after it yields.
 			AgentRegistry.global().register({
 				id: "prompt-blocks",
@@ -1427,6 +1528,137 @@ describe("cold revival replays the system prompt the last request sent", () => {
 		const revived = await reviveAndFollowUp(cwd);
 		expect(revived.system).toEqual(warm.requests.at(-1)!);
 		expect(revived.tools).not.toContain("item#0");
+	});
+
+	it("warm-revives with the tools its spawn enabled, without the parent-owned todo", async () => {
+		const cwd = makeTempDir("@pi-revive-warm-tools-");
+		const buildPrompt = (toolNames: string[]) => ["base", `tools: ${toolNames.join(",")}`];
+		const spawned = await spawn(cwd, buildPrompt, spawnResponses(), {}, ["read", "todo"]);
+		const spawnedTools = spawned.session.getEnabledToolNames();
+		expect(spawnedTools).not.toContain("todo");
+		const lifecycle = AgentLifecycleManager.global();
+		await lifecycle.park("prompt-blocks");
+		let warm: RecordingSession | undefined;
+		vi.spyOn(sdkModule, "createAgentSession").mockImplementationOnce(async options => {
+			warm = createRecordingSession(options!.sessionManager!, buildPrompt, [{ content: ["next"] }], {}, [
+				"read",
+				"todo",
+			]);
+			return { session: warm.session } as CreateAgentSessionResult;
+		});
+		const live = await lifecycle.ensureLive("prompt-blocks");
+		if (!warm || live !== warm.session) throw new Error("Expected a warm revive through the lifecycle");
+		expect(live.getEnabledToolNames()).toEqual(spawnedTools);
+		await live.prompt("next");
+		await live.waitForIdle();
+		expect(warm.requests.at(-1)).toEqual(spawned.requests.at(-1)!);
+		expect(warm.toolRequests.at(-1)).toBe(spawned.toolRequests.at(-1)!);
+	});
+
+	/** The executor's own subagent prompt over a default block listing the active tools. */
+	function subagentPrompt(toolNames: string[], options?: CreateAgentSessionOptions): string[] {
+		const build = options?.systemPrompt;
+		if (typeof build !== "function") throw new Error("Expected a system prompt builder");
+		return [build([`default: ${toolNames.join(",")}`])].flat();
+	}
+
+	function registerPeer(): void {
+		AgentRegistry.global().register({
+			id: "Peer",
+			displayName: "Peer",
+			kind: "sub",
+			session: null,
+			sessionFile: null,
+			status: "running",
+		});
+	}
+
+	/** Parks the spawned subagent, lets `whileParked` change the registry, and warm-revives it. */
+	async function parkAndRevive(
+		whileParked: () => void,
+		hooks?: ExtensionHooks,
+	): Promise<{ live: AgentSession; warm: RecordingSession }> {
+		const lifecycle = AgentLifecycleManager.global();
+		await lifecycle.park("prompt-blocks");
+		whileParked();
+		let warm: RecordingSession | undefined;
+		vi.spyOn(sdkModule, "createAgentSession").mockImplementationOnce(async options => {
+			warm = createRecordingSession(
+				options!.sessionManager!,
+				names => subagentPrompt(names, options),
+				[{ content: ["next"] }],
+				hooks,
+			);
+			return { session: warm.session } as CreateAgentSessionResult;
+		});
+		const live = await lifecycle.ensureLive("prompt-blocks");
+		if (!warm || live !== warm.session) throw new Error("Expected a warm revive through the lifecycle");
+		await live.prompt("next");
+		await live.waitForIdle();
+		return { live, warm };
+	}
+
+	it("warm-revives with the system prompt it was sent with after a peer joins, and keeps it on rebuild", async () => {
+		const cwd = makeTempDir("@pi-revive-warm-roster-");
+		const spawned = await spawn(cwd, subagentPrompt, spawnResponses());
+		expect(spawned.requests.at(-1)!.join("\n")).toContain("(no other agents)");
+		const { live, warm } = await parkAndRevive(registerPeer);
+		expect(warm.requests[0]).toEqual(spawned.requests.at(-1)!);
+		// A rebuild after the revive keeps the roster too: a live one would rewrite the cached conversation.
+		const revivedPrompt = [...live.systemPrompt];
+		await live.refreshBaseSystemPrompt();
+		expect(live.systemPrompt).toEqual(revivedPrompt);
+	});
+
+	// Peer rows carry live activity, so a rebuild that collected the roster again changed the prompt's
+	// bytes and the provider wrote the whole conversation to its prompt cache again. A rebuild whose
+	// default blocks change loses the cached prefix anyway, so the roster catches up there.
+	it("keeps a live subagent's roster across a rebuild until the rest of its prompt changes", async () => {
+		const cwd = makeTempDir("@pi-live-rebuild-roster-");
+		AgentRegistry.global().register({
+			id: "Peer",
+			displayName: "Peer",
+			kind: "sub",
+			session: null,
+			sessionFile: null,
+			status: "running",
+			activity: "reading a.ts",
+		});
+		const spawned = await spawn(cwd, subagentPrompt, spawnResponses());
+		const sentPrompt = spawned.requests.at(-1)!;
+		expect(sentPrompt.join("\n")).toContain("`Peer` — Peer (sub, running): reading a.ts");
+
+		AgentRegistry.global().setActivity("Peer", "editing b.ts");
+		await spawned.session.refreshBaseSystemPrompt();
+		await spawned.session.prompt("next");
+		await spawned.session.waitForIdle();
+		expect(spawned.requests.at(-1)).toEqual(sentPrompt);
+
+		await spawned.session.setActiveToolsByName(["read"]);
+		expect(spawned.session.systemPrompt.join("\n")).toContain("`Peer` — Peer (sub, running): editing b.ts");
+	});
+
+	it("warm-revives with the roster its prompt held, not one a discarded rebuild rendered", async () => {
+		const cwd = makeTempDir("@pi-revive-discarded-roster-");
+		const spawned = await spawn(cwd, subagentPrompt, spawnResponses());
+		registerPeer();
+		await spawned.session.refreshBaseSystemPrompt(() => false);
+		expect(spawned.session.systemPrompt.join("\n")).not.toContain("`Peer`");
+		const { warm } = await parkAndRevive(() => AgentRegistry.global().unregister("Peer"));
+		expect(warm.requests[0]).toEqual(spawned.requests.at(-1)!);
+	});
+
+	it("warm-revives with the roster its base held when a before_agent_start hook rewrites the prompt", async () => {
+		const cwd = makeTempDir("@pi-revive-hooked-roster-");
+		const mergeBlocks = {
+			beforeAgentStart: async (_session: AgentSession, systemPrompt: string[]) => [
+				`${systemPrompt.join("\n\n")}\n\nhooked`,
+			],
+		};
+		const spawned = await spawn(cwd, subagentPrompt, spawnResponses(), mergeBlocks);
+		expect(spawned.requests.at(-1)).toHaveLength(1);
+		const { warm } = await parkAndRevive(registerPeer, mergeBlocks);
+		expect(warm.requests[0]).toEqual(spawned.requests.at(-1)!);
 	});
 
 	it("replays the base a before_agent_start override was built from when the base rebuilds in the request window", async () => {
@@ -1653,5 +1885,171 @@ describe("buildWakeRelayBody", () => {
 			await expect(reviver(ref)).rejects.toThrow(/no persisted session contract/);
 			expect(await Bun.file(sessionFile).text()).toBe(withoutInit);
 		});
+	});
+
+	it("stops the depth walk at any unregistered family root, not just the literal MAIN_AGENT_ID", async () => {
+		AgentRegistry.resetGlobalForTests();
+		vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({ agents: [TASK_AGENT], projectAgentsDir: null });
+		const cwd = makeTempDir("@pi-revive-acp-depth-");
+		const mainChildFile = await createPersistedSession(cwd);
+		const acpChildFile = await createPersistedSession(cwd);
+		const acpGrandchildFile = await createPersistedSession(cwd);
+		const capturedDepths: Record<string, number> = {};
+		const revivedSessions: Record<string, ToolSession> = {};
+		vi.spyOn(sdkModule, "createAgentSession").mockImplementation(async options => {
+			const agentId = options?.agentId ?? "?";
+			capturedDepths[agentId] = options?.taskDepth ?? -1;
+			// A full `ToolSession`, not just the constructor args the mock
+			// received: `resolveEffectiveSubagentPolicy` below reads the
+			// revived session's OWN `taskDepth` field, exactly like the real
+			// spawn-preflight path does, so this proves the depth cold revival
+			// computed actually gates that agent's own descendant spawns —
+			// not merely that some number was passed to `createAgentSession`.
+			const session = {
+				...createRevivedSession([]).session,
+				cwd,
+				hasUI: false,
+				taskDepth: options?.taskDepth ?? 0,
+				getSessionFile: () => null,
+				getSessionSpawns: () => "*",
+				settings: Settings.isolated({ "task.maxRecursionDepth": 2 }),
+			} as unknown as AgentSession;
+			revivedSessions[agentId] = session as unknown as ToolSession;
+			return { session } as CreateAgentSessionResult;
+		});
+
+		// Direct child of the literal "Main" root (`createRef` defaults `parentId` to `MAIN_AGENT_ID`).
+		const mainRef = createRef(mainChildFile);
+		const mainReviver = await createFactory(cwd)(mainRef);
+		if (!mainReviver) throw new Error("Expected a persisted reviver");
+		await mainReviver(mainRef);
+
+		// Direct child of an ACP top-level session id — never itself an AgentRef
+		// (only subagents/advisors are registered), matching main.ts's `acp:<session-id>`.
+		const acpRootId = "acp:test-session";
+		const acpChildRef: AgentRef = { ...createRef(acpChildFile), id: "AcpChild", parentId: acpRootId };
+		AgentRegistry.global().register({
+			id: acpChildRef.id,
+			displayName: acpChildRef.displayName,
+			kind: "sub",
+			parentId: acpRootId,
+			session: null,
+			sessionFile: acpChildFile,
+			status: "parked",
+		});
+		const acpFactory = createFactory(cwd, undefined, { rootAgentId: acpRootId });
+		const acpChildReviver = await acpFactory(acpChildRef);
+		if (!acpChildReviver) throw new Error("Expected a persisted reviver");
+		await acpChildReviver(acpChildRef);
+
+		// Grandchild: parented to the ACP-rooted direct child, not to the ACP
+		// root itself — must land one level deeper than its parent, exactly
+		// like a MAIN_AGENT_ID-rooted grandchild would.
+		const acpGrandchildRef: AgentRef = {
+			...createRef(acpGrandchildFile),
+			id: "AcpGrandchild",
+			parentId: acpChildRef.id,
+		};
+		const acpGrandchildReviver = await acpFactory(acpGrandchildRef);
+		if (!acpGrandchildReviver) throw new Error("Expected a persisted reviver");
+		await acpGrandchildReviver(acpGrandchildRef);
+
+		expect(capturedDepths["persisted-restricted"]).toBe(1);
+		expect(capturedDepths.AcpChild).toBe(1);
+		expect(capturedDepths.AcpGrandchild).toBe(2);
+
+		// The consumer-visible contract these depths exist to protect: a direct
+		// ACP child (depth 1, below the default max of 2) can still spawn its
+		// own child through the SAME effective-policy path a real `task` tool
+		// call resolves against, while THAT child's own child (depth 2, at the
+		// max) is refused. Asserting on `capturedDepths` alone would keep
+		// passing even if this wiring broke — the depth computed at revival
+		// time never actually reached the gate a real spawn checks.
+		await expect(
+			resolveEffectiveSubagentPolicy({
+				session: revivedSessions.AcpChild,
+				invocationKind: "task",
+				assignment: "spawn a further child",
+			}),
+		).resolves.toMatchObject({ agentName: "task" });
+		await expect(
+			resolveEffectiveSubagentPolicy({
+				session: revivedSessions.AcpGrandchild,
+				invocationKind: "task",
+				assignment: "spawn a further child",
+			}),
+		).rejects.toThrow("Cannot spawn another agent at task depth 2; maximum depth is 2.");
+		AgentRegistry.resetGlobalForTests();
+	});
+
+	it("counts an unregistered intermediate parent toward revive depth instead of treating it as the root", async () => {
+		// A parent whose own persisted scan skipped registering it (an
+		// incomplete mid-spawn stub the scan recurses past without adding to
+		// the registry — see registerPersistedSubagentsFromDir's
+		// `metadata.incomplete` branch) still occupied a real generation in
+		// the family tree. `registry.get(parentId)` returning nothing for
+		// that id must not be conflated with reaching the family root the
+		// way an ACP top-level id correctly is: the walk has to count that
+		// gap before giving up, or a descendant beneath a never-registered
+		// stub silently skips a depth level and can out-spawn
+		// `task.maxRecursionDepth`.
+		AgentRegistry.resetGlobalForTests();
+		vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({ agents: [TASK_AGENT], projectAgentsDir: null });
+		const cwd = makeTempDir("@pi-revive-missing-parent-depth-");
+		const grandchildFile = await createPersistedSession(cwd);
+		const capturedDepths: Record<string, number> = {};
+		vi.spyOn(sdkModule, "createAgentSession").mockImplementation(async options => {
+			capturedDepths[options?.agentId ?? "?"] = options?.taskDepth ?? -1;
+			return { session: createRevivedSession([]).session } as CreateAgentSessionResult;
+		});
+
+		const rootId = "acp:missing-parent-root";
+		// "UnregisteredStub" is never registered: it stands in for the
+		// incomplete session file the scan skipped, unlike the sibling test's
+		// `acpChildRef`, which IS registered.
+		const grandchildRef: AgentRef = { ...createRef(grandchildFile), id: "Grandchild", parentId: "UnregisteredStub" };
+		const factory = createFactory(cwd, undefined, { rootAgentId: rootId });
+		const reviver = await factory(grandchildRef);
+		if (!reviver) throw new Error("Expected a persisted reviver");
+		await reviver(grandchildRef);
+
+		// 1 (self) + 1 for the unregistered stub the walk must still count,
+		// not 1: the old depth-1 result is exactly what let a revived agent
+		// below a mid-spawn stub spawn one level deeper than its real
+		// position in the persisted tree allows.
+		expect(capturedDepths.Grandchild).toBe(2);
+		AgentRegistry.resetGlobalForTests();
+	});
+
+	it("strips the collision-disambiguating owner qualifier from parentTaskPrefix while keeping the registry key qualified", async () => {
+		const cwd = makeTempDir("@pi-revive-qualified-prefix-");
+		const sessionFile = await createPersistedSession(cwd);
+		let capturedOptions: CreateAgentSessionOptions | undefined;
+		vi.spyOn(sdkModule, "createAgentSession").mockImplementation(async options => {
+			capturedOptions = options;
+			return { session: createRevivedSession([]).session } as CreateAgentSessionResult;
+		});
+
+		// Mirrors `registerPersistedSubagentsFromDir`'s collision handling: two
+		// unrelated ACP sessions each persisted a child named "Worker", so the
+		// second one's registry key is `qualifyPersistedAgentId(owner, "Worker")`.
+		const ownerId = "AcpSessionB";
+		const bareId = "Worker";
+		const ref: AgentRef = {
+			...createRef(sessionFile),
+			id: qualifyPersistedAgentId(ownerId, bareId),
+			parentId: ownerId,
+		};
+		const reviver = await createFactory(cwd)(ref);
+		if (!reviver) throw new Error("Expected a persisted reviver");
+		await reviver(ref);
+
+		// The registry key stays qualified (needed for lookup/CAS on `ref.id`),
+		// but the naming basis handed to `AgentOutputManager` for any FUTURE
+		// descendant this revived agent spawns must be the bare id — otherwise
+		// `runSubprocess` writes descendants under an `${ownerId}/`-prefixed
+		// directory the persisted-agent scan never looks inside.
+		expect(capturedOptions?.agentId).toBe(qualifyPersistedAgentId(ownerId, bareId));
+		expect(capturedOptions?.parentTaskPrefix).toBe(bareId);
 	});
 });

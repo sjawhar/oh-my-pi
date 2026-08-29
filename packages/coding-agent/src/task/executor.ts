@@ -58,6 +58,7 @@ import { initializeExtensions } from "../modes/runtime-init";
 import subagentAsyncPendingTemplate from "../prompts/system/subagent-async-pending.md" with { type: "text" };
 import subagentSystemPromptTemplate from "../prompts/system/subagent-system-prompt.md" with { type: "text" };
 import submitReminderTemplate from "../prompts/system/subagent-yield-reminder.md" with { type: "text" };
+import taskBudgetNoticeTemplate from "../prompts/tools/task-budget-notice.md" with { type: "text" };
 import { AgentLifecycleManager, type AgentReviver } from "../registry/agent-lifecycle";
 import { AgentRegistry, MAIN_AGENT_ID } from "../registry/agent-registry";
 import { ensurePersistedRoster, isCurrentSessionRosterRef } from "../registry/persisted-agents";
@@ -204,7 +205,7 @@ export const BUDGET_STOP_GRACE_REQUESTS = 5;
 
 /** Steering notice injected when a subagent crosses its soft request budget. */
 export function buildBudgetNotice(requests: number, budget: number): string {
-	return `[budget notice] You have used ${requests} requests in this run (soft budget: ${budget}). Wrap up now: finish the current step and deliver your final report. At ${Math.ceil(budget * 1.5)} requests the run is force-stopped and you will be asked to report whatever you have.`;
+	return prompt.render(taskBudgetNoticeTemplate, { requests, budget, stopThreshold: Math.ceil(budget * 1.5) });
 }
 
 /** Flatten whitespace and clip salvage text for the cancelled-child summary line. */
@@ -240,6 +241,15 @@ function normalizeModelPatterns(value: string | string[] | undefined): string[] 
 		.map(entry => entry.trim())
 		.filter(Boolean);
 }
+
+/**
+ * The model session creation started a subagent session on in place of the
+ * one it requested, and the `Fallback:` notice saying why
+ * (`startupModelFallback`). Kept with the session, not one run, so every
+ * monitor that attaches to it (the spawn's, a follow-up turn's, an IRC
+ * wake's) reports the substitution whenever that model serves.
+ */
+const startupModelFallbacks = new WeakMap<AgentSession, { model: string; reason: string }>();
 
 /** Session-scoped role owning subagent `id`'s retry fallback chain; cold revival reinstalls it under this name. */
 export function subagentRetryFallbackRole(id: string): string {
@@ -318,10 +328,9 @@ function installSubagentRetryFallbackChain(args: {
 	candidates: SubagentRetryFallbackCandidate[];
 	inheritedFallbackChain: string[] | undefined;
 	model: Model<Api> | undefined;
-	authFallbackUsed: boolean;
 }): string | undefined {
-	const { settings, id, candidates, inheritedFallbackChain, model, authFallbackUsed } = args;
-	if (!model || authFallbackUsed || candidates.length === 0) return undefined;
+	const { settings, id, candidates, inheritedFallbackChain, model } = args;
+	if (!model || candidates.length === 0) return undefined;
 
 	const selectedIndex = candidates.findIndex(
 		candidate => candidate.model.provider === model.provider && candidate.model.id === model.id,
@@ -576,7 +585,29 @@ export interface ExecutorOptions {
 	 * transition explicitly.
 	 */
 	parentTelemetry?: AgentTelemetryConfig;
-	/** Skills to autoload via sendCustomMessage before the first prompt */
+	/**
+	 * Skill names to autoload via sendCustomMessage before the first prompt.
+	 * Names, not resolved `Skill` objects: the child's `resources_discover`
+	 * (post-`session_start`) can replace a same-named inherited skill or
+	 * contribute one the parent never had, so resolution must happen against
+	 * `session.skills` *after* startup discovery, not in the spawner.
+	 */
+	autoloadSkillNames?: string[];
+	/**
+	 * Merge the child session's own `resources_discover` skill contributions
+	 * into a supplied `skills` snapshot. Internal spawners forwarding a parent
+	 * snapshot for perf set this true; direct SDK callers default to false so
+	 * a deliberately curated snapshot stays fixed (released semantics).
+	 */
+	mergeDiscoveredSkillPaths?: boolean;
+	/**
+	 * Skills to autoload via sendCustomMessage before the first prompt.
+	 * Released SDK surface (predates {@link autoloadSkillNames}); each entry
+	 * is re-resolved by name against `session.skills` after startup
+	 * `resources_discover`, falling back to the provided object when the
+	 * session has no skill of that name — so SDK callers can still inject
+	 * skills the session never discovered.
+	 */
 	autoloadSkills?: Skill[];
 	/**
 	 * Registry id of the spawning agent, recorded as this subagent's parent.
@@ -663,6 +694,8 @@ interface FinalizeSubprocessOutputArgs {
 	outputSchemaMode?: StructuredSubagentSchemaMode;
 	outputSchemaSource?: StructuredSubagentSchemaSource;
 	lastAssistantText?: string;
+	/** The structured result protocol was not submitted. */
+	missingYield?: "initial" | "wake";
 	/** `false` = no `yield` tool: `rawOutput` is the final assistant message, returned verbatim. Default `true`. */
 	structured?: boolean;
 }
@@ -673,6 +706,7 @@ interface FinalizeSubprocessOutputResult {
 	stderr: string;
 	abortedViaYield: boolean;
 	hasYield: boolean;
+	missingYield?: "initial" | "wake";
 	structuredOutput?: StructuredSubagentOutput;
 }
 export const SUBAGENT_WARNING_SCHEMA_OVERRIDDEN =
@@ -680,6 +714,7 @@ export const SUBAGENT_WARNING_SCHEMA_OVERRIDDEN =
 export const SUBAGENT_WARNING_NULL_YIELD = "SYSTEM WARNING: Subagent called yield with null data.";
 export const SUBAGENT_WARNING_MISSING_YIELD =
 	"SYSTEM WARNING: Subagent exited without calling yield tool after 3 reminders.";
+export const SUBAGENT_WARNING_MISSING_YIELD_WAKE = "SYSTEM WARNING: Structured subagent replied without calling yield.";
 export const SUBAGENT_WARNING_EMPTY_MESSAGE = "SYSTEM WARNING: Subagent ended without a final message.";
 
 /** Build a schema_violation outcome — surfaced as a non-zero exit so callers treat it as a failure. */
@@ -710,11 +745,14 @@ function buildSchemaViolationOutcome(
 export function finalizeSubprocessOutput(args: FinalizeSubprocessOutputArgs): FinalizeSubprocessOutputResult {
 	let { rawOutput, exitCode, stderr } = args;
 	const { yieldItems, doneAborted, signalAborted, outputSchema, lastAssistantText } = args;
+	const missingYieldWarning =
+		args.missingYield === "wake" ? SUBAGENT_WARNING_MISSING_YIELD_WAKE : SUBAGENT_WARNING_MISSING_YIELD;
 	const mode = args.outputSchemaMode ?? "permissive";
 	const source = args.outputSchemaSource ?? (outputSchema === undefined ? "none" : "session");
 	const includeStructuredOutput = source !== "none";
 	let structuredOutput: StructuredSubagentOutput | undefined;
 	let abortedViaYield = false;
+	let resultMissingYield: "initial" | "wake" | undefined;
 	const hasYield = Array.isArray(yieldItems) && yieldItems.length > 0;
 	const hadFailureBeforeYield = exitCode !== 0 && stderr.trim().length > 0;
 
@@ -850,19 +888,29 @@ export function finalizeSubprocessOutput(args: FinalizeSubprocessOutputArgs): Fi
 				stderr = "";
 			}
 		} else if (!hasOutputSchema && allowFallback && rawOutput.trim().length > 0) {
-			exitCode = 0;
-			stderr = "";
+			resultMissingYield = args.missingYield ?? "initial";
+			rawOutput = `${missingYieldWarning}\n\n${rawOutput}`;
+			stderr = missingYieldWarning;
 		} else if (exitCode === 0) {
 			const hasRawOutput = rawOutput.trim().length > 0;
-			rawOutput = rawOutput ? `${SUBAGENT_WARNING_MISSING_YIELD}\n\n${rawOutput}` : SUBAGENT_WARNING_MISSING_YIELD;
+			resultMissingYield = args.missingYield ?? "initial";
+			rawOutput = rawOutput ? `${missingYieldWarning}\n\n${rawOutput}` : missingYieldWarning;
 			if (hasOutputSchema || !hasRawOutput) {
 				exitCode = 1;
-				stderr = SUBAGENT_WARNING_MISSING_YIELD;
+				stderr = missingYieldWarning;
 			}
 		}
 	}
 
-	return { rawOutput, exitCode, stderr, abortedViaYield, hasYield, structuredOutput };
+	return {
+		rawOutput,
+		exitCode,
+		stderr,
+		abortedViaYield,
+		hasYield,
+		missingYield: resultMissingYield,
+		structuredOutput,
+	};
 }
 
 function formatToolArgsPreview(value: string, key: string): { value: string; key: string } {
@@ -1259,6 +1307,10 @@ interface SubagentRunMonitor {
 	budgetStopRequested(): boolean;
 	/** Resolves when the budget-stop session abort has settled (immediately when no stop fired). */
 	waitForBudgetStop(): Promise<void>;
+	/** True once the wrap-up steering notice has been delivered to the child at the 1x budget crossing, regardless of what happens afterward. */
+	budgetNoticeDelivered(): boolean;
+	/** The soft assistant-request budget in effect for this run; 0 when the guard is disabled. */
+	readonly softRequestBudget: number;
 	/**
 	 * True when a recorded yield was invalidated by a later async-result
 	 * injection and no fresh yield has landed since: the yield payload
@@ -2152,6 +2204,7 @@ function createSubagentRunMonitor(args: RunMonitorArgs): SubagentRunMonitor {
 	};
 
 	const attach = (session: AgentSession): (() => void) => {
+		const startupFallback = startupModelFallbacks.get(session);
 		// The session owns attribution: it knows which model produced its output
 		// and withholds an armed-but-unproven fallback. Re-deriving that here from
 		// the event stream got it wrong twice over — the stream also carries
@@ -2160,18 +2213,25 @@ function createSubagentRunMonitor(args: RunMonitorArgs): SubagentRunMonitor {
 		const publishServingModel = (): void => {
 			const serving = session.servingModel;
 			if (!serving) return;
-			const isFallback = serving.isFallback;
+			// The startup replacement stays a fallback for the requested model
+			// whenever it serves, including after a runtime hop away and back has
+			// cleared the session's own retry-fallback state. Only its own reason
+			// is reported; a runtime hop's target serves with none.
+			const onStartupFallback = startupFallback !== undefined && serving.modelIdentity === startupFallback.model;
+			const isFallback = serving.isFallback || onStartupFallback;
 			// A model swap moves the window the usage gauge divides by. Without
 			// this the Agent Hub kept the startup model's window while labelling
 			// the row with the fallback that replaced it. Models with no declared
 			// window keep the last known one rather than blanking the gauge.
 			const contextWindow =
 				serving.contextWindow && serving.contextWindow > 0 ? serving.contextWindow : progress.contextWindow;
+			const fallbackReason = onStartupFallback ? startupFallback.reason : undefined;
 			if (
 				serving.selector === progress.resolvedModel &&
 				serving.modelIdentity === progress.resolvedModelIdentity &&
 				serving.thinkingLevel === progress.resolvedThinkingLevel &&
 				(progress.resolvedModelIsFallback ?? false) === isFallback &&
+				fallbackReason === progress.resolvedModelFallbackReason &&
 				contextWindow === progress.contextWindow
 			) {
 				return;
@@ -2180,6 +2240,7 @@ function createSubagentRunMonitor(args: RunMonitorArgs): SubagentRunMonitor {
 			progress.resolvedModelIdentity = serving.modelIdentity;
 			progress.resolvedThinkingLevel = serving.thinkingLevel;
 			progress.resolvedModelIsFallback = isFallback;
+			progress.resolvedModelFallbackReason = fallbackReason;
 			progress.contextWindow = contextWindow;
 			scheduleProgress(true);
 		};
@@ -2206,6 +2267,8 @@ function createSubagentRunMonitor(args: RunMonitorArgs): SubagentRunMonitor {
 					progress.retryFailure = {
 						attempt,
 						errorMessage: event.finalError ?? "Auto-retry failed",
+						kind: event.kind,
+						resetAtMs: event.resetAtMs,
 					};
 				}
 				scheduleProgress(true);
@@ -2268,6 +2331,8 @@ function createSubagentRunMonitor(args: RunMonitorArgs): SubagentRunMonitor {
 			budgetLimitExceeded ||
 			budgetStopRequested,
 		budgetStopRequested: () => budgetStopRequested,
+		budgetNoticeDelivered: () => budgetSteerSent,
+		softRequestBudget,
 		waitForBudgetStop: () => budgetStopAbortPromise ?? Promise.resolve(),
 		yieldInvalidatedByAsync: () => yieldInvalidatedByAsync,
 		yieldTurnStopRequested: () => yieldTurnStopRequested,
@@ -2727,6 +2792,26 @@ async function driveSessionToResult(
 	return { exitCode, error, aborted, abortReasonText };
 }
 
+function truncateResultOutput(
+	rawOutput: string,
+	missingYield: SingleResult["missingYield"],
+): { content: string; truncated: boolean } {
+	if (!missingYield) {
+		const { content, truncated } = truncateTail(rawOutput, {
+			maxBytes: MAX_OUTPUT_BYTES,
+			maxLines: MAX_OUTPUT_LINES,
+		});
+		return { content, truncated: Boolean(truncated) };
+	}
+	const warning = missingYield === "wake" ? SUBAGENT_WARNING_MISSING_YIELD_WAKE : SUBAGENT_WARNING_MISSING_YIELD;
+	const prefix = `${warning}\n\n`;
+	const { content, truncated } = truncateTail(rawOutput.slice(prefix.length), {
+		maxBytes: MAX_OUTPUT_BYTES - Buffer.byteLength(prefix),
+		maxLines: MAX_OUTPUT_LINES - 2,
+	});
+	return { content: `${prefix}${content}`, truncated: Boolean(truncated) };
+}
+
 interface FinalizeRunArgs {
 	monitor: SubagentRunMonitor;
 	done: { exitCode: number; error?: string; aborted?: boolean; abortReason?: string; durationMs: number };
@@ -2743,6 +2828,8 @@ interface FinalizeRunArgs {
 	outputSchema?: unknown;
 	outputSchemaMode?: StructuredSubagentSchemaMode;
 	outputSchemaSource?: StructuredSubagentSchemaSource;
+	/** The structured result protocol was not submitted. */
+	missingYield?: "initial" | "wake";
 	signal?: AbortSignal;
 	artifactsDir?: string;
 	eventBus?: EventBus;
@@ -2796,6 +2883,7 @@ async function finalizeRunResult(args: FinalizeRunArgs): Promise<SingleResult> {
 			outputSchemaMode: args.outputSchemaMode,
 			outputSchemaSource: args.outputSchemaSource,
 			lastAssistantText: monitor.lastReportTurnText(),
+			missingYield: args.missingYield,
 			structured,
 		});
 	} finally {
@@ -2818,10 +2906,7 @@ async function finalizeRunResult(args: FinalizeRunArgs): Promise<SingleResult> {
 	const lastYield = yieldItems?.[yieldItems.length - 1];
 	const yieldAbortReason = lastYield?.status === "aborted" ? lastYield.error || "Subagent aborted task" : undefined;
 	const { abortedViaYield, hasYield } = finalized;
-	const { content: truncatedOutput, truncated } = truncateTail(rawOutput, {
-		maxBytes: MAX_OUTPUT_BYTES,
-		maxLines: MAX_OUTPUT_LINES,
-	});
+	const { content: truncatedOutput, truncated } = truncateResultOutput(rawOutput, finalized.missingYield);
 
 	// Write output artifact (input and jsonl already written in real-time).
 	// Compute output metadata for agent:// URL integration.
@@ -2942,6 +3027,13 @@ async function finalizeRunResult(args: FinalizeRunArgs): Promise<SingleResult> {
 	};
 	emitSubagentFrame(args.eventBus, args.subagentEventBus, TASK_SUBAGENT_LIFECYCLE_CHANNEL, settledPayload);
 
+	// A run that crossed its soft request budget — the wrap-up notice was
+	// delivered, or the run was force-stopped into a forced final yield — may
+	// still finish as a normal "completed" result when the child cooperates.
+	// Surface that regardless of final status, so the parent isn't left
+	// thinking a budget-driven wrap-up was an ordinary completion.
+	const budgetCrossed = monitor.budgetNoticeDelivered() || monitor.budgetStopRequested();
+
 	return {
 		index,
 		id,
@@ -2955,6 +3047,7 @@ async function finalizeRunResult(args: FinalizeRunArgs): Promise<SingleResult> {
 		output: truncatedOutput,
 		stderr,
 		truncated: Boolean(truncated),
+		...(finalized.missingYield ? { missingYield: finalized.missingYield } : {}),
 		...(finalized.structuredOutput ? { structuredOutput: finalized.structuredOutput } : {}),
 		durationMs: Date.now() - args.startTime,
 		tokens: progress.tokens,
@@ -2967,11 +3060,14 @@ async function finalizeRunResult(args: FinalizeRunArgs): Promise<SingleResult> {
 		resolvedModelIdentity: progress.resolvedModelIdentity,
 		resolvedThinkingLevel: progress.resolvedThinkingLevel,
 		resolvedModelIsFallback: progress.resolvedModelIsFallback,
+		resolvedModelFallbackReason: progress.resolvedModelFallbackReason,
 		resolvedModelRoute: progress.resolvedModelRoute,
 		advisor: progress.advisor,
 		error: exitCode !== 0 && stderr ? stderr : undefined,
 		aborted: wasAborted,
 		abortReason: finalAbortReason,
+		budgetCrossed: budgetCrossed ? true : undefined,
+		softRequestBudget: budgetCrossed ? monitor.softRequestBudget : undefined,
 		usage: monitor.hasUsage() ? monitor.accumulatedUsage : undefined,
 		outputPath,
 		extractedToolData: progress.extractedToolData,
@@ -3318,8 +3414,9 @@ export function attachIrcWakeTurnMonitor(session: AgentSession, options: IrcWake
 				// even when the run-state mirror never delivers `idle`.
 				AgentRegistry.global().markResultAccepted(id, session, turnMonitor.yieldAcceptedAt());
 			}
-			// Read before finalization: a schema-bearing agent that answered in
-			// prose gets a missing-yield warning prepended to `result.output`.
+			// Capture peer-relay text before finalization. A parent-owned structured
+			// wake publishes its finalized result instead, so its protocol warning
+			// reaches the parent's task job without changing peer conversation.
 			const turnText = turnMonitor.rawOutput() || (turnMonitor.lastAssistantSalvageText() ?? "");
 			const abortReason = aborted ? turnMonitor.resolveAbortReasonText() : undefined;
 			let result: SingleResult | undefined;
@@ -3344,6 +3441,7 @@ export function attachIrcWakeTurnMonitor(session: AgentSession, options: IrcWake
 					outputSchema: options.outputSchema,
 					outputSchemaMode: options.outputSchemaMode,
 					outputSchemaSource: options.outputSchemaSource,
+					missingYield: ownerWoken && options.structured !== false ? "wake" : undefined,
 					artifactsDir: options.artifactsDir,
 					eventBus: options.eventBus,
 					subagentEventBus: options.subagentEventBus,
@@ -3379,15 +3477,24 @@ export function attachIrcWakeTurnMonitor(session: AgentSession, options: IrcWake
 				}
 				// Once registered, the wake job carries this turn's outcome to the
 				// parent whatever it is: the yield result, the failure that
-				// superseded it, or, for a turn that never yielded, the answer a
-				// relay would have carried.
-				if (wakeJob && (yielded || messageResult) && result) {
+				// superseded it, or a structured parent wake's finalized
+				// missing-yield warning. `agentOutputPublished` tells the
+				// delivery whether this turn wrote `<id>.md`: a turn that neither
+				// yielded nor produced a message result leaves the previous turn's
+				// output there, which `agent://<id>` must not be offered for.
+				const outputPublished = result?.outputPath !== undefined;
+				const parentStructuredWake = ownerWoken && options.structured !== false;
+				if (wakeJob && result && (yielded || messageResult || parentStructuredWake)) {
 					const text = formatTaskResultSummary(result, { totalDurationMs: result.durationMs });
 					const structured = result.structuredOutput;
 					if (result.aborted || result.exitCode !== 0 || result.error !== undefined) {
 						wakeJob.outcome.reject(new AsyncJobError(text, structured));
 					} else {
-						wakeJob.outcome.resolve(structured ? { text, structured } : { text });
+						wakeJob.outcome.resolve({
+							text,
+							agentOutputPublished: outputPublished,
+							...(structured ? { structured } : {}),
+						});
 					}
 				} else if (wakeJob && yielded) {
 					const message = finalizeError instanceof Error ? finalizeError.message : String(finalizeError);
@@ -3404,7 +3511,7 @@ export function attachIrcWakeTurnMonitor(session: AgentSession, options: IrcWake
 						alreadyMessaged: IrcBus.global().sentSince(id, wakeJob.ownerId, turnStartTime),
 					});
 					if (wakeTurnFailed(outcome)) wakeJob.outcome.reject(new Error(text));
-					else wakeJob.outcome.resolve({ text });
+					else wakeJob.outcome.resolve({ text, agentOutputPublished: outputPublished });
 				}
 				// Unconditional: a failed, cancelled, empty, or even un-finalized
 				// wake turn must still tell whoever woke it, or a `send await:true`
@@ -3789,6 +3896,12 @@ interface SubagentPromptInputs {
 	ircEnabled: boolean;
 	/** Root resolved by the latest roster ensure; peer rows render scoped to it, so a session switch hides stale parked trees. */
 	ircRoot: { sessionFile?: string };
+	/** Peer roster each prompt block the live session rendered shows, keyed by that block. */
+	ircRenders: Map<string, IrcPeerRosterData>;
+	/** Peer roster of the prompt the parked session held; a warm revive renders it again. */
+	ircRoster?: IrcPeerRosterData;
+	/** Set while a warm revive rebuilds the session. */
+	reviving: boolean;
 }
 
 /**
@@ -3845,9 +3958,17 @@ function buildSubagentSessionOptions(
 		resolveServiceTierByFamily: launch?.resolveServiceTierByFamily,
 		onFirstChatDispatch: launch?.onFirstChatDispatch,
 		systemPrompt: defaultPrompt => {
-			const ircRoster = inputs.ircEnabled
-				? collectIrcPeerRoster(AgentRegistry.global(), inputs.id, inputs.ircRoot.sessionFile)
-				: undefined;
+			// A revive shows the roster the parked session's prompt held, and a rebuild that leaves the
+			// rest of the prompt unchanged keeps the roster the prompt it replaces showed: peer rows carry
+			// each peer's live activity, so a re-collected roster changed the prompt's bytes on every such
+			// rebuild and the provider wrote the whole conversation to its prompt cache again. A rebuild
+			// whose default blocks changed loses the cached prefix anyway, so it catches the roster up.
+			const ircRoster = !inputs.ircEnabled
+				? undefined
+				: inputs.reviving && inputs.ircRoster
+					? inputs.ircRoster
+					: (heldIrcRoster(inputs, defaultPrompt) ??
+						collectIrcPeerRoster(AgentRegistry.global(), inputs.id, inputs.ircRoot.sessionFile));
 			const subagentPrompt = prompt.render(subagentSystemPromptTemplate, {
 				agent: inputs.agentSystemPrompt,
 				context: inputs.context,
@@ -3869,6 +3990,7 @@ function buildSubagentSessionOptions(
 				ircOmittedCount: ircRoster?.omittedCount ?? 0,
 				ircSelfId: inputs.ircEnabled ? inputs.id : "",
 			});
+			if (ircRoster) recordIrcRender(inputs, subagentPrompt, ircRoster);
 			// Per-spawn text (context, worktree, IRC roster) goes after the trailing
 			// `<project-context>` block so spawns of the same agent share the static
 			// prompt prefix as a cache hit.
@@ -3876,6 +3998,43 @@ function buildSubagentSessionOptions(
 			return [...defaultPrompt, subagentPrompt, ...(seancePrompt ? [seancePrompt] : [])];
 		},
 	};
+}
+
+/**
+ * The roster the live session's base prompt shows, when that prompt starts with `defaultPrompt`:
+ * reusing it then keeps the whole prompt byte-identical. `undefined` before the first render or
+ * when the default blocks changed.
+ */
+function heldIrcRoster(inputs: SubagentPromptInputs, defaultPrompt: readonly string[]): IrcPeerRosterData | undefined {
+	const held = AgentRegistry.global().get(inputs.id)?.session?.baseSystemPrompt;
+	if (!held || held.length <= defaultPrompt.length) return undefined;
+	if (defaultPrompt.some((block, index) => held[index] !== block)) return undefined;
+	return held.map(block => inputs.ircRenders.get(block)).find(roster => roster !== undefined);
+}
+
+/** Remembers the roster `block` shows, dropping blocks the live session's base prompt no longer holds. */
+function recordIrcRender(inputs: SubagentPromptInputs, block: string, roster: IrcPeerRosterData): void {
+	const held = AgentRegistry.global().get(inputs.id)?.session?.baseSystemPrompt;
+	if (held) {
+		for (const rendered of inputs.ircRenders.keys()) {
+			if (!held.includes(rendered)) inputs.ircRenders.delete(rendered);
+		}
+	}
+	inputs.ircRenders.set(block, roster);
+}
+
+/**
+ * When `session` is disposed, keeps the roster its base prompt held for the next warm revive to
+ * render again. The base, not the effective prompt: a `before_agent_start` override may rewrite
+ * the block, and the revived turn re-runs that hook over the same base.
+ */
+function trackSubagentIrcRoster(session: AgentSession, inputs: SubagentPromptInputs): void {
+	session.addDisposer(() => {
+		inputs.ircRoster = session.baseSystemPrompt
+			.map(block => inputs.ircRenders.get(block))
+			.find(roster => roster !== undefined);
+		inputs.ircRenders.clear();
+	});
 }
 
 /** Re-resolves the IRC roster root a subagent's prompt scopes its peer rows to. */
@@ -3962,35 +4121,51 @@ function createWarmSubagentReviver(capture: WarmReviveCapture): AgentReviver {
 		const mcpManager = capture.spec.options.mcpManager;
 		const mcpFollower = mcpManager ? followMCPTools(mcpManager, explicitSubagentToolNames(capture.spec)) : undefined;
 		let revived: AgentSession;
+		let startupModelFallback: CreateAgentSessionResult["startupModelFallback"];
 		// Account pools are owner policy: take the live exact-name entry, as
 		// dispatch and persisted revival do, never the spawn-time copy.
 		const agentAccountPools = validateAgentAccountPools(cfgTaskAgentAccountPools.get(capture.settings.parent));
+		capture.spec.prompt.reviving = true;
 		try {
-			({ session: revived } = await createAgentSession({
-				...buildSubagentSessionOptions(
-					capture.spec,
-					restoreSubagentSettings(capture.settings),
-					reopened,
-					expectedAgentRef,
-				),
-				oauthAccountPools: Object.hasOwn(agentAccountPools, capture.agentName)
-					? agentAccountPools[capture.agentName]
-					: undefined,
-			}));
-		} catch (error) {
-			mcpFollower?.dispose();
-			throw error;
+			try {
+				({ session: revived, startupModelFallback } = await createAgentSession({
+					...buildSubagentSessionOptions(
+						capture.spec,
+						restoreSubagentSettings(capture.settings),
+						reopened,
+						expectedAgentRef,
+					),
+					oauthAccountPools: Object.hasOwn(agentAccountPools, capture.agentName)
+						? agentAccountPools[capture.agentName]
+						: undefined,
+				}));
+			} catch (error) {
+				mcpFollower?.dispose();
+				throw error;
+			}
+			mcpFollower?.bind(revived);
+			if (startupModelFallback) startupModelFallbacks.set(revived, startupModelFallback);
+			trackSubagentSettings(revived, capture);
+			trackSubagentIrcRoster(revived, capture.spec.prompt);
+			const withoutParentOwnedTools = (toolNames: string[]): string[] =>
+				capture.keepTodo ? toolNames : toolNames.filter(name => name !== "todo");
+			// Strip what the spawn stripped, before extensions start: the rebuilt session enables its defaults again.
+			const revivedToolNames = revived.getEnabledToolNames();
+			const subagentToolNames = withoutParentOwnedTools(revivedToolNames);
+			if (subagentToolNames.length !== revivedToolNames.length) {
+				await revived.setActiveToolsByName(subagentToolNames);
+			}
+			// Re-run the executor's extension wiring on the rebuilt session. Skipping it leaves the
+			// runner pre-init, so a `tool_call` handler touching a runtime action trips the
+			// fail-closed gate and blocks every tool (including `yield`) in the revived agent (issue #8824).
+			await initializeExtensions(revived, {
+				reportSendError: (action, err) => logger.error("Extension send failed", { action, error: err.message }),
+				reportRuntimeError: err => logger.error("Extension error", { path: err.extensionPath, error: err.error }),
+				filterActiveTools: withoutParentOwnedTools,
+			});
+		} finally {
+			capture.spec.prompt.reviving = false;
 		}
-		mcpFollower?.bind(revived);
-		trackSubagentSettings(revived, capture);
-		// Re-run the executor's extension wiring on the rebuilt session. Skipping it leaves the
-		// runner pre-init, so a `tool_call` handler touching a runtime action trips the
-		// fail-closed gate and blocks every tool (including `yield`) in the revived agent (issue #8824).
-		await initializeExtensions(revived, {
-			reportSendError: (action, err) => logger.error("Extension send failed", { action, error: err.message }),
-			reportRuntimeError: err => logger.error("Extension error", { path: err.extensionPath, error: err.error }),
-			filterActiveTools: toolNames => (capture.keepTodo ? toolNames : toolNames.filter(name => name !== "todo")),
-		});
 		AgentRegistry.global().syncSessionStatus(id, revived);
 		attachIrcWakeTurnMonitor(revived, capture.wake);
 		return revived;
@@ -4283,13 +4458,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 							modelRole ?? resolveExplicitModelRole(modelPatterns, subagentSettings),
 						)
 					: undefined;
-			const {
-				model,
-				thinkingLevel: resolvedThinkingLevel,
-				explicitThinkingLevel,
-				authFallbackUsed,
-				warning: modelResolutionWarning,
-			} = await awaitAbortable(
+			const resolution = await awaitAbortable(
 				resolveModelOverrideWithAuthFallback(
 					modelPatterns,
 					options.parentActiveModelPattern,
@@ -4298,18 +4467,22 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					id,
 				),
 			);
+			// A requested model without working credentials is left to
+			// createAgentSession's deferred resolution, the one place that applies
+			// the model's retry.fallbackChains entry (an empty chain refuses the
+			// spawn) and marks whatever replaces it as a fallback. That holds whether
+			// or not the parent's model could stand in for it.
+			const { primaryAuthFailed, warning: modelResolutionWarning } = resolution;
+			const model = primaryAuthFailed ? undefined : resolution.model;
+			const resolvedThinkingLevel = primaryAuthFailed ? undefined : resolution.thinkingLevel;
+			const explicitThinkingLevel = !primaryAuthFailed && resolution.explicitThinkingLevel;
+			// Session creation resolves what dispatch could not: an explicit request
+			// it found no model for, or any requested model without credentials.
+			const deferModelPatterns = !model && (modelOverride !== undefined || primaryAuthFailed);
 			if (modelResolutionWarning) {
 				logger.warn("Subagent model resolution warning", {
 					warning: modelResolutionWarning,
 					requested: modelPatterns,
-				});
-			}
-			if (authFallbackUsed && model) {
-				logger.warn("Subagent model has no working credentials; falling back to parent session model", {
-					requested: modelPatterns,
-					parentModel: options.parentActiveModelPattern,
-					resolvedProvider: model.provider,
-					resolvedModel: model.id,
 				});
 			}
 			// The exact-name `task.agentServiceTierOverrides` entry dispatch resolved
@@ -4333,7 +4506,6 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				candidates: resolveSubagentRetryFallbackCandidates(modelPatterns, modelRegistry, subagentSettings),
 				inheritedFallbackChain: inheritedRetryFallbackChain,
 				model,
-				authFallbackUsed,
 			});
 			if (retryFallbackRole) {
 				logger.debug("Configured subagent runtime model fallback chain", {
@@ -4347,12 +4519,14 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			// Caller-requested coarse effort maps onto the resolved model's
 			// supported range, then respects the operator-configured ceiling.
 			// Undefined (no effort, or no controllable effort surface) falls
-			// through to the normal selectors below.
+			// through to the normal selectors below. A model dispatch could not
+			// resolve gets the effort mapped by session creation, onto the model
+			// it settles on (`taskEffort`), never onto the generic ladder.
 			// The ceiling outlives initial resolution: it rides into the session so
 			// retry-fallback recovery can never clamp effort back up past it.
 			const spawnEffortCeiling = options.effort !== undefined ? cfgTaskMaxEffort.get(settings) : undefined;
 			const effortLevel =
-				options.effort !== undefined
+				options.effort !== undefined && model
 					? resolveTaskEffortLevel(model, options.effort, spawnEffortCeiling)
 					: undefined;
 			if (model) {
@@ -4486,15 +4660,14 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					oauthAccountPools: options.oauthAccountPools,
 					inheritedSessionAgents: options.inheritedSessionAgents,
 					model,
-					modelPattern: model || modelOverride === undefined ? undefined : modelPatterns,
-					modelPatternAuthFallback:
-						model || modelOverride === undefined ? undefined : options.parentActiveModelPattern,
-					modelPatternFallbackRole:
-						model || modelOverride === undefined ? undefined : subagentRetryFallbackRole(id),
-					modelPatternDefaultFallbackChain:
-						model || modelOverride === undefined ? undefined : inheritedRetryFallbackChain,
+					modelPattern: deferModelPatterns ? modelPatterns : undefined,
+					modelPatternAuthFallback: deferModelPatterns ? options.parentActiveModelPattern : undefined,
+					modelPatternFallbackRole: deferModelPatterns ? subagentRetryFallbackRole(id) : undefined,
+					modelPatternDefaultFallbackChain: deferModelPatterns ? inheritedRetryFallbackChain : undefined,
+					modelPatternChainFallback: deferModelPatterns || undefined,
 					thinkingLevel: effectiveThinkingLevel,
 					thinkingLevelCeiling: spawnEffortCeiling,
+					taskEffort: model ? undefined : options.effort,
 					// Subagents are short-lived; never schedule background warm requests.
 					cacheWarming: false,
 					toolNames,
@@ -4504,6 +4677,13 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					requireYieldTool: structured,
 					contextFiles: options.contextFiles,
 					skills: options.skills,
+					// Internal spawners (task/eval/vibe) forward the parent snapshot
+					// for perf and set this true so discoverStartupSkillPaths still
+					// merges the child's own resources_discover contributions
+					// (session-tools.ts). Direct SDK callers of the exported
+					// runSubprocess keep the released fixed-snapshot semantics:
+					// default false, matching createAgentSession's own opt-in.
+					mergeDiscoveredSkillPaths: options.mergeDiscoveredSkillPaths === true,
 					promptTemplates: options.promptTemplates,
 					workspaceTree: options.workspaceTree,
 					rules: options.rules,
@@ -4553,6 +4733,8 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					outputSchemaOverridesAgent: options.outputSchemaOverridesAgent === true,
 					ircEnabled,
 					ircRoot: {},
+					ircRenders: new Map(),
+					reviving: false,
 				},
 			};
 
@@ -4587,8 +4769,10 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 						},
 					}),
 				);
-				({ session } = await awaitAbortable(sessionPromise));
+				let startupModelFallback: CreateAgentSessionResult["startupModelFallback"];
+				({ session, startupModelFallback } = await awaitAbortable(sessionPromise));
 				if (preparedSession) untrackedSession = session;
+				if (startupModelFallback) startupModelFallbacks.set(session, startupModelFallback);
 			} catch (err) {
 				mcpFollower?.dispose();
 				// Abort raced session startup. The session may still resolve later
@@ -4657,6 +4841,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					agentName: agent.name,
 				};
 				trackSubagentSettings(session, reviveCapture);
+				trackSubagentIrcRoster(session, sessionSpec.prompt);
 				reviveSession = createWarmSubagentReviver(reviveCapture);
 			}
 
@@ -4692,30 +4877,42 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					? enabledSubagentTools.filter(name => name !== "write")
 					: enabledSubagentTools;
 
-			session.sessionManager.appendSessionInit({
-				// Blocks as sent; the session appends a newer session_init whenever a model call's base changes.
-				systemPrompt: session.agent.state.systemPrompt,
-				task,
-				tools: persistedSubagentTools,
-				agent: agent.name,
-				modelRole: modelRole ?? resolveExplicitModelRole(modelOverride ?? agent.model, subagentSettings),
-				resolvedModel: progress.resolvedModel,
-				// Deferred model resolution installs this role inside createAgentSession,
-				// so read it back from the settings both install paths write.
-				retryFallback: getRetryFallbackRole(subagentSettings, subagentRetryFallbackRole(id)),
-				readOnly: isReadOnlyAgent(agent),
-				spawns: spawnsEnv,
-				readSummarize: agent.readSummarize,
-				advisor: advisorSelection ? (advisorRolePattern ?? "on") : undefined,
-				compactionThreshold: options.compactionThresholdOverride,
-				outputSchema,
-				outputSchemaMode: options.outputSchemaMode,
-				restrictToolNames: restrictToolNames || undefined,
-				// Isolated runs are never revivable (worktree merged + cleaned):
-				// stamp the contract so cold revival leaves them transcript-only
-				// even when the workspace was retained for recovery.
-				isolated: worktree !== undefined || undefined,
-			});
+			// Persist the subagent's revival contract at spawn, before any extension
+			// runs: `readPersistedAgentMetadata()` (registry/persisted-agents.ts) only
+			// scans the first records of the session file, and a `session_start`
+			// handler can append entries of its own. The session is an argument so
+			// this closure does not capture `session` (see below).
+			const persistSessionInit = (started: AgentSession): void => {
+				started.sessionManager.appendSessionInit({
+					// Blocks as sent; the session appends a newer session_init whenever a model call's base changes.
+					systemPrompt: started.agent.state.systemPrompt,
+					task,
+					tools: persistedSubagentTools,
+					agent: agent.name,
+					modelRole: modelRole ?? resolveExplicitModelRole(modelOverride ?? agent.model, subagentSettings),
+					// Cold revival restores this model. A model dispatch deferred is
+					// known only once the session settled on it, and the monitor has
+					// not published it yet.
+					resolvedModel: progress.resolvedModel ?? started.servingModel?.selector,
+					// Deferred model resolution installs this role inside createAgentSession,
+					// so read it back from the settings both install paths write.
+					retryFallback: getRetryFallbackRole(subagentSettings, subagentRetryFallbackRole(id)),
+					readOnly: isReadOnlyAgent(agent),
+					spawns: spawnsEnv,
+					readSummarize: agent.readSummarize,
+					advisor: advisorSelection ? (advisorRolePattern ?? "on") : undefined,
+					compactionThreshold: options.compactionThresholdOverride,
+					outputSchema,
+					outputSchemaMode: options.outputSchemaMode,
+					restrictToolNames: restrictToolNames || undefined,
+					// Isolated runs are never revivable (worktree merged + cleaned):
+					// stamp the contract so cold revival leaves them transcript-only
+					// even when the workspace was retained for recovery.
+					isolated: worktree !== undefined || undefined,
+				});
+			};
+			persistSessionInit(session);
+			const spawnSystemPrompt = [...session.agent.state.systemPrompt];
 
 			abortSignal.addEventListener(
 				"abort",
@@ -4735,6 +4932,12 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			// block one shared scope object, so the lifecycle reviver built above would
 			// then pin the parked, disposed session for the life of the process.
 			const pendingExtensionMessages: Array<Promise<unknown>> = [];
+			// `discoverStartupSkillPaths()` rebuilds `session.agent.state.systemPrompt`
+			// when a `resources_discover` handler contributed a directory, and a
+			// cold-revived session (persisted-revive.ts) replays the latest
+			// `session_init` verbatim: append a newer one when discovery changed the
+			// prompt. `initializeExtensions` runs this inside its startup hold, before
+			// any held startup send dispatches, and passes the session in.
 			await awaitAbortable(
 				initializeExtensions(session, {
 					reportSendError: (action, err) => logger.error("Extension send failed", { action, error: err.message }),
@@ -4744,6 +4947,16 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 						pendingExtensionMessages.push(task.catch(() => {}));
 					},
 					filterActiveTools: toolNames => toolNames.filter(name => !isParentOwnedTool(name)),
+					afterStartupDiscovery: started => {
+						const prompt = started.agent.state.systemPrompt;
+						if (
+							prompt.length === spawnSystemPrompt.length &&
+							prompt.every((block, index) => block === spawnSystemPrompt[index])
+						) {
+							return;
+						}
+						persistSessionInit(started);
+					},
 				}),
 			);
 			while (pendingExtensionMessages.length > 0) {
@@ -4753,16 +4966,36 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			unsubscribe = monitor.attach(session);
 
 			checkAbort();
-			// Autoload skills via sendCustomMessage (same mechanic as /skill:<name>)
-			if (options.autoloadSkills?.length) {
-				for (const skill of options.autoloadSkills) {
-					const { message } = await buildSkillPromptMessage(skill, { args: "" }, "autoload");
+			// Autoload skills via sendCustomMessage (same mechanic as /skill:<name>).
+			// Resolved against `session.skills` only now — after the startup
+			// `resources_discover` above — so a skill the child's extensions
+			// replaced (merge precedence, session-tools.ts) or contributed anew
+			// injects the child's file, not the parent's stale snapshot object.
+			if (options.autoloadSkillNames?.length || options.autoloadSkills?.length) {
+				const skillsByName = new Map(session.skills.map(skill => [skill.name, skill]));
+				const toAutoload = new Map<string, Skill>();
+				for (const name of options.autoloadSkillNames ?? []) {
+					const skill = skillsByName.get(name);
+					if (!skill) {
+						logger.warn("Autoload skill not found in subagent session", { name });
+						continue;
+					}
+					toAutoload.set(skill.name, skill);
+				}
+				// Released SDK option: session resolution wins (the child may have
+				// replaced the skill), the caller's object is the fallback.
+				for (const provided of options.autoloadSkills ?? []) {
+					if (toAutoload.has(provided.name)) continue;
+					toAutoload.set(provided.name, skillsByName.get(provided.name) ?? provided);
+				}
+				for (const skill of toAutoload.values()) {
+					const { message, details } = await buildSkillPromptMessage(skill, { args: "" }, "autoload", session);
 					await session.sendCustomMessage(
 						{
 							customType: SKILL_PROMPT_MESSAGE_TYPE,
 							content: message,
 							display: false,
-							details: { name: skill.name, path: skill.filePath },
+							details: { name: details.name, path: details.path },
 						},
 						{ triggerTurn: false },
 					);

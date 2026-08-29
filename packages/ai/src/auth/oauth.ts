@@ -98,15 +98,17 @@ export class OAuthAccounts implements OAuthApi {
 		// Stamp the interactive-login instant: providers with an absolute grant
 		// lifetime (Anthropic) need it to surface re-login deadlines, and token
 		// refreshes only ever merge over this credential without clearing it.
+		const storeAs = def.storeCredentialsAs ?? provider;
 		const newCredential: OAuthCredential = {
 			type: "oauth",
 			...result,
 			authorizedAt: Date.now(),
+			...(storeAs !== provider ? { loginProvider: provider } : {}),
 		};
 		// Use pool.upsertOAuth to upsert the new credential.
 		// Any legacy api_key rows from older versions will be cleaned up so they do not
 		// shadow the new OAuth row, while preserving other active OAuth credentials.
-		await this.#deps.pool.upsertOAuth(def.storeCredentialsAs ?? provider, newCredential);
+		await this.#deps.pool.upsertOAuth(storeAs, newCredential);
 		return {
 			type: "oauth",
 			email: newCredential.email,
@@ -185,6 +187,7 @@ export class OAuthAccounts implements OAuthApi {
 				await this.refresh(selection.credentialId, options.signal, {
 					reuseRecentMint: options.refreshReason === "auth-recovery",
 					reason: options.refreshReason,
+					rejectedAccess: options.rejectedAccessToken,
 				});
 				// The refresh re-lists rows, so a concurrently removed row can shift this one's position.
 				index = this.#deps.pool.entries(provider).findIndex(entry => entry.id === selection.credentialId);

@@ -30,9 +30,10 @@ import type { ForeignSessionSource } from "../session/foreign-session-store";
 import type { HistoryStorage } from "../session/history-storage";
 import type { SessionContext } from "../session/session-context";
 import type { SessionManager } from "../session/session-manager";
+import type { RefreshSkillsOptions } from "../session/session-tools";
 import type { ShakeMode } from "../session/shake-types";
 import type { DictationTarget } from "../stt";
-import type { SessionInfo } from "../session/session-listing";
+import type { SessionContinuation, SessionInfo } from "../session/session-listing";
 import type { SpaceHoldHandler } from "@oh-my-pi/pi-tui/space-hold";
 import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
 import type { LspStartupServerInfo } from "../tools";
@@ -97,6 +98,21 @@ export type InteractiveSelectorDialogOptions = ExtensionUIDialogOptions &
 	Pick<HookSelectorOptions, "disabledIndices" | "inline">;
 
 export type SessionPickHandler = (session: SessionInfo) => void | Promise<void>;
+
+/** How {@link InteractiveModeContext.handleResumeSession} picks the file it opens. */
+export interface ResumeSessionOptions {
+	/**
+	 * The user chose this session to resume (picker, `/resume <id>`, welcome
+	 * card): when its conversation went on in another file, resume that copy.
+	 * Restoring a session the process itself left (collab) opens the path as given.
+	 */
+	followContinuation?: boolean;
+	/**
+	 * The copy to resume, already found by the caller (`resolveResumeTarget`):
+	 * `sessionPath` is that copy, and the notice names the file it came from.
+	 */
+	continuation?: SessionContinuation;
+}
 
 export interface RenderSessionContextOptions {
 	updateFooter?: boolean;
@@ -357,7 +373,8 @@ export interface InteractiveModeContext {
 	flushCompactionQueue(options?: { willRetry?: boolean }): Promise<void>;
 	flushPendingBashComponents(): void;
 	flushPendingModelSwitch(): Promise<void>;
-	setWorkingMessage(message?: string): void;
+	/** No argument restores the default; a function label is re-read on every spinner tick. */
+	setWorkingMessage(message?: string | (() => string)): void;
 	applyPendingWorkingMessage(): void;
 	ensureLoadingAnimation(): void;
 	/** Interrupt key id for a maintenance working row's stop control; undefined while Esc would not cancel it. */
@@ -500,8 +517,8 @@ export interface InteractiveModeContext {
 	): Promise<CompactionOutcome>;
 	openInBrowser(urlOrPath: string): void;
 	refreshSlashCommandState(cwd?: string): Promise<void>;
-	/** Reload session skills and derived `/skill:<name>` commands. */
-	refreshSkillState(): Promise<void>;
+	/** Reload session skills and derived `/skill:<name>` commands; `rediscover` re-emits `resources_discover`. */
+	refreshSkillState(options?: RefreshSkillsOptions): Promise<void>;
 	applyCwdChange(newCwd: string): Promise<boolean>;
 
 	// Selector handling
@@ -526,7 +543,7 @@ export interface InteractiveModeContext {
 	showSessionSelector(source?: ForeignSessionSource, onSelect?: SessionPickHandler): void;
 	/** Settle side requests before replacing the session or deleting its artifacts. */
 	prepareSessionSwitch(): Promise<void>;
-	handleResumeSession(sessionPath: string): Promise<void>;
+	handleResumeSession(sessionPath: string, options?: ResumeSessionOptions): Promise<void>;
 	handleSessionDeleteCommand(): Promise<void>;
 	showOAuthSelector(mode: "login" | "logout", providerId?: string): Promise<void>;
 	showSessionPinSelector(): Promise<void>;

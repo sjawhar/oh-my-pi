@@ -32,13 +32,8 @@ import {
 	getExtensionUISelectOptionLabel,
 	timedOutAskDialogResult,
 } from "../../extensibility/extensions";
-import {
-	type BuiltSkillPromptMessage,
-	buildSkillPromptMessage,
-	parseSkillInvocation,
-	type Skill,
-	type SkillPromptInput,
-} from "../../extensibility/skills";
+import { buildSkillPromptMessage } from "../../extensibility/skills";
+import { type RpcSkillCommandSession, resolveRpcSkillInvocation, runRpcSkillCommand } from "./rpc-skill-invocation";
 import { type Theme, theme } from "@oh-my-pi/pi-tui/theme";
 import { AgentLifecycleManager } from "../../registry/agent-lifecycle";
 import {
@@ -51,11 +46,12 @@ import { requestTextPrediction, textPredictionBackend } from "../../predict/clie
 import { type AgentSession, SessionBusyError } from "../../session/agent-session";
 import type { RestoredQueuedMessage } from "../../session/agent-session-types";
 import { CACHE_WARMING_MODES } from "../../session/cache-warmer";
-import { findMostRecentNonEmptySession } from "../../session/session-listing";
-import { SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/messages";
+import { findMostRecentNonEmptySession, findRecentSessionContinuation } from "../../session/session-listing";
+import { USER_INTERRUPT_LABEL } from "../../session/messages";
 import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins";
 import { buildAvailableSlashCommands } from "../../slash-commands/available-commands";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
+import type { SlashCommandHost } from "../../slash-commands/types";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
 import type { EventBus } from "../../utils/event-bus";
 import { selectRpcEntries } from "./rpc-compat";
@@ -244,55 +240,7 @@ export type RpcSessionChangeResult =
 
 export type RpcSessionChangeSession = Pick<AgentSession, "newSession" | "switchSession" | "branch" | "fork">;
 
-export type RpcSkillCommandSession = Pick<AgentSession, "promptCustomMessage" | "skills" | "skillsSettings">;
 export type RpcSkillCommandResult = { agentInvoked: true };
-
-export interface RpcSkillInvocation extends SkillPromptInput {
-	skill: Skill;
-	queueChipText: string;
-}
-
-/**
- * Fast in-memory pre-check for a skill invocation: settings gate, text shape,
- * and skill lookup. Returns null when the message is not a runnable skill
- * command. Performs no I/O — safe to run on the RPC serial queue.
- */
-export function resolveRpcSkillInvocation(session: RpcSkillCommandSession, text: string): RpcSkillInvocation | null {
-	if (!session.skillsSettings?.enableSkillCommands) return null;
-	const parsed = parseSkillInvocation(text);
-	if (!parsed) return null;
-	const skill = session.skills.find(candidate => candidate.name === parsed.name);
-	if (!skill) return null;
-	return { skill, args: parsed.args, prompt: parsed.prompt, queueChipText: text };
-}
-
-/**
- * Slow half of a skill invocation: builds the skill prompt message (file I/O)
- * and dispatches it through the full prompt pipeline (usage preflight,
- * compaction checks, provider calls). Resolves once the turn is scheduled.
- * Must not run on the RPC serial queue's response path — register it with
- * watchAndReportPromptResult and answer the command once it is admitted.
- */
-export async function runRpcSkillCommand(
-	session: RpcSkillCommandSession,
-	invocation: RpcSkillInvocation,
-	streamingBehavior: "steer" | "followUp" = "steer",
-	prebuilt?: BuiltSkillPromptMessage,
-	onPromptAdmitted?: () => void,
-	images?: ImageContent[],
-): Promise<boolean> {
-	const built = prebuilt ?? (await buildSkillPromptMessage(invocation.skill, invocation, "user"));
-	return session.promptCustomMessage(
-		{
-			customType: SKILL_PROMPT_MESSAGE_TYPE,
-			content: images?.length ? [{ type: "text", text: built.message }, ...images] : built.message,
-			display: true,
-			details: built.details,
-			attribution: "user",
-		},
-		{ streamingBehavior, queueChipText: invocation.queueChipText, onPromptAdmitted },
-	);
-}
 
 /**
  * Skill branch of the `prompt` command: resolves the invocation cheaply, then
@@ -324,21 +272,19 @@ export async function dispatchRpcSkillPrompt(input: {
 	// keep that error contract by awaiting it before answering. The expensive
 	// promptCustomMessage pipeline (usage preflight, compaction, provider
 	// calls) is what moves behind the acknowledgement.
-	const built = await buildSkillPromptMessage(invocation.skill, invocation, "user");
+	const built = await buildSkillPromptMessage(invocation.skill, invocation, "user", input.session);
 	if (input.isCurrent && !input.isCurrent()) return "cancelled";
 	// A failure before admission still resolves this wait (without rejecting this
 	// call) — reportPromptResult already routed it to onError and a failed prompt_result.
 	await watchAndReportPromptResult({
 		ticket: input.ticket,
 		startPrompt: onPromptAdmitted =>
-			runRpcSkillCommand(
-				input.session,
-				invocation,
-				input.streamingBehavior ?? "steer",
-				built,
+			runRpcSkillCommand(input.session, invocation, {
+				streamingBehavior: input.streamingBehavior,
+				prebuilt: built,
 				onPromptAdmitted,
-				input.images,
-			),
+				images: input.images,
+			}),
 		results: input.results,
 		onError: input.onError,
 		extensionUserMessageTracker: input.extensionUserMessageTracker,
@@ -354,7 +300,7 @@ export async function tryRunRpcSkillCommand(
 ): Promise<RpcSkillCommandResult | false> {
 	const invocation = resolveRpcSkillInvocation(session, text);
 	if (!invocation) return false;
-	await runRpcSkillCommand(session, invocation, streamingBehavior, undefined, undefined, images);
+	await runRpcSkillCommand(session, invocation, { streamingBehavior, images });
 	return { agentInvoked: true };
 }
 
@@ -904,7 +850,9 @@ export type RpcOpenSessionSession = Pick<
 /**
  * Continue the newest non-empty session in `sessionDir`, or start a fresh one
  * there — the runtime equivalent of `--session-dir <dir> --continue`, so a host
- * can bind a pre-spawned process to a conversation it keys by directory.
+ * can bind a pre-spawned process to a conversation it keys by directory. Like
+ * `--continue`, it opens the copy the conversation went on in when that session
+ * moved off its file (see {@link findRecentSessionContinuation}).
  * Reopening the session that is already active is a no-op and does not abort a run.
  *
  * With `model`, the session uses that model instead of its saved one, like an
@@ -921,7 +869,8 @@ export async function openRpcSession(
 ): Promise<RpcOpenSessionResult> {
 	if (!session.sessionFile) throw new Error("open_session requires session persistence (omit --no-session)");
 	const dir = path.resolve(sessionDir);
-	const latest = await findMostRecentNonEmptySession(dir);
+	const recent = await findMostRecentNonEmptySession(dir);
+	const latest = recent ? ((await findRecentSessionContinuation(recent))?.session.path ?? recent) : null;
 	const current = path.resolve(session.sessionFile);
 	const alreadyOpen = latest
 		? current === path.resolve(latest)
@@ -1621,6 +1570,40 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	const onPromptError = (id: string | undefined, command: string) => (promptError: Error) =>
 		output(error(id, command, promptError.message));
 
+	// Output all agent events as JSON; prompt results follow the frame that settled them.
+	session.subscribe(event => {
+		sessionEvents.forward(event);
+		// Before the prompt-result and settle reports: a goal continuation decided at this
+		// agent_end is scheduled (and reported as pending) before either reads settlement.
+		goalController.observe(event);
+		promptResults.observe(event);
+		settleWatcher.observe(event);
+	});
+	const getAvailableCommands = async () => buildAvailableSlashCommands(session);
+	const reloadPluginState = async () => {
+		const cwd = session.sessionManager.getCwd();
+		const projectPath = await resolveActiveProjectRegistryPath(cwd);
+		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
+		await session.refreshSkillsAndCommands();
+		await emitAvailableCommandsUpdate();
+	};
+	const emitAvailableCommandsUpdate = async () => {
+		output({ type: "available_commands_update", commands: await getAvailableCommands() });
+	};
+	// What a built-in reports to the client, for a typed `prompt` and for an extension's `sendUserInput`
+	// alike; defined before `initializeExtensions` because `session_start` handlers can already send input.
+	const slashCommandHost: SlashCommandHost = {
+		output: commandOutput => output({ type: "command_output", text: commandOutput }),
+		refreshCommands: emitAvailableCommandsUpdate,
+		reloadPlugins: reloadPluginState,
+		notifyTitleChanged: async () => {
+			output({ type: "session_info_update", title: session.sessionName, sessionId: session.sessionId });
+		},
+		notifyConfigChanged: async () => {
+			output({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
+		},
+	};
+
 	// Set up extensions with RPC-based UI context
 	await initializeExtensions(session, {
 		mode: "rpc",
@@ -1662,17 +1645,14 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		},
 		// Headless hosts get the extension runner's no-op UI: hasUI=false, dialogs resolve to defaults.
 		uiContext: headless ? undefined : rpcUiContext,
+		slashCommandHost,
+		// Start reading commands while a turn a startup handler triggered still runs:
+		// the client gets `negotiate_protocol`, `get_state` and `abort` answered (and an
+		// extension dialog that turn raises gets its response read) instead of waiting
+		// for the whole turn.
+		drainSends: false,
 	});
 
-	// Output all agent events as JSON; prompt results follow the frame that settled them.
-	session.subscribe(event => {
-		sessionEvents.forward(event);
-		// Before the prompt-result and settle reports: a goal continuation decided at this
-		// agent_end is scheduled (and reported as pending) before either reads settlement.
-		goalController.observe(event);
-		promptResults.observe(event);
-		settleWatcher.observe(event);
-	});
 	await goalController.reconcile();
 	await goalController.settled();
 
@@ -1706,12 +1686,14 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			await liveBridge.stop();
 			await session.dispose();
 		} catch (error) {
-			if (!persistenceFailure || error !== persistenceFailure) throw error;
+			// The latch holds the latest failure, which may not be the one the observer first heard.
+			const latched = persistenceFailure && session.sessionManager.getPersistenceFailure();
+			if (!latched || error !== latched) throw error;
 			// The notice frame this failure queued must reach the client before the
 			// process ends (review 3983906393).
 			await outputWriter.close();
 			try {
-				if (!process.stderr.write(`${formatPersistenceDurabilityFailure(persistenceFailure.message)}\n`)) {
+				if (!process.stderr.write(`${formatPersistenceDurabilityFailure(latched.message)}\n`)) {
 					const { promise, resolve } = Promise.withResolvers<void>();
 					// A closed stream never emits `drain`; resolve on error/close too
 					// so an undeliverable mirror cannot strand the exit.
@@ -1737,17 +1719,6 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		process.exit(0);
 	};
 
-	const getAvailableCommands = async () => buildAvailableSlashCommands(session);
-	const reloadPluginState = async () => {
-		const cwd = session.sessionManager.getCwd();
-		const projectPath = await resolveActiveProjectRegistryPath(cwd);
-		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
-		await session.refreshSkillsAndCommands();
-		await emitAvailableCommandsUpdate();
-	};
-	const emitAvailableCommandsUpdate = async () => {
-		output({ type: "available_commands_update", commands: await getAvailableCommands() });
-	};
 	session.subscribeCommandMetadataChanged(() => {
 		void emitAvailableCommandsUpdate();
 	});
@@ -1805,16 +1776,8 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 					sessionManager: session.sessionManager,
 					settings: session.settings,
 					cwd: session.sessionManager.getCwd(),
-					output: commandOutput => output({ type: "command_output", text: commandOutput }),
-					refreshCommands: emitAvailableCommandsUpdate,
-					reloadPlugins: reloadPluginState,
+					...slashCommandHost,
 					runCommandInBackground: task => shutdownCoordinator.track(task()),
-					notifyTitleChanged: async () => {
-						output({ type: "session_info_update", title: session.sessionName, sessionId: session.sessionId });
-					},
-					notifyConfigChanged: async () => {
-						output({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
-					},
 				});
 				if (!isCurrent()) return "cancelled";
 				if (builtinResult !== false) {

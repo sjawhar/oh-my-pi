@@ -2,14 +2,22 @@ import { afterEach, describe, expect, it, spyOn, vi } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { AgentBusyError } from "@oh-my-pi/pi-agent-core";
+import { Agent, AgentBusyError } from "@oh-my-pi/pi-agent-core";
 import type { Model } from "@oh-my-pi/pi-ai";
+import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
+import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
+import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
-import type { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
-import type { ExtensionUIContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
+import type {
+	ExtensionActions,
+	ExtensionAPI,
+	ExtensionUIContext,
+} from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
+import { loadExtensions } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { ExtensionRuntime } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/loader";
 import { ExtensionRunner } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/runner";
+import { ExtensionSendQueue } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/send-queue";
 import { resolveLocalUrlToPath } from "@oh-my-pi/pi-coding-agent/internal-urls";
 import {
 	ACP_BOOTSTRAP_RACE_GUARD_MS,
@@ -17,17 +25,14 @@ import {
 	createAcpExtensionUiContext,
 } from "@oh-my-pi/pi-coding-agent/modes/acp/acp-agent";
 import type { PlanModeState } from "@oh-my-pi/pi-coding-agent/plan-mode/state";
-import type {
-	AgentSession,
-	AgentSessionEvent,
-	UsageFallbackConfirmation,
-} from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import type { AgentSessionEvent, UsageFallbackConfirmation } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { SILENT_ABORT_MARKER } from "@oh-my-pi/pi-coding-agent/session/messages";
 import { closeSessionIndex } from "@oh-my-pi/pi-coding-agent/session/session-index";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
-import { getConfigRootDir, setAgentDir } from "@oh-my-pi/pi-utils";
+import { getConfigRootDir, removeWithRetries, setAgentDir, withTimeout } from "@oh-my-pi/pi-utils";
 import type {
 	AgentSideConnection,
 	ClientCapabilities,
@@ -46,6 +51,8 @@ import {
 	zSessionNotification,
 } from "@oh-my-pi/pi-utils/acp";
 import { TOOL_NAME as DELAYED_MCP_TOOL_NAME } from "./fixtures/delayed-tool-mcp";
+import { createInMemoryAuthStorage } from "./helpers/agent-session-setup";
+import { rejectionOf } from "./helpers/rejection";
 
 import { cfgPlanAutosave, cfgPlanAutosaveDir, cfgPlanEnabled } from "@oh-my-pi/pi-coding-agent/plan-mode/settings";
 
@@ -130,6 +137,10 @@ class FakeAgentSession {
 	queuedMessageCount = 0;
 	systemPrompt = "system";
 	disposed = false;
+	/** ACP scopes the extension agents API by the session's agent id; a top-level fake has none. */
+	getAgentId(): string | undefined {
+		return undefined;
+	}
 	fastMode = false;
 	forcedToolChoice: string | undefined;
 	get settings(): Settings {
@@ -141,6 +152,7 @@ class FakeAgentSession {
 	skillsSettings = { enableSkillCommands: true };
 	skills: Array<{ name: string; description: string; filePath: string; baseDir: string; source: string }> = [];
 	async refreshSkillsAndCommands(): Promise<void> {}
+	async discoverStartupSkillPaths(): Promise<void> {}
 	subscribeCommandMetadataChanged(_listener: () => void): () => void {
 		return () => {};
 	}
@@ -497,6 +509,8 @@ async function createHarness(
 		sessionUpdateHook?: (notification: SessionNotification) => Promise<void> | void;
 		/** Gives each session the factory creates a real extension runner with no extensions. */
 		extensionRunners?: boolean;
+		/** Runs on each session the agent's factory creates, before the agent configures it. */
+		decorateSession?: (session: FakeAgentSession) => void;
 	} = {},
 ): Promise<AgentHarness> {
 	const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-acp-test-"));
@@ -542,6 +556,7 @@ async function createHarness(
 				{} as ModelRegistry,
 			);
 		}
+		options.decorateSession?.(session);
 		const setToolUIContext = vi.fn();
 		sessions.push(session);
 		setToolUIContextSpies.push(setToolUIContext);
@@ -2111,6 +2126,47 @@ describe("ACP agent", () => {
 		await Bun.sleep(0);
 	});
 
+	it("runs a built-in an extension sends through sendUserInput with the hooks ACP gives typed input", async () => {
+		let actions: ExtensionActions | undefined;
+		const harness = await createHarness({
+			decorateSession: session => {
+				Object.assign(session, {
+					titleGenerationSignal: new AbortController().signal,
+					// `/rename` asks the session for the title; a typed one passes through uncarded.
+					renameTitle: async (title?: string) => title || null,
+					extensionRunner: {
+						initialize: (extensionActions: ExtensionActions) => {
+							actions = extensionActions;
+						},
+						emit: async () => undefined,
+						hasHandlers: () => false,
+						getRegisteredCommands: () => [],
+						// ACP setup holds startup sends in the runner's queue around skill discovery.
+						sends: new ExtensionSendQueue(),
+					},
+				});
+			},
+		});
+		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
+		if (!actions?.sendUserInput) throw new Error("expected ACP to wire the extension sendUserInput action");
+
+		const result = await actions.sendUserInput("/rename Bridge title");
+
+		expect(result).toEqual({ handled: "command", output: "Session renamed to Bridge title." });
+		const updates = harness.updates.filter(n => n.sessionId === created.sessionId).map(n => n.update);
+		expect(updates).toContainEqual(
+			expect.objectContaining({ sessionUpdate: "session_info_update", title: "Bridge title" }),
+		);
+		expect(updates).toContainEqual(
+			expect.objectContaining({
+				sessionUpdate: "agent_message_chunk",
+				content: { type: "text", text: "Session renamed to Bridge title." },
+			}),
+		);
+
+		harness.abortController.abort();
+	});
+
 	it("auto-cancels an in-progress turn and queues a new prompt when called mid-flight", async () => {
 		const harness = await createHarness();
 		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
@@ -3584,6 +3640,442 @@ describe("ACP agent", () => {
 			expect(second.sessionId).toBe("session-after-switch");
 			expect(third.sessionId).toBe("session-after-switch");
 		});
+	});
+});
+
+describe("ACP extension session_start/resources_discover sends (PR #9379 round-6 review)", () => {
+	afterEach(() => {
+		resetSettingsForTest();
+	});
+
+	it("answers session/new while the turn a session_start send started still runs", async () => {
+		// `#configureExtensions` wires the extension runner directly (not through
+		// `initializeExtensions`/`runtime-init.ts`) — a real `AgentSession` (not the
+		// harness's `FakeAgentSession`) is required to exercise the actual extension
+		// runtime and event pipeline.
+		const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-acp-startup-turn-"));
+		const agentDir = path.join(tempDir, "agent");
+		await fs.promises.mkdir(agentDir, { recursive: true });
+		setAgentDir(agentDir);
+		await Settings.init({ agentDir, inMemory: true });
+
+		const authStorage = createInMemoryAuthStorage();
+		// `AgentSession.prompt` preflights a provider key through the registry; the
+		// extension-triggered turn below must not depend on the developer's env.
+		authStorage.keys.setRuntime("anthropic", "test-key");
+		// The startup turn's model call blocks until the test releases it, so it
+		// is still running when `session/new` should already have answered.
+		const { promise: modelGate, resolve: releaseModelGate } = Promise.withResolvers<void>();
+		let session: AgentSession | undefined;
+		try {
+			// A `session_start` handler that starts a turn (an extension announcing
+			// itself). The client must get its session id without waiting for it.
+			const extensionsDir = path.join(tempDir, "ext");
+			await fs.promises.mkdir(extensionsDir, { recursive: true });
+			const extPath = path.join(extensionsDir, "startup-announce.ts");
+			await fs.promises.writeFile(
+				extPath,
+				`export default function (pi) {
+	pi.on("session_start", () => {
+		pi.sendUserMessage("extension started");
+	});
+}
+`,
+			);
+
+			const loaded = await loadExtensions([extPath], tempDir);
+			expect(loaded.errors).toEqual([]);
+
+			const model = getBundledModel("anthropic", "claude-sonnet-4-5");
+			if (!model) throw new Error("Expected claude-sonnet-4-5 model to exist");
+			const modelCallStarted = Promise.withResolvers<void>();
+			let calls = 0;
+			const mock = createMockModel({
+				handler: async () => {
+					if (calls++ === 0) {
+						modelCallStarted.resolve();
+						await modelGate;
+					}
+					return { content: ["ack"] };
+				},
+			});
+			const agentCore = new Agent({
+				getApiKey: () => "test-key",
+				initialState: { model, systemPrompt: ["Test"], tools: [] },
+				streamFn: mock.stream,
+			});
+			const modelRegistry = new ModelRegistry(authStorage, path.join(tempDir, "models.yml"));
+			const sessionManager = SessionManager.inMemory(tempDir);
+			const extensionRunner = new ExtensionRunner(
+				loaded.extensions,
+				loaded.runtime,
+				tempDir,
+				sessionManager,
+				modelRegistry,
+			);
+
+			session = new AgentSession({
+				agent: agentCore,
+				sessionManager,
+				settings: Settings.isolated({ "compaction.enabled": false }),
+				modelRegistry,
+				extensionRunner,
+			});
+
+			const connection = {
+				sessionUpdate: async () => {},
+				signal: new AbortController().signal,
+				closed: Promise.withResolvers<void>().promise,
+			} as unknown as AgentSideConnection;
+			const acpSession = session;
+			const agent = new AcpAgent(connection, async () => acpSession);
+
+			const created = await withTimeout(
+				agent.newSession({ cwd: tempDir, mcpServers: [] }),
+				10_000,
+				"session/new waited for the startup turn",
+			);
+			await withTimeout(modelCallStarted.promise, 10_000, "startup turn did not start");
+			expect(session.isStreaming).toBe(true);
+
+			// A prompt during the startup turn is handled as during any turn the
+			// client did not prompt: answered with session_busy, not queued behind it.
+			const busy = await rejectionOf(
+				agent.prompt({ sessionId: created.sessionId, prompt: [{ type: "text", text: "early" }] } as PromptRequest),
+			);
+			expect(busy).toMatchObject({ message: expect.stringContaining("already processing") });
+
+			releaseModelGate();
+			await session.waitForIdle();
+			const response = await agent.prompt({
+				sessionId: created.sessionId,
+				prompt: [{ type: "text", text: "next" }],
+			} as PromptRequest);
+			expect(response.stopReason).toBe("end_turn");
+		} finally {
+			releaseModelGate();
+			await session?.dispose();
+			authStorage.close();
+			await removeWithRetries(tempDir);
+		}
+	});
+
+	it("gives a session_start-triggered turn visibility into skills a resources_discover handler contributes (regression: PR #9379 review, acp-agent.ts startup sends)", async () => {
+		const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-acp-session-start-turn-discovery-"));
+		const agentDir = path.join(tempDir, "agent");
+		await fs.promises.mkdir(agentDir, { recursive: true });
+		setAgentDir(agentDir);
+		await Settings.init({ agentDir, inMemory: true });
+
+		const authStorage = createInMemoryAuthStorage();
+		authStorage.keys.setRuntime("anthropic", "test-key");
+		let session: AgentSession | undefined;
+		try {
+			const skillsDir = path.join(tempDir, "skills");
+			await fs.promises.mkdir(path.join(skillsDir, "acp-startup-skill"), { recursive: true });
+			await fs.promises.writeFile(
+				path.join(skillsDir, "acp-startup-skill", "SKILL.md"),
+				"---\nname: acp-startup-skill\ndescription: Contributed by resources_discover at ACP startup.\n---\n\nbody\n",
+			);
+			const extensionsDir = path.join(tempDir, "ext");
+			await fs.promises.mkdir(extensionsDir, { recursive: true });
+			const extPath = path.join(extensionsDir, "acp-session-start-turn.ts");
+			await fs.promises.writeFile(
+				extPath,
+				`export default function (pi) {
+	pi.on("session_start", () => {
+		pi.sendUserMessage("hello");
+	});
+	pi.on("resources_discover", () => ({ skillPaths: [${JSON.stringify(skillsDir)}] }));
+}
+`,
+			);
+
+			const loaded = await loadExtensions([extPath], tempDir);
+			expect(loaded.errors).toEqual([]);
+
+			const model = getBundledModel("anthropic", "claude-sonnet-4-5");
+			if (!model) throw new Error("Expected claude-sonnet-4-5 model to exist");
+			// Recorded inside the model call: the state that turn actually saw.
+			const skillVisibleAtCallTime: boolean[] = [];
+			const modelCalled = Promise.withResolvers<void>();
+			const mock = createMockModel({
+				handler: () => {
+					skillVisibleAtCallTime.push(session?.skills.some(skill => skill.name === "acp-startup-skill") ?? false);
+					modelCalled.resolve();
+					return { content: ["ack"] };
+				},
+			});
+			const agentCore = new Agent({
+				getApiKey: () => "test-key",
+				initialState: { model, systemPrompt: ["Test"], tools: [] },
+				streamFn: mock.stream,
+			});
+			const modelRegistry = new ModelRegistry(authStorage, path.join(tempDir, "models.yml"));
+			const sessionManager = SessionManager.inMemory(tempDir);
+			const extensionRunner = new ExtensionRunner(
+				loaded.extensions,
+				loaded.runtime,
+				tempDir,
+				sessionManager,
+				modelRegistry,
+			);
+
+			session = new AgentSession({
+				agent: agentCore,
+				sessionManager,
+				settings: Settings.isolated({ "compaction.enabled": false }),
+				modelRegistry,
+				extensionRunner,
+			});
+
+			const connection = {
+				sessionUpdate: async () => {},
+				signal: new AbortController().signal,
+				closed: Promise.withResolvers<void>().promise,
+			} as unknown as AgentSideConnection;
+			const acpSession = session;
+			const agent = new AcpAgent(connection, async () => acpSession);
+
+			await agent.newSession({ cwd: tempDir, mcpServers: [] });
+			// session/new does not wait for the startup turn; wait for its model call here.
+			await withTimeout(modelCalled.promise, 10_000, "startup turn did not call the model");
+
+			expect(skillVisibleAtCallTime).toEqual([true]);
+		} finally {
+			await session?.dispose();
+			authStorage.close();
+			await removeWithRetries(tempDir);
+		}
+	});
+
+	// The extension API an extension loaded by `withExtensionAcpSession` publishes, so a test can call
+	// `pi.sendUserInput` after startup.
+	const EXTENSION_API_KEY = "__acpSendUserInputTestPi";
+
+	/**
+	 * Builds a real `AgentSession` with one extension (written from `extensionSource`, which receives a
+	 * skills directory holding `acp-startup-skill`) and an `AcpAgent` over it. The mock model records
+	 * whether that skill was visible when each turn called it.
+	 */
+	async function withExtensionAcpSession(
+		extensionSource: (skillsDir: string) => string,
+		run: (ctx: {
+			agent: AcpAgent;
+			session: AgentSession;
+			tempDir: string;
+			skillVisibleAtCallTime: boolean[];
+			/** Settles when the first turn calls the model. */
+			modelCalled: Promise<void>;
+		}) => Promise<void>,
+		modelDelayMs = 0,
+	): Promise<void> {
+		const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-acp-send-user-input-"));
+		const agentDir = path.join(tempDir, "agent");
+		await fs.promises.mkdir(agentDir, { recursive: true });
+		setAgentDir(agentDir);
+		await Settings.init({ agentDir, inMemory: true });
+		const authStorage = createInMemoryAuthStorage();
+		authStorage.keys.setRuntime("anthropic", "test-key");
+		let session: AgentSession | undefined;
+		try {
+			const skillsDir = path.join(tempDir, "skills");
+			await fs.promises.mkdir(path.join(skillsDir, "acp-startup-skill"), { recursive: true });
+			await fs.promises.writeFile(
+				path.join(skillsDir, "acp-startup-skill", "SKILL.md"),
+				"---\nname: acp-startup-skill\ndescription: Contributed by resources_discover at ACP startup.\n---\n\nbody\n",
+			);
+			const extPath = path.join(tempDir, "ext", "send-user-input.ts");
+			await fs.promises.mkdir(path.dirname(extPath), { recursive: true });
+			await fs.promises.writeFile(extPath, extensionSource(skillsDir));
+			const loaded = await loadExtensions([extPath], tempDir);
+			expect(loaded.errors).toEqual([]);
+
+			const model = getBundledModel("anthropic", "claude-sonnet-4-5");
+			if (!model) throw new Error("Expected claude-sonnet-4-5 model to exist");
+			const skillVisibleAtCallTime: boolean[] = [];
+			const modelCalled = Promise.withResolvers<void>();
+			const mock = createMockModel({
+				handler: () => {
+					skillVisibleAtCallTime.push(session?.skills.some(skill => skill.name === "acp-startup-skill") ?? false);
+					modelCalled.resolve();
+					return { content: ["ack"], delayMs: modelDelayMs };
+				},
+			});
+			const agentCore = new Agent({
+				getApiKey: () => "test-key",
+				initialState: { model, systemPrompt: ["Test"], tools: [] },
+				streamFn: mock.stream,
+			});
+			const modelRegistry = new ModelRegistry(authStorage, path.join(tempDir, "models.yml"));
+			const sessionManager = SessionManager.inMemory(tempDir);
+			const extensionRunner = new ExtensionRunner(
+				loaded.extensions,
+				loaded.runtime,
+				tempDir,
+				sessionManager,
+				modelRegistry,
+			);
+			session = new AgentSession({
+				agent: agentCore,
+				sessionManager,
+				settings: Settings.isolated({ "compaction.enabled": false }),
+				modelRegistry,
+				extensionRunner,
+			});
+			const connection = {
+				sessionUpdate: async () => {},
+				signal: new AbortController().signal,
+				closed: Promise.withResolvers<void>().promise,
+			} as unknown as AgentSideConnection;
+			const acpSession = session;
+			const agent = new AcpAgent(connection, async () => acpSession);
+			await run({ agent, session: acpSession, tempDir, skillVisibleAtCallTime, modelCalled: modelCalled.promise });
+		} finally {
+			Reflect.deleteProperty(globalThis, EXTENSION_API_KEY);
+			await session?.dispose();
+			authStorage.close();
+			await removeWithRetries(tempDir);
+		}
+	}
+
+	function publishedExtensionApi(): ExtensionAPI {
+		const pi: ExtensionAPI | undefined = Reflect.get(globalThis, EXTENSION_API_KEY);
+		if (!pi) throw new Error("expected the test extension to publish its API");
+		return pi;
+	}
+
+	// A plugin-reloading built-in drains the runner's send queue; the input that runs it must not sit in that
+	// queue, or the reload waits on the input and the input on the reload. A regression hangs until the test timeout.
+	it("settles an extension's sendUserInput of /reload-plugins after startup, and a later refresh", async () => {
+		await withExtensionAcpSession(
+			() => `export default function (pi) {
+	globalThis.${EXTENSION_API_KEY} = pi;
+}
+`,
+			async ({ agent, session, tempDir }) => {
+				await agent.newSession({ cwd: tempDir, mcpServers: [] });
+
+				const result = await publishedExtensionApi().sendUserInput("/reload-plugins");
+				expect(result.handled).toBe("command");
+				await session.refreshSkillsAndCommands();
+			},
+		);
+	}, 10_000);
+
+	it("returns session/new when a session_start handler sends /reload-plugins through sendUserInput", async () => {
+		await withExtensionAcpSession(
+			() => `export default function (pi) {
+	pi.on("session_start", () => {
+		globalThis.${EXTENSION_API_KEY} = { input: pi.sendUserInput("/reload-plugins") };
+	});
+}
+`,
+			async ({ agent, tempDir }) => {
+				await agent.newSession({ cwd: tempDir, mcpServers: [] });
+
+				const startupInput: { input: Promise<{ handled: string }> } | undefined = Reflect.get(
+					globalThis,
+					EXTENSION_API_KEY,
+				);
+				expect(await startupInput?.input).toMatchObject({ handled: "command" });
+			},
+		);
+	}, 10_000);
+
+	it("answers session/new before a resources_discover-triggered sendUserInput turn, then takes a prompt", async () => {
+		await withExtensionAcpSession(
+			() => `export default function (pi) {
+	pi.on("resources_discover", () => {
+		void pi.sendUserInput("announcing a discovered directory");
+		return undefined;
+	});
+}
+`,
+			async ({ agent, session, tempDir, modelCalled }) => {
+				// Session creation does not wait for the turn the input starts (a prompt during it is
+				// answered with session_busy); once that turn ends, a prompt runs normally.
+				const created = await agent.newSession({ cwd: tempDir, mcpServers: [] });
+				await withTimeout(modelCalled, 10_000, "the startup input never reached the model");
+				await session.waitForIdle();
+				const response = await agent.prompt({
+					sessionId: created.sessionId,
+					prompt: [{ type: "text", text: "next" }],
+				} as PromptRequest);
+				expect(response.stopReason).toBe("end_turn");
+			},
+			20,
+		);
+	});
+
+	it("runs a turn a session_start handler starts with pi.sendUserInput without awaiting it", async () => {
+		await withExtensionAcpSession(
+			() => `export default function (pi) {
+	pi.on("session_start", () => {
+		void pi.sendUserInput("hello");
+	});
+}
+`,
+			async ({ agent, session, tempDir, skillVisibleAtCallTime, modelCalled }) => {
+				await agent.newSession({ cwd: tempDir, mcpServers: [] });
+				await withTimeout(modelCalled, 10_000, "the startup input never reached the model");
+				await session.waitForIdle();
+
+				expect(skillVisibleAtCallTime).toHaveLength(1);
+			},
+		);
+	});
+
+	it("answers session/new when a session_start handler awaits pi.sendUserInput", async () => {
+		await withExtensionAcpSession(
+			skillsDir => `export default function (pi) {
+	pi.on("session_start", async () => {
+		const result = await pi.sendUserInput("hi");
+		await Bun.write(${JSON.stringify(`${skillsDir}/../input-result.json`)}, JSON.stringify(result));
+	});
+}
+`,
+			async ({ agent, tempDir }) => {
+				// The startup hold waits for session_start's handlers; a held input the handler awaits would never run.
+				await withTimeout(
+					agent.newSession({ cwd: tempDir, mcpServers: [] }),
+					10_000,
+					"session/new hung on a session_start handler awaiting pi.sendUserInput",
+				);
+				expect(JSON.parse(await Bun.file(path.join(tempDir, "input-result.json")).text())).toMatchObject({
+					handled: "prompt",
+				});
+			},
+		);
+	});
+
+	it("finishes a typed /reload-plugins only after the turn a reload-time sendUserInput starts", async () => {
+		await withExtensionAcpSession(
+			() => `export default function (pi) {
+	pi.on("resources_discover", event => {
+		if (event.reason === "reload") void pi.sendUserInput("from the reload handler");
+		return undefined;
+	});
+}
+`,
+			async ({ agent, tempDir }) => {
+				const created = await agent.newSession({ cwd: tempDir, mcpServers: [] });
+				const reload = await agent.prompt({
+					sessionId: created.sessionId,
+					prompt: [{ type: "text", text: "/reload-plugins" }],
+				} as PromptRequest);
+				expect(reload.stopReason).toBe("end_turn");
+
+				// The reload handler's turn takes 20 ms in the model; a reload that returned before it settles
+				// leaves this prompt to throw "Agent is already processing".
+				const next = await agent.prompt({
+					sessionId: created.sessionId,
+					prompt: [{ type: "text", text: "next" }],
+				} as PromptRequest);
+				expect(next.stopReason).toBe("end_turn");
+			},
+			20,
+		);
 	});
 });
 

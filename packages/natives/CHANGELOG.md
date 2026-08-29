@@ -2,9 +2,56 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the built-in `ps` crashing the shell on a non-ASCII character in an option cluster such as `ps -é`; it now reports `unsupported option '-é'` like any other unknown option
+
 ### Added
 
 - Added a `hiddenContent` option to `htmlToMarkdown`: `"drop"` (default) omits hidden content, `"reachable"` keeps content the page can reveal such as collapsed sections and inactive tab panels, and `"all"` also keeps `<template>` and `<noscript>` content; other values throw ([#16246](https://github.com/can1357/oh-my-pi/issues/16246))
+- Added `TtyWriter.discard()`, which drops terminal output that was queued but not yet written; the chunk already being written still finishes ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+
+### Fixed
+
+- Fixed the embedded shell skipping an EXIT trap set inside `( ... )`, `$( ... )`, a pipeline stage or a background job, so `trap 'rm -f "$f"' EXIT` cleanups there left their files behind
+- Fixed `exit`, `return`, `break`, `continue`, a failed expansion or a failed redirect in a pipeline stage or `$(< file)` of the embedded shell ending the whole command, so `cmd | { ...; exit 0; }; next` no longer drops `next`
+- Fixed a `git status` that exceeded its deadline leaving a stale `.git/index.lock` behind, which made every later git or jj write in that worktree fail until the lock was deleted by hand ([#13405](https://github.com/can1357/oh-my-pi/pull/13405) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed `TtyWriter.flushSync()` and `stop()` sometimes waiting out their whole timeout after the queued output had already been written ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed `TtyWriter.stop()` occasionally hanging forever when the queue had already drained ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+
+### Fixed
+
+- Fixed the bash tool's `rm -r` and `du` crashing the whole session with a stack overflow on a directory tree thousands of levels deep; `rm -r` also removes such a tree without running out of file descriptors, and reports a directory that is its own ancestor instead of descending into it ([#17021](https://github.com/can1357/oh-my-pi/pull/17021) by [@sjawhar](https://github.com/sjawhar))
+
+### Fixed
+
+- Fixed `sort -t=` (and clusters such as `-nrt=`) failing with "separator must be exactly one character long"; an attached `=` now selects `=` as the field separator, as in GNU sort, and `-t==` is rejected as two characters
+
+### Fixed
+
+- Fixed the built-in `ps` reporting an unsupported long option such as `--forest` as `unsupported option '--'`; it now names the option, and every unsupported-option error says that a system `ps`, if installed, may support more options when run by its full path
+
+### Fixed
+
+- Fixed the embedded shell's globs keeping matches whose literal tail does not exist: `ls -d DIR/*/` now lists only directories instead of passing every file as `file/`, and `*/name` keeps only matches that contain `name`, as in bash
+- Fixed the embedded shell ignoring `shopt -s globstar`: `**` now matches any number of directory levels as in bash (`**/*.rs` finds files at every depth, also in `compgen -G`), and a timeout or interrupt stops a long `**` expansion
+
+### Fixed
+
+- Fixed the shell's built-in `grep` and `rg` running the whole agent out of memory on a file with no line breaks, such as a large sparse file: a line over 256 MiB is now reported as `not searched` for that file and the search continues, and a `-f` pattern file over 256 MiB is refused with exit status 2
+
+### Fixed
+
+- Fixed the shell's `timeout` and a tool abort not stopping a built-in that was still reading: `timeout 1 cat /dev/zero`, `diff` or `grep -r` over a huge file, `cat /dev/zero | timeout 1 wc -c`, `timeout 1 mapfile < /dev/zero`, `timeout 1 ls -R /` and a read from a FIFO with no writer now stop at the limit, print nothing about it, and give no result for the part of the input they did read
+- Fixed a shell redirect to or from a FIFO whose other end is a background job, such as `echo hi > f & cat < f`, hanging the command; a tool abort now also stops a write redirect to a FIFO that has no reader
+- Fixed a background external command with a FIFO redirect, such as `/bin/cat < f & echo hi > f`, hanging the shell until the FIFO's other end opened; the command's own process now opens it, as in bash
+- Fixed `timeout` printing `error: interrupted` when its limit stopped a built-in command; like GNU `timeout`, it now prints nothing of its own and exits 124
+
+### Fixed
+
+- Fixed the built-in `sort` using many times its `-S` buffer size, or more memory than its container allows or the machine has available, on inputs of short lines, and ignoring `timeout` or a cancel while it sorts
+- Fixed the built-in `sort -m` and `sort -c` splitting lines longer than their read buffer, and `sort` joining a file's unterminated last line to the next file's first line
+- Fixed the built-in `sort -S N%` using the wrong buffer size: `-S 50%` gave 0 bytes and `-S 100%` a thousand times the machine's memory; it is now N percent of physical memory as in GNU sort
 
 ## [18.12.2] - 2026-10-18
 

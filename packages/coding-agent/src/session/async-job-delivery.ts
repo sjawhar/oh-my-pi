@@ -99,19 +99,31 @@ export function buildAsyncResultBatchMessage(entries: AsyncResultEntry[]): Custo
 		const structured = entry.job?.structured;
 		const hasStructuredData = structured ? Object.hasOwn(structured, "data") : false;
 		const structuredJson = structured && structured.status !== "valid" ? renderStructuredJson(structured) : undefined;
+		// The job manager disambiguates a requested job id when it collides
+		// with another live job (e.g. a task job reusing a vibe turn's job
+		// id), suffixing `jobId` — but the task's artifacts are still
+		// written under its own agent id (`AsyncJob.agentId`). Build the
+		// advertised `agent://` URL from that, or the delivery would point
+		// at an id with no backing `<id>.md`/`.json` on disk.
+		const agentUrlId = entry.job?.agentId ?? entry.jobId;
+		// A task job's id can differ from its agent id (a messaged agent's next
+		// turn, vibe turns, workpool batches, /tan), so name the handles that
+		// resolve even when no structured output carries the pointer. `agent://`
+		// only for a job that completed and did not report writing no output: a
+		// follow-up turn that neither yielded nor reported a message result, and
+		// a cancelled `/tan` clone, leave that id holding an earlier turn's
+		// output or none at all.
+		const namesAgentHandles = entry.job?.type === "task" && agentUrlId !== entry.jobId;
+		const agentUrlHolds = entry.job?.status === "completed" && entry.job.agentOutputPublished !== false;
 		// Job output (a command's output, or a task's `<task-result>` around a
 		// subagent's output), a subagent's payload and its validation error are
 		// text the job controls: it must not close the `<system-notice>` it renders
 		// into or open a forged harness block.
 		return {
 			jobId: entry.jobId,
-			// The job manager disambiguates a requested job id when it collides
-			// with another live job (e.g. a task job reusing a vibe turn's job
-			// id), suffixing `jobId` — but the task's artifacts are still
-			// written under its own agent id (`AsyncJob.agentId`). Build the
-			// advertised `agent://` URL from that, or the delivery would point
-			// at an id with no backing `<id>.md`/`.json` on disk.
-			agentUrlId: entry.job?.agentId ?? entry.jobId,
+			agentUrlId,
+			showAgentUrl: namesAgentHandles && agentUrlHolds,
+			showHistoryUrl: namesAgentHandles && !agentUrlHolds,
 			result: escapeHarnessTags(entry.result),
 			type: entry.job?.type,
 			status: entry.job?.status,

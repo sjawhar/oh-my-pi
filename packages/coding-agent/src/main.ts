@@ -78,6 +78,7 @@ import { scheduleMarketplaceAutoUpdate } from "./extensibility/plugins/marketpla
 import { registerDaemonProjectPresence } from "./launch/presence";
 import type { MCPManager } from "./mcp";
 import type { InteractiveMode } from "./modes/interactive-mode";
+import { formatSessionContinuationNotice } from "./modes/persistence-failure";
 import type { PrintModeOptions } from "./modes/print-mode";
 import type { RpcModeOptions } from "./modes/rpc/rpc-mode";
 import { claimRpcInput } from "./modes/rpc/rpc-input";
@@ -115,8 +116,16 @@ import {
 } from "./session/foreign-session-import";
 import type { ForeignSessionInfo, ForeignSessionSource, ForeignSessionStore } from "./session/foreign-session-store";
 import { loadRuntimeIdentity } from "./session/runtime-identity";
-import { resolveResumableSession, type SessionInfo } from "./session/session-listing";
+import {
+	findSessionContinuation,
+	resolveResumeTarget,
+	resolveResumableSession,
+	type SessionContinuation,
+	type SessionInfo,
+} from "./session/session-listing";
 import { ForkSourceNotFoundError, SessionManager, SessionMoveRefusedError } from "./session/session-manager";
+import { setDefaultSessionStorage } from "./session/session-storage";
+import { resolveSessionStorage, SessionStorageConfigError } from "./session/session-storage-config";
 import { forkIfMovedAway } from "./session/session-transfer";
 import { shouldShowStartupSplash } from "./startup-splash";
 import {
@@ -152,6 +161,7 @@ import {
 	cfgAutoResume,
 	cfgColorBlindMode,
 	cfgComposerShape,
+	cfgDisplayReduceMotion,
 	cfgImagesAutoResize,
 	cfgMarketplaceAutoUpdate,
 	cfgSetupVersion,
@@ -201,14 +211,15 @@ type SessionPicker = (
 
 /** Resume/import-only graph boundary; ordinary launches never construct a picker. */
 async function loadSessionPicker(): Promise<SessionPicker> {
-	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds }, { FileSessionStorage }] = await Promise.all([
-		import("@oh-my-pi/pi-tui/apps/session-picker"),
-		import("./session/history-storage"),
-		import("./session/session-pins"),
-		import("./session/session-storage"),
-	]);
+	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds }, { defaultSessionStorage }] =
+		await Promise.all([
+			import("@oh-my-pi/pi-tui/apps/session-picker"),
+			import("./session/history-storage"),
+			import("./session/session-pins"),
+			import("./session/session-storage"),
+		]);
 	return (sessions, options) => {
-		const storage = new FileSessionStorage();
+		const storage = defaultSessionStorage();
 		return selectSession(sessions, options, {
 			loadPinnedIds: loadPinnedSessionIds,
 			loadHistoryMatcher: () => {
@@ -402,7 +413,7 @@ export async function submitInteractiveInput(
 		| "optimisticSkillMessagePending"
 	> &
 		Partial<Pick<InteractiveMode, "loopPrompt" | "pauseLoop">>,
-	session: Pick<AgentSession, "prompt" | "promptCustomMessage" | "isStreaming">,
+	session: Pick<AgentSession, "prompt" | "promptCustomMessage" | "isStreaming" | "skillRediscoveryHost">,
 	input: SubmittedUserInput,
 ): Promise<void> {
 	if (input.cancelled) {
@@ -1221,13 +1232,18 @@ function validateSessionPersistenceArgs(parsed: Pick<Args, "continue" | "noSessi
  *
  * `nativeFlagOwnership: "preliminary"` is reserved for the startup parse,
  * before extensions establish whether a built-in-named flag belongs to them.
+ * `onSessionContinuation` hears when `--resume`, `--continue` or auto-resume
+ * opens a newer copy of the chosen session's conversation instead of its file.
  */
 export async function createSessionManager(
 	parsed: Args,
 	cwd: string,
 	activeSettings: Settings = settings,
 	askToMoveSession: SessionPrompt = promptMoveSession,
-	options: { nativeFlagOwnership?: "preliminary" | "resolved" } = {},
+	options: {
+		nativeFlagOwnership?: "preliminary" | "resolved";
+		onSessionContinuation?: (continuation: SessionContinuation) => void;
+	} = {},
 ): Promise<SessionManager | undefined> {
 	if (parsed.fork) {
 		if (parsed.noSession) {
@@ -1274,9 +1290,19 @@ export async function createSessionManager(
 	if (typeof parsed.resume === "string") {
 		const sessionArg = parsed.resume;
 		if (sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl")) {
+			// The conversation may have gone on in a sibling file while another process held this one.
+			const continuation = await findSessionContinuation(sessionArg);
+			if (continuation) options.onSessionContinuation?.(continuation);
 			let manager: SessionManager;
 			try {
-				manager = await SessionManager.open(sessionArg, parsed.sessionDir, undefined, { throwIfMissing: true });
+				manager = await SessionManager.open(
+					continuation?.session.path ?? sessionArg,
+					parsed.sessionDir,
+					undefined,
+					{
+						throwIfMissing: true,
+					},
+				);
 			} catch (err) {
 				if (isEnoent(err) || isEnotdir(err)) {
 					throw new SessionResolutionError(`Session "${sessionArg}" not found.`, SESSION_NOT_FOUND_HINT);
@@ -1286,44 +1312,34 @@ export async function createSessionManager(
 			// A copy whose conversation moved to another machine continues as a fork.
 			return await forkIfMovedAway(manager, parsed.sessionDir);
 		}
-		const match = await resolveResumableSession(sessionArg, cwd, parsed.sessionDir);
-		if (!match) {
+		const target = await resolveResumeTarget(sessionArg, cwd, parsed.sessionDir);
+		if (!target) {
 			throw new SessionResolutionError(`Session "${sessionArg}" not found.`, SESSION_NOT_FOUND_HINT);
 		}
-		if (match.scope === "local") {
-			const moveResult = await moveMissingCwdSessionIfNeeded(
-				sessionArg,
-				match.session,
-				cwd,
-				parsed.sessionDir,
-				askToMoveSession,
-			);
-			if (moveResult.status === "moved") {
-				return await forkIfMovedAway(moveResult.manager, parsed.sessionDir);
-			}
-			if (moveResult.status === "declined") {
-				return undefined;
-			}
+		const { session, continuation } = target;
+		if (continuation) options.onSessionContinuation?.(continuation);
+		const moveResult = await moveMissingCwdSessionIfNeeded(
+			sessionArg,
+			session,
+			cwd,
+			parsed.sessionDir,
+			askToMoveSession,
+		);
+		if (moveResult.status === "moved") {
+			return await forkIfMovedAway(moveResult.manager, parsed.sessionDir);
 		}
-		if (match.scope === "global") {
-			const moveResult = await moveMissingCwdSessionIfNeeded(
-				sessionArg,
-				match.session,
-				cwd,
-				parsed.sessionDir,
-				askToMoveSession,
-			);
-			if (moveResult.status === "moved") {
-				return await forkIfMovedAway(moveResult.manager, parsed.sessionDir);
-			}
-			if (moveResult.status === "declined") {
-				return undefined;
-			}
+		if (moveResult.status === "declined") {
+			return undefined;
 		}
-		return await forkIfMovedAway(await SessionManager.open(match.session.path, parsed.sessionDir), parsed.sessionDir);
+		return await forkIfMovedAway(await SessionManager.open(session.path, parsed.sessionDir), parsed.sessionDir);
 	}
 	if (parsed.continue) {
-		return await forkIfMovedAway(await SessionManager.continueRecent(cwd, parsed.sessionDir), parsed.sessionDir);
+		return await forkIfMovedAway(
+			await SessionManager.continueRecent(cwd, parsed.sessionDir, undefined, {
+				onSessionContinuation: options.onSessionContinuation,
+			}),
+			parsed.sessionDir,
+		);
 	}
 	// --resume without value is handled separately (needs picker UI)
 	// If --session-dir provided without --continue/--resume, create new session there
@@ -1337,7 +1353,9 @@ export async function createSessionManager(
 	// An explicit startup goal starts fresh even when implicit auto-resume is configured.
 	if (parsed.goal === undefined && cfgAutoResume.get(activeSettings)) {
 		const manager = await forkIfMovedAway(
-			await SessionManager.continueRecent(cwd, parsed.sessionDir),
+			await SessionManager.continueRecent(cwd, parsed.sessionDir, undefined, {
+				onSessionContinuation: options.onSessionContinuation,
+			}),
 			parsed.sessionDir,
 		);
 		if (manager.getEntries().length > 0) {
@@ -1806,6 +1824,17 @@ export async function runRootCommand(
 			}
 			let result: string;
 			try {
+				// The session to export is read through the configured storage (a table row
+				// under `session.storage: sql`); the install below runs only after this branch.
+				// A refusal exits through the catch with the same message that install prints.
+				setDefaultSessionStorage(
+					await resolveSessionStorage({
+						settings:
+							deps.settings ??
+							(await Settings.loadReadOnly({ cwd: getProjectDir(), configFiles: parsedArgs.config })),
+						env: process.env,
+					}),
+				);
 				const outputPath = parsedArgs.messages.length > 0 ? parsedArgs.messages[0] : undefined;
 				const { exportFromFile } = await import("./export/html");
 				result = await exportFromFile(parsedArgs.export, outputPath);
@@ -1923,6 +1952,22 @@ export async function runRootCommand(
 		const settingsInstance = await settingsPromise;
 		// Process-lifetime: broker/account-policy edits reconfigure the shared credential store.
 		createAuthStorageSettingsSync(settingsInstance, authStorage);
+		// Install the configured session storage before anything lists or opens a
+		// session — every session listing and SessionManager below reads through
+		// this default. A refusal names only the variable or setting and the path;
+		// it never echoes the connection string.
+		try {
+			setDefaultSessionStorage(
+				await logger.time("resolveSessionStorage", resolveSessionStorage, {
+					settings: settingsInstance,
+					env: process.env,
+				}),
+			);
+		} catch (error) {
+			if (!(error instanceof SessionStorageConfigError)) throw error;
+			process.stderr.write(`${chalk.red(`Error: ${error.message}`)}\n`);
+			process.exit(1);
+		}
 		if (parsedArgs.approvalMode) {
 			// Runtime override (not persisted): every `tools.approvalMode` read downstream
 			// sees this value. The wrapper still honours --auto-approve / --yolo on top of it.
@@ -1931,6 +1976,9 @@ export async function runRootCommand(
 			// --auto-approve / --yolo without an explicit --approval-mode: reflect in settings so
 			// setup-time checks (e.g. #wrapToolForAcpPermission) also see the yolo intent.
 			cfgToolsApprovalMode.override(settingsInstance, "yolo");
+		}
+		if (parsedArgs.reduceMotion) {
+			cfgDisplayReduceMotion.override(settingsInstance, parsedArgs.reduceMotion);
 		}
 		if (parsedArgs.mode === "rpc" || parsedArgs.mode === "rpc-ui") {
 			applyProtocolDefaults("rpc", settingsInstance);
@@ -2052,6 +2100,8 @@ export async function runRootCommand(
 		// fresh persisted OMP session before constructing the AgentSession.
 		let sessionManager: SessionManager | undefined;
 		let foreignSource: ForeignSessionSource | undefined;
+		// A resumed session whose conversation went on in another file resumes that file; say so.
+		const resumedContinuations: SessionContinuation[] = [];
 		try {
 			foreignSource = resolveForeignSessionSource(parsedArgs);
 			if (foreignSource) {
@@ -2119,7 +2169,10 @@ export async function runRootCommand(
 					cwd,
 					settingsInstance,
 					promptMoveSession,
-					{ nativeFlagOwnership: "preliminary" },
+					{
+						nativeFlagOwnership: "preliminary",
+						onSessionContinuation: continuation => resumedContinuations.push(continuation),
+					},
 				);
 			}
 		} catch (error: unknown) {
@@ -2205,11 +2258,14 @@ export async function runRootCommand(
 				stopStartupWatchdog();
 				process.exit(0);
 			}
+			const continuation = await findSessionContinuation(selected.path);
+			if (continuation) resumedContinuations.push(continuation);
+			const chosen = continuation?.session ?? selected;
 			try {
 				sessionManager = await forkIfMovedAway(
-					(await SessionManager.isFromRemovedWorktree(selected, cwd, parsedArgs.sessionDir))
-						? await openRelocatedSession(selected, cwd, parsedArgs.sessionDir)
-						: await SessionManager.open(selected.path),
+					(await SessionManager.isFromRemovedWorktree(chosen, cwd, parsedArgs.sessionDir))
+						? await openRelocatedSession(chosen, cwd, parsedArgs.sessionDir)
+						: await SessionManager.open(chosen.path),
 					parsedArgs.sessionDir,
 				);
 			} catch (error: unknown) {
@@ -2217,8 +2273,8 @@ export async function runRootCommand(
 				throw error;
 			}
 			const previousCwd = cwd;
-			// A relocated session's `selected.cwd` is the removed worktree: missing, so the launch cwd stays.
-			const recordedCwd = selected.cwd || sessionManager.getRecordedCwd() || sessionManager.getCwd();
+			// A relocated session's `chosen.cwd` is the removed worktree: missing, so the launch cwd stays.
+			const recordedCwd = chosen.cwd || sessionManager.getRecordedCwd() || sessionManager.getCwd();
 			const resumedProject = await switchToResumedProject(
 				recordedCwd,
 				settingsInstance,
@@ -2233,6 +2289,11 @@ export async function runRootCommand(
 			}
 		}
 
+		for (const continuation of resumedContinuations) {
+			const notice = formatSessionContinuationNotice(continuation);
+			if (isInteractive) notifs.push({ kind: "warn", message: notice });
+			else process.stderr.write(`${chalk.yellow(notice)}\n`);
+		}
 		if (sessionManager && (parsedArgs.continue || parsedArgs.resume || parsedArgs.fork || foreignSource)) {
 			const pendingToolWarning = describePendingToolCalls(sessionManager.getBranch());
 			if (pendingToolWarning) {

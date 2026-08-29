@@ -8,9 +8,11 @@ import {
 	getConfigDirName,
 	getPluginsDir,
 	getProjectDir,
+	isEnoent,
 	logger,
 	normalizePathForComparison,
 	parseFrontmatter,
+	pathIsWithin,
 	tryParseJson,
 } from "@oh-my-pi/pi-utils";
 import { isUserSourceEnabled } from "../capability";
@@ -32,7 +34,7 @@ import type { MCPRequestIdFormat } from "../mcp/types";
 import { type ConfiguredThinkingLevel, parseConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
 import { normalizeToolNames } from "../tools/builtin-names";
 
-import { realpathIfExists, resolveContainedPath } from "./contained-path";
+import { type ContainedPathResolution, realpathIfExists, resolveContainedPath } from "./contained-path";
 import { buildPluginDirRoot } from "./plugin-dir-roots";
 
 /**
@@ -459,6 +461,25 @@ export interface ScanSkillsFromDirOptions {
 	 * (Claude Code's own plugin cache layout).
 	 */
 	pluginName?: string;
+	/**
+	 * Filesystem-resolved root every discovered `SKILL.md` must stay within
+	 * (Agent Plugins §4.1 containment). A candidate whose resolved path
+	 * escapes this root is skipped with a warning instead of loaded — a
+	 * symlinked child inside a declared directory must not pull in external
+	 * skills. Unset: no containment; the symlinked curated-pool convention
+	 * (native/opencode skill dirs) depends on following links outside the
+	 * scanned directory.
+	 */
+	containWithin?: string;
+	/**
+	 * With {@link includeSelf}, a directory whose own `SKILL.md` loaded is
+	 * treated as a LEAF: nested fixtures (`examples/demo/SKILL.md`) are not
+	 * scanned as separate skills. Manifest entries pointing directly at one
+	 * skill directory set this; conventional collection roots (a plugin's
+	 * `skills/` fallback) leave it unset so a root `SKILL.md` still loads
+	 * alongside the child skills, as it always did.
+	 */
+	selfIsBoundary?: boolean;
 }
 
 // Stable ordering used for skill lists in prompts: name (case-insensitive), then name, then path.
@@ -477,7 +498,30 @@ export async function scanSkillsFromDir(
 ): Promise<LoadResult<Skill>> {
 	const items: Skill[] = [];
 	const warnings: string[] = [];
-	const { dir, level, providerId, requireDescription = false } = options;
+	const { level, providerId, requireDescription = false, containWithin } = options;
+	// Under containment the scan dir must be canonical before candidates are
+	// built from it: a symlinked plugin root (marketplace install, --plugin-dir)
+	// yields lexical candidate paths outside the canonical root, and the
+	// lexical pre-check in `resolveContainedPath` would then reject every
+	// valid skill (PR #9379 round-6 review). The root itself must also PROVE
+	// containment before the readdir below — a `skills/` dir that is itself a
+	// symlink out of the package must fail closed without being enumerated
+	// (round-9 review). Resolve FIRST, then contain: the caller-provided path
+	// may be lexically outside the canonical base (reached through a
+	// symlinked install path) while resolving inside it.
+	let dir = options.dir;
+	if (containWithin !== undefined) {
+		const realDir = await realpathIfExists(options.dir);
+		if (realDir === null) {
+			return { items, warnings };
+		}
+		const resolvedRoot = await resolveContainedPath(containWithin, realDir);
+		if (resolvedRoot.status !== "ok") {
+			warnings.push(`Skipping skills directory outside the plugin root: ${options.dir}`);
+			return { items, warnings };
+		}
+		dir = resolvedRoot.realPath;
+	}
 
 	let entries: fs.Dirent[];
 	try {
@@ -514,6 +558,12 @@ export async function scanSkillsFromDir(
 				content: body,
 				frontmatter: frontmatter as SkillFrontmatter,
 				level,
+				// §4.1: `skill://` asset access enforces canonical containment
+				// only when `containRoot` is present (skill-protocol.ts,
+				// bash-skill-urls.ts) — a scan that proved containment must
+				// stamp the root, or an in-package SKILL.md could still reach
+				// assets through an out-of-package symlink.
+				...(containWithin !== undefined && { containRoot: containWithin }),
 				_source: createSourceMeta(providerId, skillPath, level, options.origin, options.pluginName),
 			});
 		} catch {
@@ -521,22 +571,84 @@ export async function scanSkillsFromDir(
 		}
 	};
 
-	const work: Promise<void>[] = [];
+	// Containment gate (Agent Plugins §4.1): a candidate reached through a
+	// symlink inside a declared directory may resolve outside the plugin
+	// root; prove containment before any probe follows that link or the read
+	// consumes external content (PR #9379 review). Without containment this is
+	// an async existence check.
+	const skillFileStatus = async (skillPath: string): Promise<ContainedPathResolution["status"]> => {
+		if (containWithin === undefined) return (await Bun.file(skillPath).exists()) ? "ok" : "missing";
+		return (await resolveContainedPath(containWithin, skillPath)).status;
+	};
+	// Loads a proven candidate; returns false only when no candidate exists.
+	const loadIfPresent = async (skillPath: string): Promise<boolean> => {
+		const status = await skillFileStatus(skillPath);
+		if (status === "missing") return false;
+		if (status === "outside") {
+			warnings.push(`Skipping skill outside the plugin root: ${skillPath}`);
+			return true;
+		}
+		await loadSkill(skillPath);
+		return true;
+	};
+	const candidateEntries = entries.filter(
+		entry => !entry.name.startsWith(".") && (entry.isDirectory() || entry.isSymbolicLink()),
+	);
+
+	// A manifest-declared directory that is itself a collection — its own
+	// SKILL.md alongside one-level-deep child skill directories, not a single
+	// leaf — must still surface those children (PR #9379 review): only a
+	// direct child with its own contained `SKILL.md` disqualifies
+	// `selfIsBoundary` from stopping the scan; a two-level-deep fixture
+	// (`examples/demo/SKILL.md`) or a child symlinked out of the plugin root
+	// does not, matching what the loop below itself would load.
+	const hasChildSkillDir =
+		options.selfIsBoundary === true &&
+		(
+			await Promise.all(candidateEntries.map(entry => skillFileStatus(path.join(dir, entry.name, "SKILL.md"))))
+		).includes("ok");
 	if (options.includeSelf) {
-		const selfSkillPath = path.join(dir, "SKILL.md");
-		if (fs.existsSync(selfSkillPath)) {
-			work.push(loadSkill(selfSkillPath));
+		const selfPresent = await loadIfPresent(path.join(dir, "SKILL.md"));
+		if (selfPresent && options.selfIsBoundary && !hasChildSkillDir) {
+			// A directly declared skill directory is a leaf, not a collection:
+			// its own SKILL.md defines the single skill, and nested fixtures
+			// (`examples/demo/SKILL.md`) must not surface as separate skills.
+			items.sort((a, b) => compareSkillOrder(a.name, a.path, b.name, b.path));
+			return { items, warnings };
 		}
 	}
-	for (const entry of entries) {
-		if (entry.name.startsWith(".")) continue;
-		if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-		const skillPath = path.join(dir, entry.name, "SKILL.md");
-		if (fs.existsSync(skillPath)) {
-			work.push(loadSkill(skillPath));
-		}
-	}
-	await Promise.all(work);
+	await Promise.all(
+		candidateEntries.map(async entry => {
+			if (await loadIfPresent(path.join(dir, entry.name, "SKILL.md"))) return;
+			// Namespace directory: curated pools nest one level (<dir>/<ns>/<skill>/SKILL.md),
+			// e.g. skills/core-ops/deel/SKILL.md via the symlinked pools in ~/.claude/skills
+			// and ~/.config/opencode/skills. A dir without its own SKILL.md is scanned exactly
+			// one level deeper; deeper nesting stays invisible.
+			const namespaceDir = path.join(dir, entry.name);
+			if (containWithin !== undefined) {
+				// The readdir below FOLLOWS a symlinked namespace dir, so containment
+				// must be proven before enumeration — not only per candidate file —
+				// or a link to a large or sensitive external tree gets traversed.
+				const resolved = await resolveContainedPath(containWithin, namespaceDir);
+				if (resolved.status === "outside") {
+					warnings.push(`Skipping skill namespace outside the plugin root: ${namespaceDir}`);
+					return;
+				}
+				if (resolved.status === "missing") return;
+			}
+			let children: fs.Dirent[];
+			try {
+				children = await fs.promises.readdir(namespaceDir, { withFileTypes: true });
+			} catch {
+				return;
+			}
+			await Promise.all(
+				children
+					.filter(child => !child.name.startsWith(".") && (child.isDirectory() || child.isSymbolicLink()))
+					.map(child => loadIfPresent(path.join(namespaceDir, child.name, "SKILL.md"))),
+			);
+		}),
+	);
 
 	// Deterministic ordering: async file reads complete nondeterministically, so sort after loading.
 	items.sort((a, b) => compareSkillOrder(a.name, a.path, b.name, b.path));
@@ -1215,7 +1327,21 @@ async function readClaudeEnabledPlugins(
 
 type PluginRootsResult = { roots: ClaudePluginRoot[]; warnings: string[] };
 
-const pluginRootsCache = new Map<string, Promise<PluginRootsResult>>();
+/** A cached {@link listClaudePluginRoots} result and the registry files it was read from. */
+interface PluginRootsCacheEntry {
+	files: readonly string[];
+	/** Each file's {@link registrySignature}, taken just before the files were read. */
+	signatures: Promise<readonly string[]>;
+	result: Promise<PluginRootsResult>;
+}
+
+const pluginRootsCache = new Map<string, PluginRootsCacheEntry>();
+
+/**
+ * Plugin id of every plugin root a registry has named in this process, keyed by the root's path and
+ * by its real path (Agent Plugin skills record real paths). See {@link isSupersededPluginPath}.
+ */
+const registeredPluginRootIds = new Map<string, string>();
 
 const pluginCacheInvalidators = new Set<() => void>();
 
@@ -1224,16 +1350,8 @@ export function registerPluginCacheInvalidator(invalidator: () => void): void {
 	pluginCacheInvalidators.add(invalidator);
 }
 
-/**
- * List all installed Claude Code plugin roots from its active plugin cache and
- * ~/.omp/plugins/installed_plugins.json, plus the nearest project registry when present.
- *
- * Results are cached per Claude and OMP config directories, project registry, and canonical active project.
- */
-export async function listClaudePluginRoots(
-	home: string,
-	cwd?: string,
-): Promise<{ roots: ClaudePluginRoot[]; warnings: string[] }> {
+/** The registry files {@link listClaudePluginRoots} reads for `home` and `cwd`. */
+async function resolvePluginRegistryFiles(home: string, cwd: string | undefined) {
 	const claudeConfigDir = resolveClaudePaths(home).configDir;
 	const ompRegistryPath = path.join(getPluginsDir(home), "installed_plugins.json");
 	const projectPath = cwd ? await resolveActiveProjectRegistryPath(cwd) : null;
@@ -1241,6 +1359,92 @@ export async function listClaudePluginRoots(
 		projectPath && normalizePathForComparison(projectPath) !== normalizePathForComparison(ompRegistryPath)
 			? projectPath
 			: null;
+	const files = [path.join(claudeConfigDir, "plugins", "installed_plugins.json"), ompRegistryPath];
+	if (resolvedProjectPath) files.push(resolvedProjectPath);
+	return { claudeConfigDir, ompRegistryPath, resolvedProjectPath, files };
+}
+
+/**
+ * Identity, size and modification time of a registry file; `missing`, or the error code of a path
+ * that cannot be checked (the registry read treats both as absent). Any write changes it.
+ */
+async function registrySignature(filePath: string): Promise<string> {
+	try {
+		const stats = await fs.promises.stat(filePath);
+		return `${stats.ino}:${stats.size}:${stats.mtimeMs}`;
+	} catch (error) {
+		if (isEnoent(error)) return "missing";
+		return `unreadable:${(error as NodeJS.ErrnoException).code ?? "unknown"}`;
+	}
+}
+
+/** Whether a registry file changed on disk since `entry` was read from it. */
+async function isStaleRootsEntry(entry: PluginRootsCacheEntry): Promise<boolean> {
+	const [recorded, current] = await Promise.all([entry.signatures, Promise.all(entry.files.map(registrySignature))]);
+	return recorded.some((signature, index) => signature !== current[index]);
+}
+
+async function recordRegisteredPluginRoots(roots: readonly ClaudePluginRoot[]): Promise<void> {
+	await Promise.all(
+		roots.map(async root => {
+			registeredPluginRootIds.set(root.path, root.id);
+			const realPath = await realpathIfExists(root.path);
+			if (realPath) registeredPluginRootIds.set(realPath, root.id);
+		}),
+	);
+}
+
+/** A registered plugin root (see {@link isSupersededPluginPath}) and the id of its plugin. */
+export interface RegisteredPluginRoot {
+	root: string;
+	pluginId: string;
+}
+
+/** The registered plugin root that holds `filePath`, if any. */
+export function registeredPluginRootOf(filePath: string): RegisteredPluginRoot | undefined {
+	let found: [string, string] | undefined;
+	for (const entry of registeredPluginRootIds) {
+		if (pathIsWithin(entry[0], filePath)) found = entry;
+	}
+	return found && { root: found[0], pluginId: found[1] };
+}
+
+/**
+ * Whether `filePath` lies in a plugin install that the registries, as read for `cwd`, have replaced
+ * with another install of the same plugin: an upgrade that kept the old version's directory, or a
+ * project-scope install that now shadows a user-scope one. The cached roots for `cwd` are read again
+ * first when a registry file changed on disk since they were read. A path in no registered plugin
+ * root, or in a plugin the registries no longer install at all, is not superseded.
+ */
+export async function isSupersededPluginPath(filePath: string, home: string, cwd?: string): Promise<boolean> {
+	const pluginId = registeredPluginRootOf(filePath)?.pluginId;
+	if (pluginId === undefined) return false;
+	const installs = (await readPluginRoots(home, cwd, true)).roots.filter(root => root.id === pluginId);
+	if (installs.length === 0) return false;
+	for (const install of installs) {
+		if (pathIsWithin(install.path, filePath)) return false;
+		const realPath = await realpathIfExists(install.path);
+		if (realPath && pathIsWithin(realPath, filePath)) return false;
+	}
+	return true;
+}
+
+/**
+ * List all installed Claude Code plugin roots from its active plugin cache and
+ * ~/.omp/plugins/installed_plugins.json, plus the nearest project registry when present.
+ *
+ * Results are cached per Claude and OMP config directories, project registry, and canonical active project.
+ */
+export function listClaudePluginRoots(
+	home: string,
+	cwd?: string,
+): Promise<{ roots: ClaudePluginRoot[]; warnings: string[] }> {
+	return readPluginRoots(home, cwd, false);
+}
+
+/** {@link listClaudePluginRoots}; with `revalidate`, a cached result whose registry files changed is read again. */
+async function readPluginRoots(home: string, cwd: string | undefined, revalidate: boolean): Promise<PluginRootsResult> {
+	const { claudeConfigDir, ompRegistryPath, resolvedProjectPath, files } = await resolvePluginRegistryFiles(home, cwd);
 	const projectRoot = resolvedProjectPath ? path.dirname(path.dirname(path.dirname(resolvedProjectPath))) : cwd;
 	const activeClaudeProjectPath = projectRoot ? await canonicalClaudeProjectPath(projectRoot) : null;
 	const canonicalCwd = cwd ? await canonicalClaudeProjectPath(cwd) : null;
@@ -1248,21 +1452,36 @@ export async function listClaudePluginRoots(
 	const enabledOverrides = await readClaudeEnabledPlugins(claudeConfigDir, settingsDirs);
 	const cacheKey = `${claudeConfigDir}:${ompRegistryPath}:${resolvedProjectPath ?? ""}:${activeClaudeProjectPath ?? ""}:${canonicalCwd ?? ""}:${enabledOverrides.sources.join("|")}`;
 	const cached = pluginRootsCache.get(cacheKey);
-	if (cached) return cached;
+	if (cached) {
+		if (!revalidate || !(await isStaleRootsEntry(cached))) return cached.result;
+		if (pluginRootsCache.get(cacheKey) === cached) pluginRootsCache.delete(cacheKey);
+		// A concurrent caller that found the same stale entry may already have replaced it.
+		const current = pluginRootsCache.get(cacheKey);
+		if (current) return current.result;
+	}
 
+	// A fresh read takes the registries from disk, not from a content cache an earlier read filled.
+	for (const file of files) invalidateFsCache(file);
+	const signatures = Promise.all(files.map(registrySignature));
 	// Cache the in-flight promise so concurrent callers share one computation.
-	const pending = loadClaudePluginRoots({
-		claudeConfigDir,
-		ompRegistryPath,
-		resolvedProjectPath,
-		activeClaudeProjectPath,
-		enabledOverrides,
-	});
-	pluginRootsCache.set(cacheKey, pending);
+	const result = (async () => {
+		await signatures;
+		const loaded = await loadClaudePluginRoots({
+			claudeConfigDir,
+			ompRegistryPath,
+			resolvedProjectPath,
+			activeClaudeProjectPath,
+			enabledOverrides,
+		});
+		await recordRegisteredPluginRoots(loaded.roots);
+		return loaded;
+	})();
+	const entry: PluginRootsCacheEntry = { files, signatures, result };
+	pluginRootsCache.set(cacheKey, entry);
 	try {
-		return await pending;
+		return await result;
 	} catch (error) {
-		if (pluginRootsCache.get(cacheKey) === pending) pluginRootsCache.delete(cacheKey);
+		if (pluginRootsCache.get(cacheKey) === entry) pluginRootsCache.delete(cacheKey);
 		throw error;
 	}
 }

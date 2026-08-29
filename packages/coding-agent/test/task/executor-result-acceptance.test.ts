@@ -656,14 +656,7 @@ describe("runSubprocess result acceptance", () => {
 				await finish?.(undefined);
 				const result = await waiting;
 				const job = result.details?.jobs?.[0];
-				expect(job?.status).toBe("completed");
-				expect(job?.resultText).toContain(`history://${AGENT_ID}`);
-				if (alreadyMessaged) {
-					expect(job?.resultText).not.toContain("produced no output");
-					expect(job?.resultText).toContain(`${AGENT_ID} sent a message during this turn`);
-				} else {
-					expect(job?.resultText).toContain("produced no output");
-				}
+				expect(job?.status).toBe("failed");
 			} finally {
 				await manager.dispose({ timeoutMs: 1000 });
 			}
@@ -681,7 +674,7 @@ describe("runSubprocess result acceptance", () => {
 			session: harness.session,
 			status: "idle",
 		});
-		attachIrcWakeTurnMonitor(harness.session, { id: AGENT_ID, agent: baseAgent });
+		attachIrcWakeTurnMonitor(harness.session, { id: AGENT_ID, agent: baseAgent, structured: false });
 		const observer = harness.wakeObserver();
 		if (!observer) throw new Error("wake-turn observer was not registered");
 		const parent = {
@@ -717,6 +710,99 @@ describe("runSubprocess result acceptance", () => {
 			});
 			// The job carries the answer; a relay message would deliver it twice.
 			expect(IrcBus.global().take("Parent")).toBeUndefined();
+		} finally {
+			await manager.dispose({ timeoutMs: 1000 });
+		}
+	});
+	it("marks a parent-owned structured wake that replies without yield", async () => {
+		const manager = new AsyncJobManager({});
+		const harness = createHarness({ asyncJobManager: manager });
+		AgentRegistry.global().register({
+			id: AGENT_ID,
+			displayName: AGENT_ID,
+			kind: "sub",
+			parentId: "Parent",
+			session: harness.session,
+			status: "idle",
+		});
+		attachIrcWakeTurnMonitor(harness.session, { id: AGENT_ID, agent: baseAgent, structured: true });
+		const observer = harness.wakeObserver();
+		if (!observer) throw new Error("wake-turn observer was not registered");
+		const parent = {
+			cwd: "/tmp",
+			settings: Settings.isolated({ "launch.enabled": false }),
+			agentRegistry: AgentRegistry.global(),
+			asyncJobManager: manager,
+			getAgentId: () => "Parent",
+		} as unknown as ToolSession;
+		const warning = "SYSTEM WARNING: Structured subagent replied without calling yield.";
+
+		try {
+			const finish = observer([
+				{
+					role: "custom",
+					customType: "irc:incoming",
+					content: "report your findings",
+					display: false,
+					details: { id: "msg-report", from: "Parent", message: "report your findings" },
+					attribution: "agent",
+					timestamp: Date.now(),
+				} as unknown as AgentMessage,
+			]);
+			const waiting = new WaitTool(parent).execute("parent-wait", {});
+			harness.emitAssistantText("Everything verified; writing the report now.");
+			await finish?.(undefined);
+
+			const job = (await waiting).details?.jobs?.[0];
+			expect(job?.status).toBe("completed");
+			expect(job?.resultText).toContain(warning);
+			expect(job?.resultText).toContain("Everything verified; writing the report now.");
+			expect(job?.resultText).not.toContain("after 3 reminders");
+		} finally {
+			await manager.dispose({ timeoutMs: 1000 });
+		}
+	});
+	it.each(["", " \n "])("fails an empty structured owner wake (%p)", async reply => {
+		const manager = new AsyncJobManager({});
+		const harness = createHarness({ asyncJobManager: manager });
+		AgentRegistry.global().register({
+			id: AGENT_ID,
+			displayName: AGENT_ID,
+			kind: "sub",
+			parentId: "Parent",
+			session: harness.session,
+			status: "idle",
+		});
+		attachIrcWakeTurnMonitor(harness.session, { id: AGENT_ID, agent: baseAgent, structured: true });
+		const observer = harness.wakeObserver();
+		if (!observer) throw new Error("wake-turn observer was not registered");
+		const parent = {
+			cwd: "/tmp",
+			settings: Settings.isolated({ "launch.enabled": false }),
+			agentRegistry: AgentRegistry.global(),
+			asyncJobManager: manager,
+			getAgentId: () => "Parent",
+		} as unknown as ToolSession;
+
+		try {
+			const finish = observer([
+				{
+					role: "custom",
+					customType: "irc:incoming",
+					content: "report your findings",
+					display: false,
+					details: { id: "msg-empty", from: "Parent", message: "report your findings" },
+					attribution: "agent",
+					timestamp: Date.now(),
+				} as unknown as AgentMessage,
+			]);
+			const waiting = new WaitTool(parent).execute("parent-wait", {});
+			harness.emitAssistantText(reply);
+			await finish?.(undefined);
+
+			const job = (await waiting).details?.jobs?.[0];
+			expect(job?.status).toBe("failed");
+			expect(job?.resultText).toBeUndefined();
 		} finally {
 			await manager.dispose({ timeoutMs: 1000 });
 		}
