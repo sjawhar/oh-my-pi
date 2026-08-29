@@ -706,6 +706,16 @@ export interface CreateAgentSessionOptions {
 
 	/** Skills. Default: discovered from multiple locations */
 	skills?: Skill[];
+	/**
+	 * Forwarded by a parent session when spawning a subagent so the child
+	 * skips full skill discovery (perf only — not an opt-out request). When
+	 * `skills` is set for this reason, `discoverStartupSkillPaths()` still
+	 * merges directories a subagent's own `resources_discover` handlers
+	 * contribute at its own startup into the inherited snapshot (existing
+	 * names win) instead of leaving them permanently unreachable. Leave unset
+	 * for a caller-supplied fixed snapshot that must stay untouched.
+	 */
+	mergeDiscoveredSkillPaths?: boolean;
 	/** Rules. Default: discovered from multiple locations */
 	rules?: Rule[];
 	/** Context files (AGENTS.md content). Default: discovered walking up from cwd */
@@ -927,6 +937,11 @@ export type * from "./extensibility/extensions";
 export type { Skill } from "./extensibility/skills";
 export type { FileSlashCommand } from "./extensibility/slash-commands";
 export type { MCPManager, MCPServerConfig, MCPServerConnection, MCPToolsLoadResult } from "./mcp";
+// Direct SDK sessions (bypassing every built-in mode) must call this once,
+// after `createAgentSession()` and before the first `session.prompt()`, to
+// get `session_start`/`resources_discover` extension lifecycle events —
+// see docs/sdk.md#extensions.
+export { type InitializeExtensionsOptions, initializeExtensions } from "./modes/runtime-init";
 // Agent registry: pass a private instance per `createAgentSession` when
 // embedding several concurrent top-level sessions in one process (the default
 // global registry admits only one "Main" per process generation).
@@ -1463,6 +1478,8 @@ function createCustomToolsExtension(tools: CustomTool[], sourcePaths?: ReadonlyM
 					success: event.success,
 					attempt: event.attempt,
 					finalError: event.finalError,
+					kind: event.kind,
+					resetAtMs: event.resetAtMs,
 					retryErrors: event.retryErrors,
 				},
 				ctx,
@@ -2131,7 +2148,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 
 	let agent: Agent;
 	const effectiveGetApiKey =
-		options.getApiKey ?? (requestModel => modelRegistry.resolver(requestModel, agent.sessionId));
+		options.getApiKey ?? (requestModel => modelRegistry.turnResolver(requestModel, agent.sessionId));
 	let session!: AgentSession;
 	let hasSession = false;
 	let hasRegistered = false;
@@ -3270,6 +3287,14 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// Discard return: any handler error is routed through runner.onError listeners.
 			void extensionRunner.emitCredentialDisabled(event);
 		}
+
+		// resources_discover: extensions may contribute skill directories, but the
+		// event's public contract fires it AFTER `session_start` (so handlers that
+		// build state there, or use runtime actions wired by `initialize()`, work
+		// correctly). Session construction happens before any mode calls
+		// `initialize()`/emits `session_start`, so that emission — and the resulting
+		// skill-snapshot refresh — happens later, in `initializeExtensions`
+		// (modes/runtime-init.ts), right after `session_start`.
 
 		const getSessionContext = () => ({
 			sessionManager,
@@ -4534,6 +4559,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			skillDescriptions,
 			skillWarnings,
 			skillsReloadable: options.skills === undefined,
+			mergeDiscoveredSkillPaths: options.mergeDiscoveredSkillPaths === true,
 			skillsSettings: cfgSkills.get(settings),
 			modelRegistry,
 			allowSessionModelFallback: options.hasUI === true && options.allowSessionModelFallback !== false,

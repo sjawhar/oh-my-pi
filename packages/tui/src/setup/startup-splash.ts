@@ -4,6 +4,7 @@ import { col } from "../native/describe";
 import type { NativeNode, NativeUiEvent } from "../native/node";
 import { Memo } from "../native/memo";
 import { isNativeRendering } from "../native/state";
+import { isReduceMotion } from "../reduce-motion";
 import type { SetupUiHost } from "./scenes/types";
 import { describeSetupSplash, renderSetupSplash, SETUP_SPLASH_MS, SETUP_TICK_MS } from "./scenes/splash";
 
@@ -125,6 +126,7 @@ class StartupSplashComponent implements Component, OverlayFocusOwner {
 
 /** Show the startup animation and restore the previous overlay focus afterward. */
 export async function runStartupSplash(ctx: SetupUiHost, options: RunStartupSplashOptions = {}): Promise<void> {
+	if (isReduceMotion()) return;
 	const component = new StartupSplashComponent(ctx, options);
 	const overlay = ctx.ui.showOverlay(component, {
 		width: "100%",
