@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added a configurable minimum render interval for accessibility modes that need to cap terminal repaint frequency ([#8336](https://github.com/can1357/oh-my-pi/issues/8336)).
+
+### Changed
+
+- The status line's git-status polling interval now widens automatically for a repository whose `git status` stays slow across consecutive calls, instead of holding a fixed 1-second refresh regardless of cost ([#13405](https://github.com/can1357/oh-my-pi/pull/13405) by [@sjawhar](https://github.com/sjawhar)).
+
+### Fixed
+
+- Fixed fullscreen overlays rewriting the whole terminal on every change; each frame now repaints only the rows that changed
+
 ## [18.3.5] - 2026-09-27
 
 ### Added
