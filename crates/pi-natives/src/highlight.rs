@@ -909,6 +909,28 @@ mod tests {
 		assert!(out.contains("<k>-->"));
 		assert!(out.contains("<c> note"));
 	}
+
+	/// A Markdown table header must stay recognisable however long its first
+	/// row is — many inline code spans, or many backslash escapes — so the
+	/// row separator keeps its punctuation colour. syntect's built-in grammar
+	/// abandons the table lookahead on these rows, so this also pins the
+	/// vendored grammar as the one resolved for `markdown`.
+	#[test]
+	fn markdown_recognises_table_headers_after_many_inline_spans() {
+		let colors = test_colors();
+		let spans = ["`a`"; 16].join(" ");
+		let escapes = "\\*".repeat(20);
+		for (case, first_row) in [("inline code spans", &spans), ("escaped asterisks", &escapes)] {
+			let out =
+				highlight_code_impl(&format!("{first_row} | x\n---|---\n"), Some("markdown"), &colors);
+			let first = out.lines().next().unwrap();
+			assert!(
+				first.contains("<p>|"),
+				"{case}: table separator lost punctuation highlighting: {first}"
+			);
+		}
+	}
+
 	/// Regression: with the JavaScript grammar, TS type annotations
 	/// (generic return types, arrow-type params) corrupted parser state, and a
 	/// later template literal left an unterminated string scope that painted

@@ -143,7 +143,7 @@ export interface SessionStorage {
 	 * materializing it as one string. Optional; callers on backends without
 	 * it join the lines and call {@link writeTextSync}.
 	 */
-	writeLinesSync?(path: string, lines: readonly string[], options?: SessionStorageWriteOptions): void;
+	writeLinesSync?(path: string, lines: Iterable<string>, options?: SessionStorageWriteOptions): void;
 	/**
 	 * Update the current session title through the storage backend.
 	 *
@@ -176,7 +176,7 @@ export interface SessionStorage {
 	writeText(path: string, content: string): Promise<void>;
 	writeTextAtomic(path: string, content: string, options?: WriteTextAtomicOptions): Promise<void>;
 	/** Streaming {@link writeTextAtomic}, optional on the same terms as {@link writeLinesSync}. */
-	writeLinesAtomic?(path: string, lines: readonly string[], options?: WriteTextAtomicOptions): Promise<void>;
+	writeLinesAtomic?(path: string, lines: Iterable<string>, options?: WriteTextAtomicOptions): Promise<void>;
 	rename(path: string, nextPath: string): Promise<void>;
 	unlink(path: string): Promise<void>;
 	deleteSessionWithArtifacts(sessionPath: string): Promise<void>;
@@ -603,11 +603,17 @@ export function tryAcquireSessionLease(sessionId: string): FileLockHandle | null
 const LINE_STREAM_CHUNK = 1 << 20;
 
 /** Write `lines` to a new file at `target` in bounded chunks, never holding their full concatenation. */
-function writeLinesToFileSync(target: string, lines: readonly string[]): void {
+function writeLinesToFileSync(target: string, lines: Iterable<string>): void {
 	const fd = fs.openSync(target, "w");
 	try {
 		let chunk = "";
 		for (const line of lines) {
+			if (line.length >= LINE_STREAM_CHUNK) {
+				if (chunk.length > 0) fs.writeFileSync(fd, chunk);
+				chunk = "";
+				fs.writeFileSync(fd, line);
+				continue;
+			}
 			chunk += line;
 			if (chunk.length < LINE_STREAM_CHUNK) continue;
 			fs.writeFileSync(fd, chunk);
@@ -623,7 +629,7 @@ function writeLinesToFileSync(target: string, lines: readonly string[]): void {
  * Async {@link writeLinesToFileSync} through a buffered Bun file sink.
  * `target` must be a fresh path: a sink does not truncate an existing file.
  */
-async function writeLinesToFile(target: string, lines: readonly string[]): Promise<void> {
+async function writeLinesToFile(target: string, lines: Iterable<string>): Promise<void> {
 	const sink = Bun.file(target).writer({ highWaterMark: LINE_STREAM_CHUNK });
 	try {
 		for (const line of lines) sink.write(line);
@@ -922,9 +928,9 @@ export class FileSessionStorage implements SessionStorage {
 	 * spy that intercepts {@link writeTextSync} still sees every full rewrite:
 	 * the lines are then joined and routed through it.
 	 */
-	writeLinesSync(fpath: string, lines: readonly string[], options?: SessionStorageWriteOptions): void {
+	writeLinesSync(fpath: string, lines: Iterable<string>, options?: SessionStorageWriteOptions): void {
 		if (this.writeTextSync !== FileSessionStorage.prototype.writeTextSync) {
-			this.writeTextSync(fpath, lines.join(""), options);
+			this.writeTextSync(fpath, Array.from(lines).join(""), options);
 			return;
 		}
 		this.#publishSync(fpath, tempPath => writeLinesToFileSync(tempPath, lines), options);
@@ -1046,9 +1052,9 @@ export class FileSessionStorage implements SessionStorage {
 	 * subclass or spy that intercepts {@link writeTextAtomic} still sees every
 	 * full rewrite: the lines are then joined and routed through it.
 	 */
-	async writeLinesAtomic(fpath: string, lines: readonly string[], options?: WriteTextAtomicOptions): Promise<void> {
+	async writeLinesAtomic(fpath: string, lines: Iterable<string>, options?: WriteTextAtomicOptions): Promise<void> {
 		if (this.writeTextAtomic !== FileSessionStorage.prototype.writeTextAtomic) {
-			return this.writeTextAtomic(fpath, lines.join(""), options);
+			return this.writeTextAtomic(fpath, Array.from(lines).join(""), options);
 		}
 		await this.#publishAtomic(fpath, tempPath => writeLinesToFile(tempPath, lines), options);
 	}
@@ -1321,7 +1327,27 @@ export class FileSessionStorage implements SessionStorage {
 	}
 }
 
-function matchesPattern(name: string, pattern: string): boolean {
+let defaultStorage: SessionStorage | undefined;
+
+/**
+ * The storage every session factory, listing, resume, and maintenance path
+ * falls back to when the caller passes none. Lazily a {@link FileSessionStorage}
+ * (stateless, so one shared instance is safe); {@link setDefaultSessionStorage}
+ * replaces it with the configured storage before the first session is opened,
+ * so `--resume`, the resume picker, `--continue`, and listing all read the same
+ * store the session is written to.
+ */
+export function defaultSessionStorage(): SessionStorage {
+	defaultStorage ??= new FileSessionStorage();
+	return defaultStorage;
+}
+
+/** Install the process-wide default storage. Call before any session is opened. */
+export function setDefaultSessionStorage(storage: SessionStorage): void {
+	defaultStorage = storage;
+}
+
+function matchesPatternSegment(name: string, pattern: string): boolean {
 	if (pattern === "*") return true;
 	if (pattern.startsWith("*.")) {
 		return name.endsWith(pattern.slice(1));
@@ -1330,15 +1356,36 @@ function matchesPattern(name: string, pattern: string): boolean {
 }
 
 /**
- * Name of `key` when it sits directly inside `resolvedDir` (a `path.resolve`d
- * directory), else `undefined`. Key-indexed storages keep whatever spelling
- * callers wrote, so both sides are resolved: on Windows `/sessions/x` and the
- * `path.join`-built `\sessions\x\…` keys must list as the same directory.
+ * Name of `key` relative to `resolvedDir` (a `path.resolve`d directory),
+ * slash-joined, when it sits exactly `segments` levels inside it; else
+ * `undefined`. Key-indexed storages keep whatever spelling callers wrote, so
+ * both sides are resolved: on Windows `/sessions/x` and the `path.join`-built
+ * `\sessions\x\…` keys must list as the same directory.
  */
-export function directChildKeyName(resolvedDir: string, key: string): string | undefined {
-	const name = path.basename(key);
-	if (!name || name.includes("/") || name.includes("\\")) return undefined;
-	return path.resolve(path.dirname(key)) === resolvedDir ? name : undefined;
+export function childKeyName(resolvedDir: string, key: string, segments: number): string | undefined {
+	const names: string[] = [];
+	let parent = key;
+	for (let i = 0; i < segments; i++) {
+		const name = path.basename(parent);
+		if (!name || name.includes("/") || name.includes("\\")) return undefined;
+		names.unshift(name);
+		parent = path.dirname(parent);
+	}
+	return path.resolve(parent) === resolvedDir ? names.join("/") : undefined;
+}
+
+/**
+ * Match a slash-joined path remainder against a pattern of the same shape
+ * (a single segment such as `"*.jsonl"`, or a wildcard project directory
+ * followed by `"*.jsonl"` for the one-level cross-project case). Segment
+ * counts must agree, so a direct child never matches a two-segment pattern
+ * and a nested key never matches a one-segment one.
+ */
+function matchesPattern(name: string, pattern: string): boolean {
+	const nameParts = name.split("/");
+	const patternParts = pattern.split("/");
+	if (nameParts.length !== patternParts.length) return false;
+	return nameParts.every((part, i) => matchesPatternSegment(part, patternParts[i]));
 }
 
 class MemorySessionStorageWriter implements SessionStorageWriter {
@@ -1597,8 +1644,9 @@ export class MemorySessionStorage implements SessionStorage {
 	listFilesSync(dir: string, pattern: string): string[] {
 		const resolvedDir = path.resolve(dir);
 		const files: string[] = [];
+		const segments = pattern.split("/").length;
 		for (const key of this.#files.keys()) {
-			const name = directChildKeyName(resolvedDir, key);
+			const name = childKeyName(resolvedDir, key, segments);
 			if (name === undefined || !matchesPattern(name, pattern)) continue;
 			files.push(key);
 		}
