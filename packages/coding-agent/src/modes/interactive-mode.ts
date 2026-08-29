@@ -26,6 +26,7 @@ import type {
 import {
 	Container,
 	clearRenderCache,
+	EXIT_FLUSH_MAX_ROWS,
 	getComposerStyle,
 	getPaddingX,
 	getWidthConfigEpoch,
@@ -36,7 +37,7 @@ import {
 	setTuiTight,
 	TERMINAL,
 	Text,
-	type TUI,
+	TUI,
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@oh-my-pi/pi-tui";
@@ -63,6 +64,7 @@ import { CollabController } from "../collab/controller";
 import type { CollabHost } from "../collab/host";
 import { formatKeyHint, KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
 import { appKey, editorKey } from "@oh-my-pi/pi-tui/chrome/keybinding-hints";
+import { reduceMotionLevel } from "@oh-my-pi/pi-tui/reduce-motion";
 import { formatModelString, type ResolvedModelRoleValue } from "../config/model-resolver";
 import { isSettingsInitialized, Settings, settings } from "../config/settings";
 import { clearClaudePluginRootsCache } from "../discovery/helpers";
@@ -128,6 +130,7 @@ import { modelMentionChipLabel, shiftImageMarkers } from "@oh-my-pi/pi-tui/promp
 import type { SessionContext } from "../session/session-context";
 import { getRecentSessions } from "../session/session-listing";
 import type { SessionManager } from "../session/session-manager";
+import type { RefreshSkillsOptions } from "../session/session-tools";
 import type { ShakeMode } from "../session/shake-types";
 import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES, buildTuiBuiltinSlashCommands } from "../slash-commands/builtin-registry";
 import { buildStaticInlineHint } from "../slash-commands/builtin-completions";
@@ -186,6 +189,7 @@ import { getSessionAccentAnsi, getSessionAccentHex } from "@oh-my-pi/pi-tui/them
 import { messageHasDisplayableThinking } from "@oh-my-pi/pi-tui/chat/thinking-display";
 import type { TokenRateMeter } from "../utils/token-rate";
 import {
+	applyTerminalTitleReduceMotion,
 	disposeTerminalTitleState,
 	initTerminalTitleState,
 	popTerminalTitle,
@@ -310,6 +314,7 @@ import {
 	cfgDisplayCollapseCompacted,
 	cfgDisplayHideToolActivity,
 	cfgDisplayPinnedAgents,
+	cfgDisplayReduceMotion,
 	cfgDisplayShowTokenUsage,
 	cfgDisplayShowTurnTime,
 	cfgGitEnabled,
@@ -385,6 +390,7 @@ const cfgLiveUiSettings = combine({
 	"tui.vimMode": cfgTuiVimMode,
 	"tui.vimModeDisplay": cfgTuiVimModeDisplay,
 	"display.pinnedAgents": cfgDisplayPinnedAgents,
+	"display.reduceMotion": cfgDisplayReduceMotion,
 	"compaction.idleEnabled": cfgCompactionIdleEnabled,
 	"compaction.idleThresholdTokens": cfgCompactionIdleThresholdTokens,
 	"compaction.idleTimeoutSeconds": cfgCompactionIdleTimeoutSeconds,
@@ -1381,6 +1387,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		setTuiTight(cfgTuiTight.get(settings));
 		setMarkdownMermaidRendering(cfgTuiRenderMermaid.get(settings));
 		this.#applyTextSizingSetting();
+		this.#applyReduceMotion();
 		// Keep generic pi-tui renderers aligned with the coding-agent setting.
 		applyHyperlinkSetting();
 		// The TUI polls the provider every frame, so it reads a field kept in sync by
@@ -2086,10 +2093,27 @@ export class InteractiveMode implements InteractiveModeContext {
 		return [...builtinCommands, ...hookCommands, ...customCommands, ...skillCommandList];
 	}
 
+	/**
+	 * Rebuilds the pending slash commands, including `/skill:<name>` entries, from
+	 * live session state and re-points the editor's autocomplete provider at the
+	 * result. The provider snapshots `#pendingSlashCommands` when
+	 * `refreshSlashCommandState` builds it, and `init:slashCommands` runs before
+	 * the startup `resources_discover` pass — so without the rebuild, skills an
+	 * extension contributes at startup are invocable but never offered in
+	 * autocomplete until the next reload. Reuses the session's already
+	 * discovered file commands, so this never re-walks the providers.
+	 */
+	#syncSkillSlashCommands(): void {
+		this.#pendingSlashCommands = this.#buildPendingSlashCommands();
+		if (this.#baseAutocompleteProvider) {
+			this.#rebuildSlashCommandAutocomplete(this.sessionManager.getCwd());
+		}
+	}
+
 	/** Reload session skills and the `/skill:<name>` command list. */
-	async refreshSkillState(): Promise<void> {
+	async refreshSkillState(options?: RefreshSkillsOptions): Promise<void> {
 		// The session's command-metadata notification rebuilds the picker.
-		await this.session.refreshSkills();
+		await this.session.refreshSkills(options);
 	}
 
 	/** Reload slash commands and autocomplete for the provided working directory. */
@@ -2884,6 +2908,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		return computeEditorMaxHeight(this.ui.terminal.rows);
 	}
 
+	#applyReduceMotion(): void {
+		TUI.setMinRenderInterval(reduceMotionLevel() === "strict" ? 250 : 1000 / 30);
+		applyTerminalTitleReduceMotion();
+		this.ui.requestRender();
+	}
+
 	#syncEditorMaxHeight(): void {
 		this.editor.setMaxHeight(this.#computeEditorMaxHeight());
 	}
@@ -2940,6 +2970,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (any("composer.shape")) this.syncComposerShape();
 		if (any("tui.vimMode", "tui.vimModeDisplay")) this.#applyVimModeSetting();
 		if (any("display.pinnedAgents")) this.applyPinnedAgentsSetting();
+		if (any("display.reduceMotion")) this.#applyReduceMotion();
 		if (any("compaction.idleEnabled", "compaction.idleThresholdTokens", "compaction.idleTimeoutSeconds")) {
 			this.#eventController.refreshIdleCompactionTimer();
 		}
@@ -4778,7 +4809,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 
 		try {
-			this.ui.stop();
+			this.ui.stop({ resuming: true });
 			const result = await openInEditor(editorCmd, currentText, {
 				extension: path.extname(resolvedPath) || ".md",
 				trimTrailingNewline: false,
@@ -4804,7 +4835,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 
 		try {
-			this.ui.stop();
+			this.ui.stop({ resuming: true });
 			const result = await openInEditor(editorCmd, draft, { extension: ".md" });
 			if (result !== null) {
 				commit(result);
@@ -6042,7 +6073,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		setCfgApprovalHost(null);
 		this.#hideSessionInfo();
 		if (this.#ownsStartedUi) {
-			this.ui.stop();
+			// Cap the exit flush only when the session file keeps what the cap
+			// skips (the resume hint's condition); otherwise native scrollback is
+			// the transcript's only copy, so it gets the full flush.
+			this.ui.stop(this.#resumableSessionId() === undefined ? undefined : { maxRows: EXIT_FLUSH_MAX_ROWS });
 			this.#ownsStartedUi = false;
 		}
 		this.isInitialized = false;
@@ -6209,14 +6243,18 @@ export class InteractiveMode implements InteractiveModeContext {
 		// collapse to an empty frame, clearing the viewport and leaving the parent
 		// shell prompt at row 0. Stop from the last committed frame so the terminal
 		// hands Bash the cursor immediately after visible OMP content.
-		// Drain any in-flight Kitty key release events before stopping.
-		// This prevents escape sequences from leaking to the parent shell over slow SSH.
-		await this.ui.terminal.drainInput(1000);
+		// Settle queued output first so the title pop below heads the queue. Queued
+		// behind a backlog, a later settle (drainInput's, then `ui.stop()`'s) could
+		// drop it, and the parent shell would keep omp's title.
+		this.ui.terminal.settleOutput?.();
 		// Stop the run-state spinner interval BEFORE restoring the shell title, so a
 		// pending tick cannot re-emit an OSC title after `popTerminalTitle` hands the
 		// terminal back (which would leave the parent shell with a `π ⠋ …` tab).
 		disposeTerminalTitleState();
 		popTerminalTitle();
+		// Drain any in-flight Kitty key release events before stopping.
+		// This prevents escape sequences from leaking to the parent shell over slow SSH.
+		await this.ui.terminal.drainInput(1000);
 		this.stop();
 	}
 
@@ -7378,8 +7416,15 @@ export class InteractiveMode implements InteractiveModeContext {
 	}
 
 	// Hook UI methods
-	initHooksAndCustomTools(): Promise<void> {
-		return this.#extensionUiController.initHooksAndCustomTools();
+	async initHooksAndCustomTools(): Promise<void> {
+		await this.#extensionUiController.initHooksAndCustomTools();
+		// The controller's startup resources_discover pass may have
+		// contributed a new skill directory (session.skills), but the
+		// subscribeCommandMetadataChanged listener that keeps skillCommands
+		// in sync is registered later, in init() — sync once here so a skill
+		// discovered at startup is immediately recognized by `/skill:<name>`
+		// and offered in autocomplete instead of waiting for a later reload.
+		this.#syncSkillSlashCommands();
 	}
 
 	getToolUIContext(): ExtensionUIContext | undefined {

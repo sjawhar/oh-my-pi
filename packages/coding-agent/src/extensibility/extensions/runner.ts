@@ -18,6 +18,7 @@ import {
 } from "@oh-my-pi/pi-ai/utils/block-symbols";
 import type { KeyId } from "@oh-my-pi/pi-tui";
 import { logger } from "@oh-my-pi/pi-utils";
+import { refreshShellConfigCache } from "@oh-my-pi/pi-utils/procmgr";
 import { MAIN_AGENT_RULE_NAME } from "../../capability/rule";
 import type { ModelRegistry } from "../../config/model-registry";
 import { type Settings, withActiveSettings } from "../../config/settings";
@@ -32,6 +33,7 @@ import type { BranchHandler, NavigateTreeHandler, NewSessionHandler } from "../s
 import { accumulateToolCallResult, buildAggregatedToolCallResult } from "../shared-events";
 import { ManagedTimers } from "./managed-timers";
 import { createExtensionModelQuery } from "./model-api";
+import { ExtensionSendQueue } from "./send-queue";
 import type { ComposerShapeDefinition } from "@oh-my-pi/pi-tui/overlays/composer-shape-registry";
 import type {
 	AfterProviderResponseEvent,
@@ -122,6 +124,10 @@ function throwUnsupportedServiceTierAction(): never {
 	throw new Error("This extension host does not support service-tier actions");
 }
 
+function throwUnsupportedAgentsAction(): never {
+	throw new Error("This extension host does not support agents actions");
+}
+
 export function testSetExtensionHandlerTimeoutMs(timeoutMs: number): void {
 	extensionHandlerTimeoutMs = timeoutMs;
 }
@@ -154,6 +160,13 @@ function handlerTimeoutForEvent(eventType: string): number {
 
 const EXTENSION_HANDLER_TIMEOUT = Symbol("extensionHandlerTimeout");
 const EXTENSION_HANDLER_ABORTED = Symbol("extensionHandlerAborted");
+
+/** Events after which the session file and id may differ from what child shells last saw. */
+const SESSION_IDENTITY_EVENTS: Record<string, true> = {
+	session_start: true,
+	session_switch: true,
+	session_branch: true,
+};
 
 interface HandlerTimeoutBudget {
 	pause(): void;
@@ -527,6 +540,12 @@ export class ExtensionRunner {
 	#pendingMcpNotifications: Array<Omit<McpNotificationEvent, "type">> = [];
 
 	/**
+	 * Extension-originated sends, held during startup and reload discovery and
+	 * drained afterwards; see {@link ExtensionSendQueue}.
+	 */
+	readonly sends = new ExtensionSendQueue();
+
+	/**
 	 * Timers scheduled by extensions through the sanctioned `ctx.setInterval` /
 	 * `ctx.setTimeout` helpers. Callbacks run with the same isolation as handler
 	 * dispatch — a throw is logged and routed through {@link onError} instead of
@@ -757,6 +776,10 @@ export class ExtensionRunner {
 		this.runtime.sendMessage = actions.sendMessage;
 		this.runtime.sendUserMessage = actions.sendUserMessage;
 		this.runtime.appendEntry = actions.appendEntry;
+		this.runtime.agentsList = actions.agentsList ?? throwUnsupportedAgentsAction;
+		this.runtime.agentsGet = actions.agentsGet ?? throwUnsupportedAgentsAction;
+		this.runtime.agentsEnsureLive = actions.agentsEnsureLive ?? throwUnsupportedAgentsAction;
+		this.runtime.agentsPrompt = actions.agentsPrompt ?? throwUnsupportedAgentsAction;
 		this.runtime.getActiveTools = actions.getActiveTools;
 		this.runtime.getAllTools = actions.getAllTools;
 		this.runtime.setActiveTools = async toolNames => {
@@ -1612,6 +1635,18 @@ export class ExtensionRunner {
 			}
 		}
 
+		// Handlers for these events export session-scoped environment (a session
+		// id, per-session tool config). The shell spawn environment is a cached
+		// copy that may predate them or belong to the previous session, so capture
+		// process.env for it as soon as they have run. Only the main agent's events
+		// do this: in-process subagents share process.env, and a subagent's session
+		// start must not hand its values to the parent's commands. A process that
+		// hosts several top-level sessions (ACP) still has one spawn environment,
+		// which follows the latest of their events.
+		if (ctx !== undefined && this.agent.kind === "main" && SESSION_IDENTITY_EVENTS[event.type] === true) {
+			refreshShellConfigCache();
+		}
+
 		return result as RunnerEmitResult<TEvent>;
 	}
 
@@ -1767,6 +1802,33 @@ export class ExtensionRunner {
 		const promptPaths: Array<{ path: string; extensionPath: string }> = [];
 		const themePaths: Array<{ path: string; extensionPath: string }> = [];
 
+		// Handler throws are isolated inside #runHandlerWithTimeout, but a
+		// malformed *return value* (e.g. `{ skillPaths: "./skills" }`, whose
+		// truthy `.length` used to reach `.map`) would throw here in the
+		// aggregation — and startup awaits this emitter in every mode, so one
+		// bad extension return would abort session initialization. Validate
+		// each field, report through the extension error listener, and skip.
+		const validatedPaths = (ext: Extension, field: string, value: unknown): string[] => {
+			if (value === undefined || value === null) return [];
+			if (!Array.isArray(value)) {
+				this.emitError({
+					extensionPath: ext.path,
+					event: "resources_discover",
+					error: `resources_discover result field \`${field}\` must be an array of strings, got ${typeof value}`,
+				});
+				return [];
+			}
+			const strings = value.filter((entry): entry is string => typeof entry === "string");
+			if (strings.length !== value.length) {
+				this.emitError({
+					extensionPath: ext.path,
+					event: "resources_discover",
+					error: `resources_discover result field \`${field}\` contains ${value.length - strings.length} non-string entr${value.length - strings.length === 1 ? "y" : "ies"}; they were skipped`,
+				});
+			}
+			return strings;
+		};
+
 		for (const ext of this.extensions) {
 			const handlers = ext.handlers.get("resources_discover");
 			if (!handlers || handlers.length === 0) continue;
@@ -1781,16 +1843,20 @@ export class ExtensionRunner {
 					extensionHandlerTimeoutMs,
 				);
 				const result = handlerResult as ResourcesDiscoverResult | undefined;
+				if (!result) continue;
 
-				if (result?.skillPaths?.length) {
-					skillPaths.push(...result.skillPaths.map(path => ({ path, extensionPath: ext.path })));
-				}
-				if (result?.promptPaths?.length) {
-					promptPaths.push(...result.promptPaths.map(path => ({ path, extensionPath: ext.path })));
-				}
-				if (result?.themePaths?.length) {
-					themePaths.push(...result.themePaths.map(path => ({ path, extensionPath: ext.path })));
-				}
+				skillPaths.push(
+					...validatedPaths(ext, "skillPaths", result.skillPaths).map(path => ({ path, extensionPath: ext.path })),
+				);
+				promptPaths.push(
+					...validatedPaths(ext, "promptPaths", result.promptPaths).map(path => ({
+						path,
+						extensionPath: ext.path,
+					})),
+				);
+				themePaths.push(
+					...validatedPaths(ext, "themePaths", result.themePaths).map(path => ({ path, extensionPath: ext.path })),
+				);
 			}
 		}
 

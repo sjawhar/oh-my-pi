@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added a configurable minimum render interval for accessibility modes that need to cap terminal repaint frequency ([#8336](https://github.com/can1357/oh-my-pi/issues/8336)).
+- Added `writeTerminalSequence()`, which writes an out-of-band escape sequence (window title, clipboard, notification) through the active terminal's ordered output path, falls back to stdout when no terminal is active, and writes nothing from a worker thread.
+
+### Changed
+
+- The status line's git-status polling interval now widens automatically for a repository whose `git status` stays slow across consecutive calls, instead of holding a fixed 1-second refresh regardless of cost ([#13405](https://github.com/can1357/oh-my-pi/pull/13405) by [@sjawhar](https://github.com/sjawhar)).
+- Reduced the time to rebuild a long session's transcript on resume when it contains repeated `wait` polls or todo updates ([#13767](https://github.com/can1357/oh-my-pi/pull/13767) by [@sjawhar](https://github.com/sjawhar))
+- `PI_TUI_WRITE_LOG` now records an OSC 52 clipboard write as its payload length instead of the clipboard contents.
+
+### Fixed
+
+- Fixed stopping the TUI after a large write leaving queued output to paint over the shell or editor that takes the terminal next.
+- Fixed text containing a lone UTF-16 surrogate swallowing the next character on unix terminals; the surrogate now shows as `�`.
+- Fixed quitting a session with a long un-retired transcript (for example after a fullscreen overlay held the screen) rendering the whole history before exit. `TUI.stop({ maxRows })` writes only the newest `maxRows` rows to scrollback (omp passes `EXIT_FLUSH_MAX_ROWS`, 2,000), as do a terminal disconnect and a signal or fatal-error restore; the older rows are not written anywhere, so pass a cap only when another copy survives, such as a saved session.
+- Fixed finished messages moving into terminal scrollback immediately, instead of staying live until the screen fills, after returning from a suspend or an external editor.
+- Fixed opening the external editor or suspending from a fullscreen view, such as `/annotate`, stalling for many seconds on a long session.
+- Fixed terminal notifications occasionally garbling the screen with stray escape-code fragments while output was streaming.
+
 ## [18.4.3] - 2026-09-28
 
 ### Changed

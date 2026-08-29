@@ -1,4 +1,5 @@
 import type { Theme, ThemeColor } from "./theme";
+import { isReduceMotion } from "../reduce-motion";
 import { FG_RESET } from "./color";
 
 // ─── Animation velocity ──────────────────────────────────────────────────────
@@ -35,6 +36,11 @@ let activeMode: ShimmerMode = "classic";
 /** Select the shimmer sweep style. The host pushes its `display.shimmer` preference here. */
 export function setShimmerMode(mode: ShimmerMode): void {
 	activeMode = mode;
+}
+
+/** Effective sweep style: reduce-motion forces `disabled` regardless of the host preference. */
+function effectiveMode(): ShimmerMode {
+	return isReduceMotion() ? "disabled" : activeMode;
 }
 
 type ShimmerPaletteTier = ThemeColor | { ansi: string };
@@ -148,7 +154,7 @@ function tierFor(intensity: number): Tier {
 
 /** Whether shimmer animations are active (any mode other than `disabled`). */
 export function shimmerEnabled(): boolean {
-	return activeMode !== "disabled";
+	return effectiveMode() !== "disabled";
 }
 
 /**
@@ -165,7 +171,7 @@ export function shimmerEnabled(): boolean {
  *   - No per-char allocations beyond the run buffer.
  */
 export function shimmerSegments(segments: readonly ShimmerSegment[], theme: ShimmerTheme): string {
-	const mode = activeMode;
+	const mode = effectiveMode();
 
 	// Disabled: no animation or code-point scan. Preserve the all-empty result,
 	// but include empty segments' ANSI pairs when any segment has text.

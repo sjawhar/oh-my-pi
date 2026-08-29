@@ -22,7 +22,28 @@ Each normal frame:
 5. Return one bounded `TerminalFramePlan`.
 
 Graceful shutdown switches the provider to Flush policy and synchronously drains
-every currently eligible finalized prefix before terminal handoff.
+every currently eligible finalized prefix before terminal handoff. A capped stop
+(`TUI.stop({ maxRows: EXIT_FLUSH_MAX_ROWS })`, 2,000 rows) hands native
+scrollback only the newest `maxRows` un-retired rows; the older eligible blocks
+retire without being written anywhere. Interactive quit and restart cap only a
+saved session, whose file `omp --resume` restores; an unsaved session
+(`--no-session`, or one not yet written to disk) keeps the full flush, because
+scrollback is its only copy. A terminal disconnect is always capped, because the
+terminal is usually gone. So is postmortem's `tui-restore`, which runs
+synchronously on any exit that finds the TUI still running (a signal, a fatal
+error, or the `postmortem.quit(130)` escape hatch after a failed teardown): a
+full flush there would delay teardown and the fatal report. An unsaved session
+loses the skipped rows on those paths. A handoff stop that resumes with
+`start()` (`TUI.stop({ resuming: true })`: suspend, external editors) keeps the
+full flush, except while a fullscreen overlay holds the screen: it resumes into
+that overlay, so it flushes nothing, commits nothing, and pressure retires the
+rows once the overlay closes. A clearing repaint queued under that overlay stays
+queued across the handoff and runs when the overlay closes. A process killed
+while suspended or while the external editor is open never writes the rows the
+overlay held; a saved session keeps them in its file. A stop with no options
+still flushes in full, overlay or not, unless the output backlog from before the
+stop cannot drain (see Shutdown). Either way the flush ends with
+`endHistoryFlush()`, so frames after `start()` resumes retire by pressure again.
 
 The welcome header follows the same ordered retirement model but is composer-owned: it stays live viewport chrome while its intro animates and while the screen has room, then retires once — before any transcript batch — when content first overflows.
 
@@ -46,7 +67,7 @@ Optimistic user submissions call `renderNow()` before agent dispatch so synchron
 - **settled** — finalized but still live: it re-renders at the current width every frame (so resizes reflow it) until capacity pressure retires it;
 - **committed** — acknowledged by the terminal writer and released from render caches.
 
-Finalizing a later block never bypasses an active predecessor. `peekFinalizedBatch(width, capacity)` retires the shortest settled prefix that lets the remaining live tail fit `capacity`, stops at the first active block, and reoffers the same id until `acknowledgeFinalizedBatch()` succeeds. `peekFlushBatch(width)` takes the whole eligible prefix during graceful shutdown. While the screen has room nothing retires during ordinary operation, so a submitted message is visible immediately and recent blocks keep reflowing on resize.
+Finalizing a later block never bypasses an active predecessor. `peekFinalizedBatch(width, capacity)` retires the shortest settled prefix that lets the remaining live tail fit `capacity`, stops at the first active block, and reoffers the same id until `acknowledgeFinalizedBatch()` succeeds. `peekFlushBatch(width, maxRows?)` takes the whole eligible prefix during graceful shutdown; with `maxRows` it emits only the prefix's newest `maxRows` rows (its trailing blank included), measuring back from the prefix end so the older blocks never render, apart from the frontier head, and acknowledging it still retires the whole prefix. While the screen has room nothing retires during ordinary operation, so a submitted message is visible immediately and recent blocks keep reflowing on resize.
 
 The composer opens each frame with `beginFrame(frame)` before offering history. Until that frame's `renderViewport(width, rows, frame)` returns, every full-allocation measurement of a live block (retirement peek, `liveRowCount`, viewport layout) renders the block once and replays those rows; `renderViewport` closes the frame, so no measurement outlives the synchronous composition that took it. Allocation-constrained viewport renders are never shared.
 
@@ -119,4 +140,6 @@ Inline image data and purge commands are emitted before row placements. Active i
 
 ## Shutdown
 
-Interactive shutdown disposes session-owned work, drains terminal input, restores title/protocol state, and calls `TUI.stop()`. TUI exits any alternate buffer, asks the provider to Flush all eligible finalized history, cancels render/resize timers, preserves terminal-owned image state, places the shell cursor directly after visible TUI content, restores cursor visibility, then delegates terminal-mode restoration to `ProcessTerminal.stop()`.
+Interactive shutdown disposes session-owned work, settles queued output, restores the terminal title, drains terminal input (settling again before popping the keyboard protocols), and calls `TUI.stop()`, passing `{ maxRows: EXIT_FLUSH_MAX_ROWS }` only when the session is saved (the condition the resume hint uses). TUI settles queued output, exits any alternate buffer, asks the provider to Flush eligible finalized history (skipped when that settle could not drain the backlog; a capped stop writes only its newest `maxRows` rows, and for a saved session `omp --resume` restores the older messages), ends the flush with `endHistoryFlush()`, settles again, cancels render/resize timers, preserves terminal-owned image state, places the shell cursor absolutely on the first row after visible TUI content, restores cursor visibility, then delegates terminal-mode restoration to `ProcessTerminal.stop()`, which settles once more before its restore writes.
+
+A settle waits up to 1 s for the output pump's backlog to drain, then discards what is left and writes a reset that closes anything the cut left open (string terminator, synchronized output, SGR, OSC 8 hyperlink, cursor visibility). A settle that finds the pump still blocked in the write an earlier discard could not interrupt neither waits nor discards, so the handoff bytes queued behind that write arrive in order once the terminal reads again. A terminal disconnect drops the backlog once, since no later write reaches the terminal.

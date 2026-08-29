@@ -90,7 +90,7 @@ interface TranscriptEntry {
 type RetirementPolicy = "pressure" | "flush";
 type Offered =
 	| { batch: HistoryBatch; kind: "append"; entry: number; emittedEnd: number }
-	| { batch: HistoryBatch; kind: "commit"; end: number }
+	| { batch: HistoryBatch; kind: "commit"; start: number; end: number; maxRows: number | undefined }
 	| { batch: HistoryBatch; kind: "replay" };
 
 /** Rows a progressive-append retirement offers, and the stable count they bring the head to. */
@@ -123,6 +123,14 @@ function blockMode(component: Component): TranscriptBlockMode {
 	return (component as Component & Partial<AppendOnlyTranscriptBlock>).transcriptBlockMode === "appendOnly"
 		? "appendOnly"
 		: "mutable";
+}
+
+/**
+ * The newest `maxRows` rows of a capped flush batch, or every row when uncapped.
+ * A recomposed offer must slice exactly as its first pass did.
+ */
+function newestRows(rows: readonly string[], maxRows: number | undefined): readonly string[] {
+	return maxRows !== undefined && rows.length > maxRows ? rows.slice(rows.length - maxRows) : rows;
 }
 
 function isPlainBlank(line: string): boolean {
@@ -217,10 +225,15 @@ export class TranscriptContainer extends Container {
 		this.#entriesUnverified = true;
 	}
 
+	/** Removes `component` if {@link canRemoveBlock} allows it; otherwise does nothing. */
 	override removeChild(component: Component): void {
-		if (this.children.indexOf(component) < 0 || !this.canRemoveBlock(component)) return;
-		super.removeChild(component);
-		this.#entries = this.#entries.filter(candidate => candidate.component !== component);
+		const index = this.#removableIndex(component);
+		if (index < 0) return;
+		// #removableIndex synced entries, which now mirror children index for
+		// index. This class renders through its own entries, never Container's
+		// memoized render, so splicing children directly is the whole removal.
+		this.children.splice(index, 1);
+		this.#entries.splice(index, 1);
 		this.#frontier = Math.min(this.#frontier, this.#entries.length);
 		this.#childStartRows.delete(component);
 	}
@@ -275,14 +288,24 @@ export class TranscriptContainer extends Container {
 
 	/** Whether a transient block may be discarded without leaving tape history. */
 	canRemoveBlock(component: Component): boolean {
+		return this.#removableIndex(component) >= 0;
+	}
+
+	/**
+	 * Syncs entries, then returns `component`'s index if it can be discarded
+	 * without leaving tape history (not committed, not emitted, not in an
+	 * offered batch), else -1.
+	 */
+	#removableIndex(component: Component): number {
 		this.#syncEntries();
-		const index = this.#entries.findIndex(entry => entry.component === component);
-		if (index < 0) return false;
+		// Removable blocks are transient ones near the live tail, so search from there.
+		const index = this.#entries.findLastIndex(entry => entry.component === component);
+		if (index < 0) return -1;
 		const entry = this.#entries[index]!;
-		if (entry.state === "committed" || entry.emitted > 0) return false;
-		if (this.#offered?.kind === "commit" && index < this.#offered.end) return false;
-		if (this.#offered?.kind === "append" && index === this.#offered.entry) return false;
-		return true;
+		if (entry.state === "committed" || entry.emitted > 0) return -1;
+		if (this.#offered?.kind === "commit" && index < this.#offered.end) return -1;
+		if (this.#offered?.kind === "append" && index === this.#offered.entry) return -1;
+		return index;
 	}
 
 	/** Lifecycle state per block in transcript order (diagnostics and tests). */
@@ -563,9 +586,14 @@ export class TranscriptContainer extends Container {
 		return batch;
 	}
 
-	/** Offers the complete currently eligible prefix for graceful shutdown. */
-	peekFlushBatch(width: number): HistoryBatch | undefined {
-		return this.#peekBatch(width, 0, "flush");
+	/**
+	 * Offers the currently eligible prefix for shutdown. With `maxRows`, the
+	 * batch holds only that prefix's newest `maxRows` rows (its trailing blank
+	 * included); acknowledging it still retires the whole prefix, and the older
+	 * blocks it skipped never render, apart from the frontier head.
+	 */
+	peekFlushBatch(width: number, maxRows?: number): HistoryBatch | undefined {
+		return this.#peekBatch(width, 0, "flush", maxRows);
 	}
 
 	/** Recompose the unacknowledged batch so a discarded TUI frame can be rendered again. */
@@ -580,7 +608,10 @@ export class TranscriptContainer extends Container {
 			const after = this.#renderStablePrefix(entry, offered.emittedEnd, width);
 			rows = after.slice(before.length);
 		} else if (offered.kind === "commit") {
-			rows = this.#renderRange(this.#frontier, offered.end, width, true).rows;
+			// #peekBatch measured the frontier head before the cap chose `start`;
+			// measure it again so an image-budget retry counts the images the first pass did.
+			if (offered.start > this.#frontier) this.#measuredRows(this.#entries[this.#frontier]!, width);
+			rows = newestRows(this.#renderRange(offered.start, offered.end, width, true).rows, offered.maxRows);
 		} else {
 			rows = this.#renderReplay(width);
 		}
@@ -588,7 +619,7 @@ export class TranscriptContainer extends Container {
 		return offered.batch;
 	}
 
-	#peekBatch(width: number, capacity: number, policy: RetirementPolicy): HistoryBatch | undefined {
+	#peekBatch(width: number, capacity: number, policy: RetirementPolicy, maxRows?: number): HistoryBatch | undefined {
 		this.#syncEntries();
 		this.#settleFinalized();
 		if (this.#offered !== undefined) return this.#offered.batch;
@@ -682,26 +713,26 @@ export class TranscriptContainer extends Container {
 		}
 		this.#pinnedFrontier = undefined;
 		pushLoopPhase("ui.transcript-retire");
+		let start: number;
 		let retirement: { rows: readonly string[]; end: number };
 		try {
-			// Shutdown must hand over the full prefix; a live frame stops at the
-			// budget and offers the rest on the next frames.
-			retirement = this.#renderRange(
-				this.#frontier,
-				end,
-				width,
-				true,
-				policy === "flush" ? undefined : RETIREMENT_BUDGET_MS,
-			);
+			// Shutdown hands over the whole eligible prefix, or under a cap its
+			// newest rows; a live frame stops at the budget and offers the rest
+			// on the next frames.
+			start = maxRows === undefined ? this.#frontier : this.#flushTailStart(end, width, maxRows);
+			retirement = this.#renderRange(start, end, width, true, policy === "flush" ? undefined : RETIREMENT_BUDGET_MS);
 		} finally {
 			popLoopPhase();
 		}
+		if (start > this.#frontier) {
+			logger.debug("Capped history flush skipped older blocks", { skippedBlocks: start - this.#frontier });
+		}
 		const batch: HistoryBatch = {
 			id: this.#nextBatchId++,
-			rows: retirement.rows,
+			rows: newestRows(retirement.rows, maxRows),
 			kind: "append",
 		};
-		this.#offered = { batch, end: retirement.end, kind: "commit" };
+		this.#offered = { batch, start, end: retirement.end, maxRows, kind: "commit" };
 		return batch;
 	}
 
@@ -923,6 +954,23 @@ export class TranscriptContainer extends Container {
 			mode: entry.mode,
 			liveBlocks: this.#liveCount(),
 		});
+	}
+
+	/**
+	 * First block of a capped flush of `[frontier, end)`: measure back from `end`
+	 * until the covered rows, with the trailing blank the range gains once it has
+	 * any row, reach `maxRows`. The blocks before it retire unrendered, apart from
+	 * the frontier head, which #peekBatch has already measured; the walk stops
+	 * above it.
+	 */
+	#flushTailStart(end: number, width: number, maxRows: number): number {
+		let rows = 0;
+		for (let index = end - 1; index > this.#frontier; index--) {
+			const height = this.#measuredRows(this.#entries[index]!, width).length;
+			if (height > 0) rows += height + (rows > 0 ? 1 : 0);
+			if (rows > 0 && rows + 1 >= maxRows) return index;
+		}
+		return this.#frontier;
 	}
 
 	/**

@@ -500,6 +500,40 @@ describe("Composer prepaint", () => {
 		}
 	});
 
+	it("caps the exit flush only when the session file keeps the rows the cap skips", async () => {
+		// An unsaved (`--no-session`) transcript lives only in scrollback, so its
+		// quit keeps the full flush; a saved one is restored by `omp --resume`.
+		for (const saved of [false, true]) {
+			const terminal = new CountingTerminal();
+			const composer = new Composer({ preferences: config, terminal });
+			composer.start();
+			const lease = new ComposerLease(composer);
+			const testSession = await createTestSession({ inMemory: !saved });
+			if (saved) await testSession.session.sessionManager.ensureOnDisk();
+			const mode = new InteractiveMode(
+				testSession.session,
+				"test",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				lease.composer,
+			);
+			lease.adopt();
+			const stop = vi.spyOn(mode.ui, "stop");
+			try {
+				mode.stop();
+				// One stop, capped exactly when the session is saved.
+				expect(stop.mock.calls.map(([flush]) => flush?.maxRows !== undefined)).toEqual([saved]);
+			} finally {
+				lease.dispose();
+				await testSession.cleanup();
+				vi.restoreAllMocks();
+			}
+		}
+	});
+
 	it("tracks terminal ownership until a lease is adopted", () => {
 		const abandonedTerminal = new CountingTerminal();
 		const abandonedComposer = new Composer({ preferences: config, terminal: abandonedTerminal });
@@ -818,22 +852,30 @@ describe("Composer prepaint", () => {
 			.join("\n");
 		expect(output).toContain("rust-analyzer");
 	});
-	it("starts recent-session I/O only after the prepaint turn and transfers it across ownership", async () => {
+	it("starts the recent-session load once preferences arrive and transfers it across composer ownership", async () => {
+		// The list reads through the process-wide session storage, which main.ts
+		// installs right after settings resolve — the same moment preferences are
+		// applied. Loading at begin time would list the file tree under `sql`.
 		const terminal = new CountingTerminal(80, 32);
 		const load = Promise.withResolvers<Array<{ name: string; timeAgo: string }>>();
-		let calls = 0;
+		let loads = 0;
 		beginStartupComposer({
 			preferences: config,
 			terminal,
 			version: "9.9.9",
 			cache: false,
 			recentSessions: () => {
-				calls++;
+				loads++;
 				return load.promise;
 			},
 		});
+		expect(loads).toBe(0);
 
-		expect(calls).toBe(0);
+		// Preferences arm the load; the I/O itself still waits for the prepaint
+		// turn to yield, so nothing runs synchronously here either.
+		applyStartupComposerPreferences({ ...config, theme: {} });
+		expect(loads).toBe(0);
+
 		const lease = takeStartupComposerLease();
 		expect(lease).toBeDefined();
 		const updateWelcome = vi.spyOn(lease!.composer, "updateWelcome");
@@ -841,8 +883,26 @@ describe("Composer prepaint", () => {
 		const rows = [{ name: "already loading", timeAgo: "just now" }];
 		load.resolve(rows);
 		expect(await lease?.recentSessions).toEqual(rows);
-		expect(calls).toBe(1);
+		expect(loads).toBe(1);
 		expect(updateWelcome).not.toHaveBeenCalled();
+	});
+	it("a lease taken before preferences carries no recent-session load", () => {
+		const terminal = new CountingTerminal(80, 32);
+		let loads = 0;
+		beginStartupComposer({
+			preferences: config,
+			terminal,
+			version: "9.9.9",
+			cache: false,
+			recentSessions: () => {
+				loads++;
+				return Promise.resolve([]);
+			},
+		});
+		const lease = takeStartupComposerLease();
+		expect(lease?.recentSessions).toBeUndefined();
+		expect(loads).toBe(0);
+		lease?.dispose();
 	});
 	it("defers raw input until resolved settings arrive, adoption as fallback", async () => {
 		// Regression contract: losing the deferral re-blinds typing during the

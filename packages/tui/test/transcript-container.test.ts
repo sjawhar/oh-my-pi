@@ -631,6 +631,68 @@ describe("TranscriptContainer", () => {
 		expect(transcript.blockStates()).toEqual(["committed", "active"]);
 	});
 
+	it("removes live blocks behind a settled one without disturbing committed or settled bookkeeping", () => {
+		const transcript = new TranscriptContainer();
+		const committedA = new Block(["committed a"], true);
+		const committedB = new Block(["committed b"], true);
+		transcript.addChild(committedA);
+		transcript.addChild(committedB);
+		const commit = transcript.peekFinalizedBatch(80, 0);
+		expect(commit?.rows).toEqual(["committed a", "", "committed b", ""]);
+		transcript.acknowledgeFinalizedBatch(commit!.id);
+
+		const settled = new Block(["settled"], true);
+		const live = [1, 2, 3, 4, 5].map(n => new Block([`live ${n}`], false));
+		transcript.addChild(settled);
+		for (const block of live) transcript.addChild(block);
+		// Room for every live row: the finalized block settles and nothing is offered.
+		expect(transcript.peekFinalizedBatch(80, 20)).toBeUndefined();
+		expect(transcript.blockStates()).toEqual([
+			"committed",
+			"committed",
+			"settled",
+			"active",
+			"active",
+			"active",
+			"active",
+			"active",
+		]);
+
+		transcript.removeChild(live[0]!);
+		transcript.removeChild(live[4]!);
+
+		expect(transcript.blockStates()).toEqual(["committed", "committed", "settled", "active", "active", "active"]);
+		const expected = [committedA, committedB, settled, live[1]!, live[2]!, live[3]!];
+		expect(transcript.children).toHaveLength(expected.length);
+		expected.forEach((component, index) => expect(transcript.children[index]).toBe(component));
+
+		// Pressure retires the settled block next; committed rows are never offered again.
+		const retire = transcript.peekFinalizedBatch(80, 5);
+		expect(retire?.rows).toEqual(["settled", ""]);
+	});
+
+	it("refuses to remove an append-only block once its stable rows are offered or emitted", () => {
+		const transcript = new TranscriptContainer();
+		const block = new AppendBlock(["one", "two"], ["one"]);
+		transcript.addChild(block);
+
+		// Offered: the stable row is mid-write to native scrollback.
+		const append = transcript.peekFinalizedBatch(80, 0)!;
+		expect(append.rows).toEqual(["one"]);
+		transcript.removeChild(block);
+		expect(transcript.children).toHaveLength(1);
+		expect(transcript.children[0]).toBe(block);
+		expect(transcript.blockStates()).toEqual(["active"]);
+
+		// Emitted: the row is in scrollback, so the block can no longer be retracted.
+		transcript.acknowledgeFinalizedBatch(append.id);
+		expect(transcript.emittedStableRows()).toEqual([1]);
+		transcript.removeChild(block);
+		expect(transcript.children).toHaveLength(1);
+		expect(transcript.children[0]).toBe(block);
+		expect(transcript.blockStates()).toEqual(["active"]);
+	});
+
 	it("replays committed history without rewinding lifecycle state", () => {
 		const transcript = new TranscriptContainer();
 		transcript.addChild(new Block(["final"], true));
@@ -692,6 +754,69 @@ describe("TranscriptContainer", () => {
 		transcript.beginReplay();
 		transcript.cancelReplay();
 		expect(transcript.peekFlushBatch(80)?.rows).toEqual(["tail", ""]);
+	});
+
+	it("an exit flush emits the newest rows of the full flush and retires every eligible block", () => {
+		const build = () => {
+			const transcript = new TranscriptContainer();
+			for (let i = 0; i < 60; i++) transcript.addChild(new Block([`b${i}r0`, `b${i}r1`, `b${i}r2`], true));
+			return transcript;
+		};
+		const full = build().peekFlushBatch(40)!.rows;
+		for (const maxRows of [1, 7, 10, 179, full.length, full.length + 50]) {
+			const transcript = build();
+			const batch = transcript.peekFlushBatch(40, maxRows)!;
+			expect(batch.rows).toEqual(full.length > maxRows ? full.slice(-maxRows) : full);
+			transcript.acknowledgeFinalizedBatch(batch.id);
+			expect(transcript.blockStates().every(state => state === "committed")).toBe(true);
+		}
+	});
+
+	it("an exit flush never renders the blocks older than the rows it emits, even when re-rendered", () => {
+		const transcript = new TranscriptContainer();
+		const blocks = Array.from({ length: 60 }, (_, i) => new CountingBlock([`b${i}r0`, `b${i}r1`, `b${i}r2`]));
+		for (const block of blocks) transcript.addChild(block);
+		const first = transcript.peekFlushBatch(40, 10)!;
+		const before = blocks.map(block => block.renders);
+		// The image-budget retry re-renders the outstanding offer.
+		expect(transcript.rerenderOfferedBatch(40)!.rows).toEqual(first.rows);
+		// 3-row blocks plus separators and the trailing blank: the newest 10 rows lie in blocks 57-59.
+		// Block 0 is the frontier head, which #peekBatch measures before any policy.
+		expect(blocks.slice(1, 57).every(block => block.renders === 0)).toBe(true);
+		expect(blocks.slice(1, 57).map(block => block.renders)).toEqual(before.slice(1, 57));
+	});
+
+	it("an exit flush keeps a block taller than the cap to its newest rows", () => {
+		const transcript = new TranscriptContainer();
+		transcript.addChild(
+			new Block(
+				Array.from({ length: 30 }, (_, i) => `tall${i}`),
+				true,
+			),
+		);
+		expect(transcript.peekFlushBatch(40, 5)!.rows).toEqual(["tall26", "tall27", "tall28", "tall29", ""]);
+	});
+
+	it("an exit flush renders no block older than its tail when the tail ends exactly on the cap", () => {
+		const transcript = new TranscriptContainer();
+		const blocks = Array.from({ length: 4 }, (_, i) => new CountingBlock([`b${i}r0`, `b${i}r1`, `b${i}r2`]));
+		for (const block of blocks) transcript.addChild(block);
+		// The newest block plus the trailing blank is exactly four rows.
+		expect(transcript.peekFlushBatch(40, 4)!.rows).toEqual(["b3r0", "b3r1", "b3r2", ""]);
+		// Block 0, the frontier head, is measured before any policy; blocks 1-2 never render.
+		expect(blocks.slice(1, 3).map(block => block.renders)).toEqual([0, 0]);
+	});
+
+	it("an exit flush still stops at the first block that is not settled", () => {
+		const transcript = new TranscriptContainer();
+		transcript.addChild(new Block(["a0", "a1", "a2"], true));
+		transcript.addChild(new Block(["b0", "b1", "b2"], true));
+		transcript.addChild(new Block(["streaming"], false));
+		transcript.addChild(new Block(["after0", "after1", "after2", "after3"], true));
+		const batch = transcript.peekFlushBatch(40, 3)!;
+		expect(batch.rows).toEqual(["b1", "b2", ""]);
+		transcript.acknowledgeFinalizedBatch(batch.id);
+		expect(transcript.blockStates()).toEqual(["committed", "committed", "active", "settled"]);
 	});
 });
 
