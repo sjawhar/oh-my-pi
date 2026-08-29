@@ -10,6 +10,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+futures.workspace = true
 gix.workspace = true
 gix-utils = { version = "0.3.6", default-features = false }
 jj-lib.workspace = true
@@ -22,4 +23,7 @@ tokio-util.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
+# jj-lib's own gix: `Workspace::init_internal_git` takes its `hash::Kind`, which
+# is a different type from the 0.85 the git backend links.
+jj-gix = { package = "gix", version = "0.87.1", default-features = false }
 tempfile = "3"

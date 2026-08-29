@@ -452,11 +452,26 @@ export interface ExtensionModelQuery {
 /** Runtime host mode exposed to Pi-compatible extensions. */
 export type ExtensionMode = "tui" | "rpc" | "json" | "print";
 
+/**
+ * Which agent a session runs as. Process-wide events reach every session's extension runner —
+ * `mcp_notification` frames in particular fan out to subagents too (see `docs/extensions.md`,
+ * MCP notifications) — so a handler that must act once for the whole process checks
+ * `isSubagent` and acts only from the top-level session.
+ */
+export interface ExtensionAgentIdentity {
+	/** Registry id: `"Main"` for the top-level session, the task-derived id for a subagent. */
+	readonly id: string;
+	/** True inside a session spawned by `task`/`agent()`/`workpool()`. */
+	readonly isSubagent: boolean;
+}
+
 export interface ExtensionContext {
 	/** UI methods for user interaction */
 	ui: ExtensionUIContext;
 	/** Current run mode. Use `"tui"` to guard terminal-only UI such as custom components. */
 	mode: ExtensionMode;
+	/** The agent this session runs as; see {@link ExtensionAgentIdentity}. */
+	agent: ExtensionAgentIdentity;
 	/** Get current context usage for the active model. */
 	getContextUsage(): ContextUsage | undefined;
 	/** Get a read-only snapshot of async jobs owned by this session. */
@@ -1214,6 +1229,31 @@ export type ExtensionServiceTier<Family extends ServiceTierFamily> = Family exte
 		? "flex" | "priority"
 		: ServiceTier;
 
+/** A process-global agent registry entry exposed to extensions. */
+export interface ExtensionAgentInfo {
+	id: string;
+	status: "running" | "idle" | "parked" | "aborted";
+	kind: "main" | "sub" | "advisor";
+	sessionFile?: string;
+}
+
+/** Named registry agents available to an extension. */
+export interface ExtensionAgentsApi {
+	/** Snapshot of the process-global registry. */
+	list(): ExtensionAgentInfo[];
+	/** Registry lookup by exact id. */
+	get(id: string): ExtensionAgentInfo | undefined;
+	/**
+	 * Revive a parked/idle agent to a live session. If the id is not in the
+	 * registry, rescan persisted subagent transcripts under the given parent
+	 * session file and retry once. Resolves when the agent is live; rejects
+	 * with the underlying error if no ref or reviver exists.
+	 */
+	ensureLive(id: string, options?: { parentSessionFile?: string }): Promise<ExtensionAgentInfo>;
+	/** Deliver a follow-up turn to a live/revivable agent without going through the hub UI. */
+	prompt(id: string, text: string, options?: { deliverAs?: "steer" | "followUp" }): Promise<void>;
+}
+
 /**
  * ExtensionAPI passed to extension factory functions.
  */
@@ -1236,6 +1276,9 @@ export interface ExtensionAPI {
 
 	/** Injected pi-coding-agent exports for accessing SDK utilities */
 	pi: typeof PiCodingAgent;
+
+	/** Named process-global registry agents. */
+	agents: ExtensionAgentsApi;
 
 	// =========================================================================
 	// Event Subscription
@@ -1447,6 +1490,12 @@ export interface ExtensionAPI {
 		content: string | (TextContent | ImageContent)[],
 		options?: { deliverAs?: "steer" | "followUp" | "aside" },
 	): void;
+
+	/**
+	 * Ask an isolated /btw-compatible side question without modifying or interrupting
+	 * the primary session turn.
+	 */
+	askEphemeral(options: { prompt: string; signal?: AbortSignal }): Promise<{ replyText: string }>;
 
 	/** Append a custom entry to the session for state persistence (not sent to LLM). */
 	appendEntry<T = unknown>(customType: string, data?: T): void;
@@ -1670,7 +1719,25 @@ export type SendUserMessageHandler = (
 	options?: { deliverAs?: "steer" | "followUp" | "aside" },
 ) => void;
 
+/** Runs an isolated /btw-compatible side question without modifying the primary session. */
+export type AskEphemeralHandler = (options: { prompt: string; signal?: AbortSignal }) => Promise<{ replyText: string }>;
+
 export type AppendEntryHandler = <T = unknown>(customType: string, data?: T) => void;
+
+export type AgentsListHandler = () => ExtensionAgentInfo[];
+
+export type AgentsGetHandler = (id: string) => ExtensionAgentInfo | undefined;
+
+export type AgentsEnsureLiveHandler = (
+	id: string,
+	options?: { parentSessionFile?: string },
+) => Promise<ExtensionAgentInfo>;
+
+export type AgentsPromptHandler = (
+	id: string,
+	text: string,
+	options?: { deliverAs?: "steer" | "followUp" },
+) => Promise<void>;
 
 export type GetActiveToolsHandler = () => string[];
 
@@ -1705,7 +1772,12 @@ export interface ExtensionRuntimeState {
 export interface ExtensionActions {
 	sendMessage: SendMessageHandler;
 	sendUserMessage: SendUserMessageHandler;
+	askEphemeral?: AskEphemeralHandler;
 	appendEntry: AppendEntryHandler;
+	agentsList?: AgentsListHandler;
+	agentsGet?: AgentsGetHandler;
+	agentsEnsureLive?: AgentsEnsureLiveHandler;
+	agentsPrompt?: AgentsPromptHandler;
 	setLabel: (targetId: string, label: string | undefined) => void;
 	getActiveTools: GetActiveToolsHandler;
 	getAllTools: GetAllToolsHandler;
@@ -1749,7 +1821,12 @@ export interface ExtensionCommandContextActions {
 
 /** Full runtime = state + actions, including host-compatible service-tier fallbacks. */
 export interface ExtensionRuntime extends ExtensionRuntimeState, ExtensionActions {
+	askEphemeral: AskEphemeralHandler;
 	getServiceTiers: GetServiceTiersHandler;
+	agentsList: AgentsListHandler;
+	agentsGet: AgentsGetHandler;
+	agentsEnsureLive: AgentsEnsureLiveHandler;
+	agentsPrompt: AgentsPromptHandler;
 	setServiceTier: SetServiceTierHandler;
 }
 
