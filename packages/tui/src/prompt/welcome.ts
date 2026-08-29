@@ -7,6 +7,7 @@ import { card, col, keyed, node, row, span, text } from "../native/describe";
 import type { DescribeContext, NativeChild, NativeNode } from "../native/node";
 import { plainLine } from "../native/spans";
 import { isNativeRendering } from "../native/state";
+import { isReduceMotion } from "../reduce-motion";
 import { TERMINAL } from "../terminal-capabilities";
 import { theme } from "../theme/theme";
 import type { Component } from "../tui";
@@ -262,6 +263,11 @@ export class WelcomeComponent implements Component {
 	 * subsequent calls reset and replay.
 	 */
 	playIntro(requestRender: () => void): void {
+		if (isReduceMotion()) {
+			this.#stopAnimation();
+			requestRender();
+			return;
+		}
 		this.#stopAnimation();
 		// The intro is a repaint-only gradient sweep; a TSP terminal shows the
 		// settled card right away.
@@ -358,7 +364,7 @@ export class WelcomeComponent implements Component {
 		// its hue phase from wall-clock time so it shimmers across the welcome
 		// intro's re-render frames, then settles into a still rainbow once the
 		// banner caches its resting frame. Non-"[NEW]" tips ignore the phase entirely.
-		const phase = NEW_TIP_MARKER.test(tip) ? performance.now() / NEW_GLOW_PERIOD_MS : 0;
+		const phase = NEW_TIP_MARKER.test(tip) && !isReduceMotion() ? performance.now() / NEW_GLOW_PERIOD_MS : 0;
 		return renderWelcomeTip(tip, Math.min(room, TIP_MEASURE), phase);
 	}
 

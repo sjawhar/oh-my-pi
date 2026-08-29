@@ -379,7 +379,9 @@ png = "0.18"
 inferno = { version = "0.12", default-features = false }
 # Oniguruma, not fancy-regex: onig is already linked (pi-builtins), and its
 # compiled grammar regexes are ~5x smaller and faster (TS+TSX warm: 29 vs 149 MB
-# RSS; a 16.8k-line .d.ts highlights in 226 vs 1166 ms).
+# RSS; a 16.8k-line .d.ts highlights in 226 vs 1166 ms). Bumping this version
+# re-syncs crates/pi-natives/src/syntaxes/Markdown.sublime-syntax; see that
+# file's header for the vendored fix it must preserve.
 syntect = { version = "5.3", default-features = false, features = [
    "default-syntaxes",
    "default-themes",
@@ -407,9 +409,11 @@ brush-parser = { path = "crates/vendor/brush-parser" }
 # ──────────────────────────────────────────────────────────────────────────────
 # Version Control (in-process git + jujutsu)
 # ──────────────────────────────────────────────────────────────────────────────
-# gix is pinned to the minor jj-lib depends on so both VCS backends share one
-# gitoxide stack in the binary. No transport/credential features: network ops
-# (clone/fetch/push) deliberately shell out to the git CLI for auth parity.
+# The git backend's own gix. jj-lib 0.45 brings gix 0.87 for its git store, so
+# the binary carries two gitoxide stacks until this pin follows (upstream
+# migrates both in can1357/oh-my-pi#11452). No transport/credential features:
+# network ops (clone/fetch/push) deliberately shell out to the git CLI for
+# auth parity.
 gix = { version = "0.85", default-features = false, features = [
    "attributes",
    "blob-diff",
@@ -426,7 +430,7 @@ gix = { version = "0.85", default-features = false, features = [
    "worktree-mutation",
    "zlib-rs",
 ] }
-jj-lib = { version = "0.44", default-features = false, features = ["git"] }
+jj-lib = { version = "0.45", default-features = false, features = ["git"] }
 
 # ──────────────────────────────────────────────────────────────────────────────
 # AST & Tree-Sitter

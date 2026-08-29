@@ -1,6 +1,7 @@
 import { colorLuma, relativeLuminance } from "@oh-my-pi/pi-utils/color";
 import * as logger from "@oh-my-pi/pi-utils/logger";
 import chalk from "@oh-my-pi/pi-utils/chalk";
+import { isReduceMotion } from "../reduce-motion";
 import { bgAnsi, colorToAnsi, fgAnsi, resolveToHex } from "./color";
 import { type ColorMode, isValidThemeColor, type ThemeBg, type ThemeColor } from "./schema";
 import type { SessionAccentTheme } from "./session-color";
@@ -158,6 +159,17 @@ export function thinkingLevelToken(level: string): ThemeColor {
 		default:
 			return "thinkingOff";
 	}
+}
+
+const frozenSpinnerFrames = new WeakMap<string[], string[]>();
+
+/** Single-frame stand-in for a spinner, memoized so callers can cache by array identity. */
+function freezeSpinnerFrames(frames: string[]): string[] {
+	const frozen = frozenSpinnerFrames.get(frames);
+	if (frozen) return frozen;
+	const next = [frames[0] ?? ""];
+	frozenSpinnerFrames.set(frames, next);
+	return next;
 }
 
 export class Theme {
@@ -777,7 +789,8 @@ export class Theme {
 	 * Get spinner frames by type.
 	 */
 	getSpinnerFrames(type: SpinnerType = "status"): string[] {
-		return this.#spinnerFramesOverrides[type] ?? SPINNER_FRAMES[this.symbolPreset][type];
+		const frames = this.#spinnerFramesOverrides[type] ?? SPINNER_FRAMES[this.symbolPreset][type];
+		return isReduceMotion() ? freezeSpinnerFrames(frames) : frames;
 	}
 
 	/**
