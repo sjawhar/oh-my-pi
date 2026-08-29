@@ -9,9 +9,15 @@ import { LRUCache } from "@oh-my-pi/pi-utils/lru";
 import { parseJsonlLenient } from "@oh-my-pi/pi-utils/stream";
 import { toError } from "@oh-my-pi/pi-utils/type-guards";
 import { EVAL_STATE_CONTEXT_TYPE } from "../eval/state";
+import { findArchivedSessionFiles } from "./session-archive";
 import { visitEntriesFromFile } from "./session-loader";
 import { computeDefaultSessionDir } from "./session-paths";
-import { FileSessionStorage, type SessionStorage, type SessionStorageStat } from "./session-storage";
+import {
+	defaultSessionStorage,
+	FileSessionStorage,
+	type SessionStorage,
+	type SessionStorageStat,
+} from "./session-storage";
 import { lookupSessionTitle, recordSessionTitle } from "./session-index";
 
 /**
@@ -58,7 +64,8 @@ export interface SessionInfo {
 
 export interface ResolvedSessionMatch {
 	session: SessionInfo;
-	scope: "local" | "global";
+	/** `archive`: the match is a `gc --archive` copy and is restored when opened. */
+	scope: "local" | "global" | "archive";
 }
 
 /** Lightweight metadata for a recent session, used in welcome/picker UI. */
@@ -666,11 +673,16 @@ export function listSessionsReadOnly(sessionDir: string, storage: SessionStorage
 
 /** List all sessions across all project directories (newest first). */
 export async function listAllSessions(
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 	sessionsRoot: string = getSessionsDir(),
 ): Promise<SessionInfo[]> {
 	try {
-		const files = await dedupeRealPaths(await scanBucketFiles(sessionsRoot, "*.jsonl"));
+		// File storage scans bucket by bucket so a symlinked bucket is skipped
+		// rather than followed; any other backend lists through the storage.
+		const files =
+			storage instanceof FileSessionStorage
+				? await dedupeRealPaths(await scanBucketFiles(sessionsRoot, "*.jsonl"))
+				: storage.listFilesSync(sessionsRoot, "*/*.jsonl");
 		return await collectSessionsFromFiles(files, storage, true);
 	} catch {
 		return [];
@@ -704,7 +716,7 @@ export function filterSessionsForPicker(sessions: SessionInfo[], pinnedIds: Read
 /** Most recent session with resumable content, skipping 0-turn empties. Exported for testing. */
 export async function findMostRecentNonEmptySession(
 	sessionDir: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 ): Promise<string | null> {
 	// Status on: answered-ness comes from the tail lifecycle, not the 4 KB
 	// prefix, so a transcript whose first assistant record starts past the
@@ -716,7 +728,7 @@ export async function findMostRecentNonEmptySession(
 /** Exported for testing */
 export async function findMostRecentSession(
 	sessionDir: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 ): Promise<string | null> {
 	const sessions = await scanSessionDir(sessionDir, storage, false);
 	return sessions[0]?.path ?? null;
@@ -1286,7 +1298,7 @@ async function newestSessionFiles(
 
 /** Header-level {@link SessionInfo} with status for one session file; undefined when unreadable or not a session. */
 export function readSessionInfo(file: string): Promise<SessionInfo | undefined> {
-	return scanSessionFile(file, new FileSessionStorage(), true);
+	return scanSessionFile(file, defaultSessionStorage(), true);
 }
 
 /** Selects which session files {@link listRecentSessions} considers. */
@@ -1306,7 +1318,7 @@ export interface RecentSessionsQuery {
  * {@link listAllSessions} scans everything.
  */
 export async function listRecentSessions(query: RecentSessionsQuery): Promise<SessionInfo[]> {
-	const storage = new FileSessionStorage();
+	const storage = defaultSessionStorage();
 	const files = query.sessionDir
 		? await newestSessionFiles(query.sessionDir, "*.jsonl", storage)
 		: await newestSessionFiles(query.sessionsRoot ?? getSessionsDir(), "*/*.jsonl", storage);
@@ -1339,7 +1351,7 @@ export async function listRecentProjects(
 	limit: number,
 	sessionsRoot: string = getSessionsDir(),
 ): Promise<ProjectSummary[]> {
-	const storage = new FileSessionStorage();
+	const storage = defaultSessionStorage();
 	// Insertion order follows the newest-first file order, so directories come
 	// out ordered by their newest session file.
 	const byDir = new Map<string, StatedSessionFile[]>();
@@ -1372,10 +1384,19 @@ export async function listRecentProjects(
  * `idPrefix`, located by filename without reading content. Prefixes outside
  * `[A-Za-z0-9_-]` match nothing, so the prefix is never interpreted as a glob.
  */
-export async function findSessionFiles(idPrefix: string, sessionsRoot: string = getSessionsDir()): Promise<string[]> {
+export async function findSessionFiles(
+	idPrefix: string,
+	sessionsRoot: string = getSessionsDir(),
+	storage: SessionStorage = defaultSessionStorage(),
+): Promise<string[]> {
 	if (!/^[\w-]+$/.test(idPrefix)) return [];
 	try {
-		const files = await dedupeRealPaths(await scanBucketFiles(sessionsRoot, `*_${idPrefix}*.jsonl`));
+		// Key-indexed storages match only `*`, `*.ext` and exact names, so they
+		// list every session and leave the id match to the filter below.
+		const files =
+			storage instanceof FileSessionStorage
+				? await dedupeRealPaths(await scanBucketFiles(sessionsRoot, `*_${idPrefix}*.jsonl`))
+				: storage.listFilesSync(sessionsRoot, "*/*.jsonl");
 		// `*_` can also match an underscore inside an id; keep true id-prefix matches only.
 		return files.filter(file => sessionIdFromSessionPath(file)?.startsWith(idPrefix));
 	} catch {
@@ -1396,7 +1417,7 @@ export async function findSessionFiles(idPrefix: string, sessionsRoot: string = 
 export async function getRecentSessions(
 	sessionDir: string,
 	limit = 4,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 ): Promise<RecentSessionInfo[]> {
 	// The index is keyed by real session ids; in-memory test storages must not
 	// touch the process-wide history.db.
@@ -1454,10 +1475,10 @@ export async function resolveResumableSession(
 	sessionArg: string,
 	cwd: string,
 	sessionDir?: string,
-	storageOrOptions: SessionStorage | ResolveResumableSessionOptions = new FileSessionStorage(),
+	storageOrOptions: SessionStorage | ResolveResumableSessionOptions = defaultSessionStorage(),
 	options: ResolveResumableSessionOptions = {},
 ): Promise<ResolvedSessionMatch | undefined> {
-	const storage = isSessionStorage(storageOrOptions) ? storageOrOptions : new FileSessionStorage();
+	const storage = isSessionStorage(storageOrOptions) ? storageOrOptions : defaultSessionStorage();
 	const resolvedOptions = isSessionStorage(storageOrOptions) ? options : storageOrOptions;
 	const localSessionDir = sessionDir ?? computeDefaultSessionDir(cwd, storage);
 	const localSessions = await listSessions(localSessionDir, storage);
@@ -1472,9 +1493,29 @@ export async function resolveResumableSession(
 
 	const globalSessions = await listAllSessions(storage);
 	const globalMatch = globalSessions.find(session => sessionMatchesResumeArg(session, sessionArg));
-	if (!globalMatch) {
-		return undefined;
+	if (globalMatch) {
+		return { session: globalMatch, scope: "global" };
 	}
 
-	return { session: globalMatch, scope: "global" };
+	// `gc --archive` moves cold transcripts out of the sessions tree. They stay
+	// resumable: the match is restored to its original path when it is opened.
+	const [archiveFile] = await findArchivedSessionFiles(sessionArg);
+	if (!archiveFile) return undefined;
+	const [archived] = await collectSessionsFromFiles([archiveFile], storage, true);
+	// A damaged archive must not read as "no such session": the file is right
+	// there under the id the caller named. Hand back what its name says and
+	// let opening it report why it cannot be read.
+	const stem = path.basename(archiveFile, ".jsonl.gz");
+	const session = archived ?? {
+		path: archiveFile,
+		id: stem.slice(stem.lastIndexOf("_") + 1) || sessionArg,
+		cwd: "",
+		created: new Date(0),
+		modified: new Date(0),
+		messageCount: 0,
+		size: 0,
+		firstMessage: "",
+		allMessagesText: "",
+	};
+	return { session, scope: "archive" };
 }

@@ -15,6 +15,7 @@ import { resolveMCPTimeoutMs } from "../mcp/timeout";
 import { type AgentSession, type AgentSessionEvent, SHUTDOWN_CONSOLIDATE_BUDGET_MS } from "../session/agent-session";
 import { COST_GATE_NOTICE_SOURCE } from "../session/cost-gate";
 import { CREDENTIAL_DISABLED_NOTICE_SOURCE } from "../session/credential-disabled-notice";
+import { USAGE_RESERVE_NOTICE_SOURCE } from "../session/turn-recovery";
 import { isSilentAbort } from "../session/messages";
 import { flushTelemetryExport } from "../telemetry-export";
 import { executeAcpBuiltinSlashCommand } from "../slash-commands/acp-builtins";
@@ -172,38 +173,6 @@ async function runPrintModeCore(
 			writeStdoutLine(`${JSON.stringify(header)}\n`);
 		}
 	}
-	// Set up extensions for print mode (no UI, no command context)
-	await initializeExtensions(session, {
-		mode: mode === "json" ? "json" : "print",
-		reportSendError: (action, err) => {
-			process.stderr.write(
-				`Extension ${action === "extension_send" ? "sendMessage" : "sendUserMessage"} failed: ${err.message}\n`,
-			);
-		},
-		reportRuntimeError: err => {
-			process.stderr.write(`Extension error (${err.extensionPath}): ${err.error}\n`);
-		},
-	});
-
-	// `plan.defaultOnStartup` opens fresh *interactive* sessions in plan mode so a
-	// human can review the plan before it executes. Headless print mode has no
-	// surface to review, approve, or exit a plan from, and the turn carries no
-	// deterministic way out of plan mode — the model must voluntarily emit a valid
-	// `xd://propose` execute-dispatch, and when it does not the run strands until
-	// the deadline (issue #8272). So do not honor the startup default here; the
-	// supported headless plan flow is `--plan-yolo` (auto-approve → implement),
-	// which is wired independently through the prewalk coordinator.
-	const planStartupIgnored =
-		cfgPlanDefaultOnStartup.get(session.settings) &&
-		cfgPlanEnabled.get(session.settings) &&
-		session.sessionManager.buildSessionContext().messages.length === 0 &&
-		!session.sessionManager.getEntries().some(entry => entry.type === "mode_change") &&
-		!planYolo;
-	if (planStartupIgnored) {
-		process.stderr.write(
-			"Note: plan.defaultOnStartup is ignored in print mode (no interactive surface to review the plan). Use --plan-yolo for a headless plan flow.\n",
-		);
-	}
 
 	// process.stderr.write is fire-and-forget as well: a diagnostic buffered
 	// behind a backpressured pipe would still be undelivered when runPrintMode
@@ -345,17 +314,9 @@ async function runPrintModeCore(
 		return true;
 	};
 
-	// Discriminates a store failure from any other dispose rejection below.
-	let persistenceFailure: Error | undefined;
-	session.sessionManager.onPersistenceError(error => {
-		persistenceFailure = error;
-		writeStderrLine(formatPersistenceFailure(error.message));
-	});
-	session.sessionManager.onPersistenceNotice(notice => {
-		writeStderrLine(`Warning: ${formatPersistenceNotice(notice)}`);
-	});
-
-	// Always subscribe to enable session persistence via _handleAgentEvent
+	// Always subscribe to enable session persistence via _handleAgentEvent.
+	// Subscribed before initializeExtensions so events from a turn a
+	// session_start/resources_discover handler triggers are not lost.
 	session.subscribe(event => {
 		// In JSON mode, output all events
 		if (mode === "json") {
@@ -364,14 +325,59 @@ async function runPrintModeCore(
 			event.type === "notice" &&
 			(event.source === CREDENTIAL_DISABLED_NOTICE_SOURCE ||
 				event.source === COST_GATE_NOTICE_SOURCE ||
-				event.source === HINDSIGHT_NOTICE_SOURCE)
+				event.source === HINDSIGHT_NOTICE_SOURCE ||
+				event.source === USAGE_RESERVE_NOTICE_SOURCE)
 		) {
 			// Text mode renders no session notices, but an automatic sign-out must not stay
 			// hidden behind a sibling account that quietly answers the prompt, a run must
-			// say when it crossed its cost thresholds, and a memory failure must not pass
-			// as an answer that used memories.
+			// say when it crossed its cost thresholds, a memory failure must not pass
+			// as an answer that used memories, and a run that kept a reserve-bound model
+			// because nobody here could be asked must say so — this is the one mode where
+			// there is no pane to look at.
 			writeStderrLine(event.source === COST_GATE_NOTICE_SOURCE ? event.message : `Warning: ${event.message}`);
 		}
+	});
+	// Set up extensions for print mode (no UI, no command context)
+	await initializeExtensions(session, {
+		mode: mode === "json" ? "json" : "print",
+		reportSendError: (action, err) => {
+			process.stderr.write(
+				`Extension ${action === "extension_send" ? "sendMessage" : "sendUserMessage"} failed: ${err.message}\n`,
+			);
+		},
+		reportRuntimeError: err => {
+			process.stderr.write(`Extension error (${err.extensionPath}): ${err.error}\n`);
+		},
+	});
+
+	// `plan.defaultOnStartup` opens fresh *interactive* sessions in plan mode so a
+	// human can review the plan before it executes. Headless print mode has no
+	// surface to review, approve, or exit a plan from, and the turn carries no
+	// deterministic way out of plan mode — the model must voluntarily emit a valid
+	// `xd://propose` execute-dispatch, and when it does not the run strands until
+	// the deadline (issue #8272). So do not honor the startup default here; the
+	// supported headless plan flow is `--plan-yolo` (auto-approve → implement),
+	// which is wired independently through the prewalk coordinator.
+	const planStartupIgnored =
+		cfgPlanDefaultOnStartup.get(session.settings) &&
+		cfgPlanEnabled.get(session.settings) &&
+		session.sessionManager.buildSessionContext().messages.length === 0 &&
+		!session.sessionManager.getEntries().some(entry => entry.type === "mode_change") &&
+		!planYolo;
+	if (planStartupIgnored) {
+		process.stderr.write(
+			"Note: plan.defaultOnStartup is ignored in print mode (no interactive surface to review the plan). Use --plan-yolo for a headless plan flow.\n",
+		);
+	}
+
+	// Discriminates a store failure from any other dispose rejection below.
+	let persistenceFailure: Error | undefined;
+	session.sessionManager.onPersistenceError(error => {
+		persistenceFailure = error;
+		writeStderrLine(formatPersistenceFailure(error.message));
+	});
+	session.sessionManager.onPersistenceNotice(notice => {
+		writeStderrLine(`Warning: ${formatPersistenceNotice(notice)}`);
 	});
 
 	const timeoutMs = resolveMCPTimeoutMs();
@@ -613,16 +619,18 @@ async function runPrintModeCore(
 	// an OMP-owned Chromium cannot survive the exit (issue #5643).
 	//
 	// A latched store failure rethrows from `dispose()`; report it as lost
-	// durability rather than letting it escape as a raw fatal dump.
+	// durability rather than letting it escape as a raw fatal dump. The latch
+	// holds the latest failure, which may not be the one the observer first heard.
 	let durabilityFailure = false;
 	try {
 		await session.dispose({ mnemopiConsolidateTimeoutMs: SHUTDOWN_CONSOLIDATE_BUDGET_MS });
 	} catch (error) {
-		if (!persistenceFailure || error !== persistenceFailure) throw error;
+		const latched = persistenceFailure && session.sessionManager.getPersistenceFailure();
+		if (!latched || error !== latched) throw error;
 		durabilityFailure = true;
 		// The store is still failing at teardown, so this is the moment the
 		// transcript stops being retryable and becomes lost.
-		writeStderrLine(formatPersistenceDurabilityFailure(persistenceFailure.message));
+		writeStderrLine(formatPersistenceDurabilityFailure(latched.message));
 		await stderrTail;
 	}
 

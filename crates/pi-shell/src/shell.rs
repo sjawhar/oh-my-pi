@@ -2025,6 +2025,7 @@ const fn continues_command(result: &ExecutionResult) -> bool {
 		ExecutionControlFlow::ContinueLoop { .. } => false,
 		ExecutionControlFlow::ReturnFromFunctionOrScript => false,
 		ExecutionControlFlow::ExitShell => false,
+		ExecutionControlFlow::ExitShellOnFatalError => false,
 	}
 }
 
