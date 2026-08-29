@@ -158,6 +158,48 @@ async function runPrintModeCore(
 			writeStdoutLine(`${JSON.stringify(header)}\n`);
 		}
 	}
+
+	// process.stderr.write is fire-and-forget as well: a diagnostic buffered
+	// behind a backpressured pipe would still be undelivered when runPrintMode
+	// returns, and the caller drains stdout only. Serialize the persistence
+	// diagnostics and await the tail before returning.
+	let stderrTail: Promise<void> = Promise.resolve();
+	const writeStderrLine = (line: string): void => {
+		stderrTail = stderrTail
+			.then(async () => {
+				if (process.stderr.write(`${line}\n`)) return;
+				const { promise, resolve } = Promise.withResolvers<void>();
+				// A closed stream never emits `drain`; resolve on error/close too so
+				// an undeliverable diagnostic cannot strand the tail.
+				const settle = (): void => {
+					process.stderr.off("drain", settle);
+					process.stderr.off("error", settle);
+					process.stderr.off("close", settle);
+					resolve();
+				};
+				process.stderr.on("drain", settle);
+				process.stderr.on("error", settle);
+				process.stderr.on("close", settle);
+				await promise;
+			})
+			// A stderr that throws (EPIPE) must not poison the tail: it would skip
+			// every later diagnostic and reject the awaited tail below.
+			.catch(() => {});
+	};
+
+	// Always subscribe to enable session persistence via _handleAgentEvent.
+	// Subscribed before initializeExtensions so events from a turn a
+	// session_start/resources_discover handler triggers are not lost.
+	session.subscribe(event => {
+		// In JSON mode, output all events
+		if (mode === "json") {
+			writeStdoutLine(`${JSON.stringify(printableEvent(event))}\n`);
+		} else if (event.type === "notice" && event.source === CREDENTIAL_DISABLED_NOTICE_SOURCE) {
+			// Text mode renders no session notices, but an automatic sign-out must not stay
+			// hidden behind a sibling account that quietly answers the prompt.
+			writeStderrLine(`Warning: ${event.message}`);
+		}
+	});
 	// Set up extensions for print mode (no UI, no command context)
 	await initializeExtensions(session, {
 		mode: mode === "json" ? "json" : "print",
@@ -191,34 +233,6 @@ async function runPrintModeCore(
 		);
 	}
 
-	// process.stderr.write is fire-and-forget as well: a diagnostic buffered
-	// behind a backpressured pipe would still be undelivered when runPrintMode
-	// returns, and the caller drains stdout only. Serialize the persistence
-	// diagnostics and await the tail before returning.
-	let stderrTail: Promise<void> = Promise.resolve();
-	const writeStderrLine = (line: string): void => {
-		stderrTail = stderrTail
-			.then(async () => {
-				if (process.stderr.write(`${line}\n`)) return;
-				const { promise, resolve } = Promise.withResolvers<void>();
-				// A closed stream never emits `drain`; resolve on error/close too so
-				// an undeliverable diagnostic cannot strand the tail.
-				const settle = (): void => {
-					process.stderr.off("drain", settle);
-					process.stderr.off("error", settle);
-					process.stderr.off("close", settle);
-					resolve();
-				};
-				process.stderr.on("drain", settle);
-				process.stderr.on("error", settle);
-				process.stderr.on("close", settle);
-				await promise;
-			})
-			// A stderr that throws (EPIPE) must not poison the tail: it would skip
-			// every later diagnostic and reject the awaited tail below.
-			.catch(() => {});
-	};
-
 	// Discriminates a store failure from any other dispose rejection below.
 	let persistenceFailure: Error | undefined;
 	session.sessionManager.onPersistenceError(error => {
@@ -227,18 +241,6 @@ async function runPrintModeCore(
 	});
 	session.sessionManager.onPersistenceNotice(notice => {
 		writeStderrLine(`Warning: ${formatPersistenceNotice(notice)}`);
-	});
-
-	// Always subscribe to enable session persistence via _handleAgentEvent
-	session.subscribe(event => {
-		// In JSON mode, output all events
-		if (mode === "json") {
-			writeStdoutLine(`${JSON.stringify(printableEvent(event))}\n`);
-		} else if (event.type === "notice" && event.source === CREDENTIAL_DISABLED_NOTICE_SOURCE) {
-			// Text mode renders no session notices, but an automatic sign-out must not stay
-			// hidden behind a sibling account that quietly answers the prompt.
-			writeStderrLine(`Warning: ${event.message}`);
-		}
 	});
 
 	const timeoutMs = resolveMCPTimeoutMs();
@@ -360,16 +362,18 @@ async function runPrintModeCore(
 	// an OMP-owned Chromium cannot survive the exit (issue #5643).
 	//
 	// A latched store failure rethrows from `dispose()`; report it as lost
-	// durability rather than letting it escape as a raw fatal dump.
+	// durability rather than letting it escape as a raw fatal dump. The latch
+	// holds the latest failure, which may not be the one the observer first heard.
 	let durabilityFailure = false;
 	try {
 		await session.dispose({ mnemopiConsolidateTimeoutMs: SHUTDOWN_CONSOLIDATE_BUDGET_MS });
 	} catch (error) {
-		if (!persistenceFailure || error !== persistenceFailure) throw error;
+		const latched = persistenceFailure && session.sessionManager.getPersistenceFailure();
+		if (!latched || error !== latched) throw error;
 		durabilityFailure = true;
 		// The store is still failing at teardown, so this is the moment the
 		// transcript stops being retryable and becomes lost.
-		writeStderrLine(formatPersistenceDurabilityFailure(persistenceFailure.message));
+		writeStderrLine(formatPersistenceDurabilityFailure(latched.message));
 		await stderrTail;
 	}
 
