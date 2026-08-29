@@ -112,13 +112,16 @@ describe("reportLocalOnlyPromptResult", () => {
 		let markCount = 0;
 		let sentOptions: { triggerTurn?: boolean } | undefined;
 		const session = {
+			getAgentId: () => undefined,
 			extensionRunner: {
 				initialize: (actions: ExtensionActions) => {
 					extensionActions = actions;
 				},
 				onError: () => {},
 				emit: async () => {},
+				trackPendingSend: () => {},
 			},
+			discoverStartupSkillPaths: async () => {},
 			sendCustomMessage: async (_message: unknown, options?: { triggerTurn?: boolean }) => {
 				sentOptions = options;
 				return true;
@@ -160,13 +163,16 @@ describe("reportLocalOnlyPromptResult", () => {
 		const output: object[] = [];
 		const extensionUserMessages = new RpcExtensionUserMessageTracker();
 		const session = {
+			getAgentId: () => undefined,
 			extensionRunner: {
 				initialize: (actions: ExtensionActions) => {
 					extensionActions = actions;
 				},
 				onError: () => {},
 				emit: async () => {},
+				trackPendingSend: () => {},
 			},
+			discoverStartupSkillPaths: async () => {},
 			// Mirrors AgentSession.sendCustomMessage's aside contract: `false` iff no turn started.
 			sendCustomMessage: async () => false,
 		} as unknown as AgentSession;
@@ -214,13 +220,16 @@ describe("reportLocalOnlyPromptResult", () => {
 		const output: object[] = [];
 		const extensionUserMessages = new RpcExtensionUserMessageTracker();
 		const session = {
+			getAgentId: () => undefined,
 			extensionRunner: {
 				initialize: (actions: ExtensionActions) => {
 					extensionActions = actions;
 				},
 				onError: () => {},
 				emit: async () => {},
+				trackPendingSend: () => {},
 			},
+			discoverStartupSkillPaths: async () => {},
 			sendCustomMessage: async () => true,
 		} as unknown as AgentSession;
 
@@ -265,13 +274,16 @@ describe("reportLocalOnlyPromptResult", () => {
 		const output: object[] = [];
 		const extensionUserMessages = new RpcExtensionUserMessageTracker();
 		const session = {
+			getAgentId: () => undefined,
 			extensionRunner: {
 				initialize: (actions: ExtensionActions) => {
 					extensionActions = actions;
 				},
 				onError: () => {},
 				emit: async () => {},
+				trackPendingSend: () => {},
 			},
+			discoverStartupSkillPaths: async () => {},
 			sendUserMessage: async (content: unknown) => {
 				sentContent = content;
 			},
@@ -317,13 +329,16 @@ describe("reportLocalOnlyPromptResult", () => {
 		const thrown = new Error("missing model");
 		const extensionUserMessages = new RpcExtensionUserMessageTracker();
 		const session = {
+			getAgentId: () => undefined,
 			extensionRunner: {
 				initialize: (actions: ExtensionActions) => {
 					extensionActions = actions;
 				},
 				onError: () => {},
 				emit: async () => {},
+				trackPendingSend: () => {},
 			},
+			discoverStartupSkillPaths: async () => {},
 			sendUserMessage: async () => {
 				throw thrown;
 			},
@@ -397,6 +412,57 @@ describe("reportLocalOnlyPromptResult", () => {
 
 		expect(reported).toBe(thrown);
 		expect(output).toEqual([]);
+	});
+});
+
+describe("initializeExtensions invokingTask rejection safety", () => {
+	test("does not crash the process when an extension send starts no turn outside any active prompt scope", async () => {
+		let extensionActions: ExtensionActions | undefined;
+		const extensionUserMessages = new RpcExtensionUserMessageTracker();
+		const session = {
+			extensionRunner: {
+				initialize: (actions: ExtensionActions) => {
+					extensionActions = actions;
+				},
+				onError: () => {},
+				emit: async () => {},
+			},
+			// Mirrors AgentSession.sendCustomMessage's contract: `false` iff no turn started,
+			// e.g. an idle steer superseded by a concurrent turn's preflight generation check.
+			sendCustomMessage: async () => false,
+		} as unknown as AgentSession;
+
+		await initializeExtensions(session, {
+			reportSendError: () => {},
+			reportRuntimeError: () => {},
+			// Wired exactly like RPC mode: trackAgentInvokingMessage delegates to the tracker,
+			// which only attaches a handler to the task while a prompt scope is active
+			// (`#activePromptScopes`). No `watchPrompt` call below, so that set is empty.
+			trackAgentInvokingMessage: task => {
+				extensionUserMessages.trackAgentMessageTask(task);
+			},
+		});
+
+		const unhandled: unknown[] = [];
+		const onUnhandled = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", onUnhandled);
+		try {
+			if (!extensionActions) throw new Error("extensions not initialized");
+			// No active prompt scope: a controller idle wake calling an extension action
+			// directly (not inside an RPC prompt) hits this exact path.
+			extensionActions.sendMessage(
+				{ customType: "test", content: "context", display: true, details: "context", attribution: "agent" },
+				{ deliverAs: "aside" },
+			);
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		} finally {
+			process.off("unhandledRejection", onUnhandled);
+		}
+
+		expect(unhandled).toEqual([]);
 	});
 });
 
