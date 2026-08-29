@@ -32,6 +32,7 @@ import type { BranchHandler, NavigateTreeHandler, NewSessionHandler } from "../s
 import { accumulateToolCallResult, buildAggregatedToolCallResult } from "../shared-events";
 import { ManagedTimers } from "./managed-timers";
 import { createExtensionModelQuery } from "./model-api";
+import { ExtensionSendQueue } from "./send-queue";
 import type { ComposerShapeDefinition } from "@oh-my-pi/pi-tui/overlays/composer-shape-registry";
 import type {
 	AfterProviderResponseEvent,
@@ -105,6 +106,10 @@ let extensionHandlerTimeoutMs = EXTENSION_HANDLER_TIMEOUT_MS;
 
 function throwUnsupportedServiceTierAction(): never {
 	throw new Error("This extension host does not support service-tier actions");
+}
+
+function throwUnsupportedAgentsAction(): never {
+	throw new Error("This extension host does not support agents actions");
 }
 
 export function testSetExtensionHandlerTimeoutMs(timeoutMs: number): void {
@@ -512,6 +517,12 @@ export class ExtensionRunner {
 	#pendingMcpNotifications: Array<Omit<McpNotificationEvent, "type">> = [];
 
 	/**
+	 * Extension-originated sends, held during startup and reload discovery and
+	 * drained afterwards; see {@link ExtensionSendQueue}.
+	 */
+	readonly sends = new ExtensionSendQueue();
+
+	/**
 	 * Timers scheduled by extensions through the sanctioned `ctx.setInterval` /
 	 * `ctx.setTimeout` helpers. Callbacks run with the same isolation as handler
 	 * dispatch — a throw is logged and routed through {@link onError} instead of
@@ -696,6 +707,10 @@ export class ExtensionRunner {
 		this.runtime.sendMessage = actions.sendMessage;
 		this.runtime.sendUserMessage = actions.sendUserMessage;
 		this.runtime.appendEntry = actions.appendEntry;
+		this.runtime.agentsList = actions.agentsList ?? throwUnsupportedAgentsAction;
+		this.runtime.agentsGet = actions.agentsGet ?? throwUnsupportedAgentsAction;
+		this.runtime.agentsEnsureLive = actions.agentsEnsureLive ?? throwUnsupportedAgentsAction;
+		this.runtime.agentsPrompt = actions.agentsPrompt ?? throwUnsupportedAgentsAction;
 		this.runtime.getActiveTools = actions.getActiveTools;
 		this.runtime.getAllTools = actions.getAllTools;
 		this.runtime.setActiveTools = async toolNames => {
@@ -1706,6 +1721,33 @@ export class ExtensionRunner {
 		const promptPaths: Array<{ path: string; extensionPath: string }> = [];
 		const themePaths: Array<{ path: string; extensionPath: string }> = [];
 
+		// Handler throws are isolated inside #runHandlerWithTimeout, but a
+		// malformed *return value* (e.g. `{ skillPaths: "./skills" }`, whose
+		// truthy `.length` used to reach `.map`) would throw here in the
+		// aggregation — and startup awaits this emitter in every mode, so one
+		// bad extension return would abort session initialization. Validate
+		// each field, report through the extension error listener, and skip.
+		const validatedPaths = (ext: Extension, field: string, value: unknown): string[] => {
+			if (value === undefined || value === null) return [];
+			if (!Array.isArray(value)) {
+				this.emitError({
+					extensionPath: ext.path,
+					event: "resources_discover",
+					error: `resources_discover result field \`${field}\` must be an array of strings, got ${typeof value}`,
+				});
+				return [];
+			}
+			const strings = value.filter((entry): entry is string => typeof entry === "string");
+			if (strings.length !== value.length) {
+				this.emitError({
+					extensionPath: ext.path,
+					event: "resources_discover",
+					error: `resources_discover result field \`${field}\` contains ${value.length - strings.length} non-string entr${value.length - strings.length === 1 ? "y" : "ies"}; they were skipped`,
+				});
+			}
+			return strings;
+		};
+
 		for (const ext of this.extensions) {
 			const handlers = ext.handlers.get("resources_discover");
 			if (!handlers || handlers.length === 0) continue;
@@ -1720,16 +1762,20 @@ export class ExtensionRunner {
 					extensionHandlerTimeoutMs,
 				);
 				const result = handlerResult as ResourcesDiscoverResult | undefined;
+				if (!result) continue;
 
-				if (result?.skillPaths?.length) {
-					skillPaths.push(...result.skillPaths.map(path => ({ path, extensionPath: ext.path })));
-				}
-				if (result?.promptPaths?.length) {
-					promptPaths.push(...result.promptPaths.map(path => ({ path, extensionPath: ext.path })));
-				}
-				if (result?.themePaths?.length) {
-					themePaths.push(...result.themePaths.map(path => ({ path, extensionPath: ext.path })));
-				}
+				skillPaths.push(
+					...validatedPaths(ext, "skillPaths", result.skillPaths).map(path => ({ path, extensionPath: ext.path })),
+				);
+				promptPaths.push(
+					...validatedPaths(ext, "promptPaths", result.promptPaths).map(path => ({
+						path,
+						extensionPath: ext.path,
+					})),
+				);
+				themePaths.push(
+					...validatedPaths(ext, "themePaths", result.themePaths).map(path => ({ path, extensionPath: ext.path })),
+				);
 			}
 		}
 

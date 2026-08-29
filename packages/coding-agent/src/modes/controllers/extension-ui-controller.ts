@@ -19,7 +19,6 @@ import type {
 	ExtensionUiComponent,
 	ExtensionWidgetContent,
 	ExtensionWidgetOptions,
-	SendUserMessageHandler,
 	TerminalInputHandler,
 } from "../../extensibility/extensions";
 import { getSessionSlashCommands } from "../../extensibility/extensions/get-commands-handler";
@@ -31,10 +30,12 @@ import { HookInputComponent } from "@oh-my-pi/pi-tui/overlays/hook-input";
 import { HookSelectorComponent, type HookSelectorSlider } from "@oh-my-pi/pi-tui/overlays/hook-selector";
 import { getAvailableThemesWithPaths, getThemeByName, setTheme, type Theme, theme } from "@oh-my-pi/pi-tui/theme";
 import type { InteractiveModeContext, InteractiveSelectorDialogOptions } from "../../modes/types";
+import { MAIN_AGENT_ID } from "../../registry/agent-registry";
 import { normalizeCustomMessagePayload, USER_INTERRUPT_LABEL } from "../../session/messages";
 import { disambiguateDisplayLabels, sanitizeCarriageReturns } from "@oh-my-pi/pi-tui/render/render-utils";
 import { setExtensionTerminalTitle, setSessionTerminalTitle } from "../../utils/title-generator";
 import { getEditorCommand, openInEditor } from "../../utils/external-editor";
+import { createExtensionAgentActions } from "../runtime-init";
 
 const MAX_WIDGET_LINES = 10;
 
@@ -180,23 +181,44 @@ export class ExtensionUiController {
 			return; // No hooks loaded
 		}
 
+		// session_start and resources_discover handlers share this action context, so
+		// a handler calling sendMessage/sendUserMessage starts an async session send
+		// the action itself never exposes a promise for. Every such send dispatches
+		// through the runner, which holds it until startup discovery below has
+		// rebuilt the prompt and tracks it so this call can drain it before the
+		// caller issues the first prompt (PR #9379 review).
 		const actions: ExtensionActions = {
 			sendMessage: (message, options) => {
 				const wasStreaming = this.ctx.session.isStreaming;
 				const normalized = normalizeCustomMessagePayload(message);
-				this.ctx.session
-					.sendCustomMessage(normalized, options)
+				const sendTask = extensionRunner.sends.dispatch(() =>
+					this.ctx.session.sendCustomMessage(normalized, options),
+				);
+				const trackedSend = sendTask
 					.then(() => this.#applyCustomMessageDisplay(wasStreaming, normalized.display))
 					.catch((err: unknown) => {
 						this.ctx.showError(
 							`Extension sendMessage failed: ${err instanceof Error ? err.message : String(err)}`,
 						);
 					});
+				extensionRunner.sends.track(trackedSend);
 			},
-			sendUserMessage: this.#sendExtensionUserMessage,
+			sendUserMessage: (content, options) => {
+				const sendTask = extensionRunner.sends.dispatch(() => this.ctx.session.sendUserMessage(content, options));
+				const trackedSend = sendTask.catch((err: unknown) => {
+					this.ctx.showError(
+						`Extension sendUserMessage failed: ${err instanceof Error ? err.message : String(err)}`,
+					);
+				});
+				extensionRunner.sends.track(trackedSend);
+			},
 			appendEntry: (customType, data) => {
 				this.ctx.sessionManager.appendCustomEntry(customType, data);
 			},
+			...createExtensionAgentActions({
+				scopeAgentId: this.ctx.session.getAgentId() ?? MAIN_AGENT_ID,
+				getScopeSessionFile: () => this.ctx.sessionManager?.getSessionFile?.() ?? null,
+			}),
 			setLabel: (targetId, label) => {
 				this.ctx.sessionManager.appendLabelChange(targetId, label);
 			},
@@ -323,10 +345,23 @@ export class ExtensionUiController {
 			this.showExtensionError(error.extensionPath, error.error);
 		});
 
-		// Emit session_start event
-		await extensionRunner.emit({
-			type: "session_start",
+		// A `session_start` or `resources_discover` handler can call
+		// sendMessage/sendUserMessage synchronously; a triggered turn would read
+		// the system prompt before `discoverStartupSkillPaths()` has folded any
+		// extension-contributed skill directories into it. Hold those sends until
+		// discovery has rebuilt the prompt.
+		await extensionRunner.sends.withHeld(async () => {
+			await extensionRunner.emit({
+				type: "session_start",
+			});
+			// resources_discover fires after `session_start` (extensibility/extensions/types.ts) —
+			// only now are runtime actions and the error listener above wired, so
+			// extension-contributed skill directories are folded into the session's
+			// skill snapshot before the first prompt.
+			await this.ctx.session.discoverStartupSkillPaths();
 		});
+		// Settle every extension-triggered send before this call returns.
+		await extensionRunner.sends.drain();
 	}
 
 	/**
@@ -413,22 +448,38 @@ export class ExtensionUiController {
 			return;
 		}
 
+		// Same runner-routed dispatch as initHooksAndCustomTools: a reload
+		// discovery round (`refreshSkills`) holds and drains these sends too.
 		const actions: ExtensionActions = {
 			sendMessage: (message, options) => {
 				const wasStreaming = this.ctx.session.isStreaming;
 				const normalized = normalizeCustomMessagePayload(message);
-				this.ctx.session
-					.sendCustomMessage(normalized, options)
+				const trackedSend = extensionRunner.sends
+					.dispatch(() => this.ctx.session.sendCustomMessage(normalized, options))
 					.then(() => this.#applyCustomMessageDisplay(wasStreaming, normalized.display))
 					.catch((err: unknown) => {
 						const errorText = `Extension sendMessage failed: ${err instanceof Error ? err.message : String(err)}`;
 						this.ctx.showError(errorText);
 					});
+				extensionRunner.sends.track(trackedSend);
 			},
-			sendUserMessage: this.#sendExtensionUserMessage,
+			sendUserMessage: (content, options) => {
+				const trackedSend = extensionRunner.sends
+					.dispatch(() => this.ctx.session.sendUserMessage(content, options))
+					.catch((err: unknown) => {
+						this.ctx.showError(
+							`Extension sendUserMessage failed: ${err instanceof Error ? err.message : String(err)}`,
+						);
+					});
+				extensionRunner.sends.track(trackedSend);
+			},
 			appendEntry: (customType, data) => {
 				this.ctx.sessionManager.appendCustomEntry(customType, data);
 			},
+			...createExtensionAgentActions({
+				scopeAgentId: this.ctx.session.getAgentId() ?? MAIN_AGENT_ID,
+				getScopeSessionFile: () => this.ctx.sessionManager?.getSessionFile?.() ?? null,
+			}),
 			setLabel: (targetId, label) => {
 				this.ctx.sessionManager.appendLabelChange(targetId, label);
 			},
@@ -1246,12 +1297,6 @@ export class ExtensionUiController {
 	async #updateSessionName(name: string): Promise<void> {
 		await this.ctx.sessionManager.setSessionName(name, "user");
 	}
-
-	#sendExtensionUserMessage: SendUserMessageHandler = (content, options) => {
-		this.ctx.session.sendUserMessage(content, options).catch((err: unknown) => {
-			this.ctx.showError(`Extension sendUserMessage failed: ${err instanceof Error ? err.message : String(err)}`);
-		});
-	};
 
 	#applyCustomMessageDisplay(wasStreaming: boolean, shouldDisplay: boolean | undefined): void {
 		// For non-streaming cases with display=true, update UI
