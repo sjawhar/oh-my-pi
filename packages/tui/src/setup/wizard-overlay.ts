@@ -3,6 +3,7 @@ import { matchesKey } from "../keys";
 import { centerLine, padding } from "../utils";
 import { padToWidth } from "../render/utils";
 import { routeSgrMouseInput, type SgrMouseEvent } from "../mouse";
+import { isReduceMotion } from "../reduce-motion";
 import { APP_NAME } from "@oh-my-pi/pi-utils";
 import { gradientLogo, PI_LOGO } from "../prompt/welcome";
 import { theme } from "../theme/theme";
@@ -64,6 +65,11 @@ export class SetupWizardComponent implements Component, OverlayFocusOwner {
 	) {}
 
 	run(): Promise<void> {
+		if (isReduceMotion()) {
+			if (this.scenes.length === 0) this.#complete();
+			else this.#mountCurrentScene();
+			return this.#done.promise;
+		}
 		this.#phase = this.scenes.length === 0 ? "outro" : "splash";
 		this.#phaseStartedAt = performance.now();
 		this.#startTimer();

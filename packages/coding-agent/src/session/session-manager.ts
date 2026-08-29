@@ -95,6 +95,7 @@ import {
 import { prepareEntryForPersistence } from "./session-persistence";
 import { loadPinnedSessionIds, sortPinnedFirst } from "./session-pins";
 import {
+	defaultSessionStorage,
 	FileSessionStorage,
 	MemorySessionStorage,
 	type SessionStorage,
@@ -762,6 +763,8 @@ export class SessionManager {
 	#writer: SessionStorageWriter | undefined;
 	/** Sealed by {@link releaseRetainedEntries}: every later append/title/rewrite is a dropped no-op. */
 	#released = false;
+	/** Set by {@link releaseRetainedEntries}: `#entries` was cleared, so `#fileBody()` is no longer authoritative. */
+	#entriesReleased = false;
 	/** Serializes async disk work (flush/close/atomic rewrite). Appends are synchronous and bypass it. */
 	#diskTail: Promise<void> = Promise.resolve();
 	#diskFailure: Error | undefined;
@@ -1009,32 +1012,11 @@ export class SessionManager {
 						new Error("Session file disappeared during authoritative repair."),
 					]);
 				}
-				const body = this.#fileBody();
-				try {
-					await this.#storage.writeTextAtomic(sessionFile, body, {
-						expectedSize: this.#expectedDiskSize,
-						commitGuard: () => !this.#released && this.#diskEpoch === epoch,
-					});
-				} catch (error) {
-					const recoveryErrors = [toError(error)];
-					try {
-						await this.#storage.drain();
-					} catch (drainFailure) {
-						recoveryErrors.push(toError(drainFailure));
-					}
-					let actual: string;
-					try {
-						actual = await this.#storage.readText(sessionFile);
-					} catch (readFailure) {
-						recoveryErrors.push(toError(readFailure));
-						throw this.#latchIndeterminate(operationError, recoveryErrors);
-					}
-					if (actual !== body) {
-						recoveryErrors.push(new Error("Authoritative session repair did not match durable storage."));
-						throw this.#latchIndeterminate(operationError, recoveryErrors);
-					}
-				}
-				this.#recordFullRewrite(body);
+				await this.#publishAuthoritativeBody(
+					sessionFile,
+					operationError,
+					() => !this.#released && this.#diskEpoch === epoch,
+				);
 				if (this.#diskEpoch !== epoch) {
 					throw this.#latchIndeterminate(operationError, [
 						new Error("Authoritative session repair was superseded before verification."),
@@ -1052,6 +1034,44 @@ export class SessionManager {
 		} finally {
 			if (this.#atomicRewriteFenceEpoch === epoch) this.#atomicRewriteFenceEpoch = null;
 		}
+	}
+
+	/**
+	 * Publish the current in-memory journal as `sessionFile`'s authoritative
+	 * body, tolerating a write whose own acknowledgment failed but that
+	 * landed anyway: a readback matching the intended body still counts as
+	 * durable. Callers own serialization (the disk queue) and any
+	 * `#released`/epoch guard; this only writes and repairs
+	 * `#expectedDiskSize` bookkeeping via {@link #recordFullRewrite}.
+	 */
+	async #publishAuthoritativeBody(
+		sessionFile: string,
+		operationError: Error,
+		commitGuard?: () => boolean,
+	): Promise<void> {
+		const body = this.#fileBody();
+		try {
+			await this.#storage.writeTextAtomic(sessionFile, body, { expectedSize: this.#expectedDiskSize, commitGuard });
+		} catch (error) {
+			const recoveryErrors = [toError(error)];
+			try {
+				await this.#storage.drain();
+			} catch (drainFailure) {
+				recoveryErrors.push(toError(drainFailure));
+			}
+			let actual: string;
+			try {
+				actual = await this.#storage.readText(sessionFile);
+			} catch (readFailure) {
+				recoveryErrors.push(toError(readFailure));
+				throw this.#latchIndeterminate(operationError, recoveryErrors);
+			}
+			if (actual !== body) {
+				recoveryErrors.push(new Error("Authoritative session repair did not match durable storage."));
+				throw this.#latchIndeterminate(operationError, recoveryErrors);
+			}
+		}
+		this.#recordFullRewrite(body);
 	}
 
 	#appendWriter(): SessionStorageWriter {
@@ -2127,7 +2147,7 @@ export class SessionManager {
 	/** Persist this session's transcript as a newly identified OMP session. */
 	async persistCopy(
 		options?: { sessionDir?: string; suppressBreadcrumb?: boolean },
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionManager> {
 		const sessionDir = options?.sessionDir ?? SessionManager.getDefaultSessionDir(this.#cwd, undefined, storage);
 		const manager = new SessionManager(this.#cwd, sessionDir, true, storage);
@@ -2320,19 +2340,50 @@ export class SessionManager {
 	/** Flush, then close the append writer. */
 	async close(): Promise<void> {
 		if (!this.#persist) return;
-		await this.#scheduleDiskWork(async () => {
-			const hadWriter = this.#writer !== undefined;
-			await this.#closeWriterHandle();
-			if (hadWriter || (this.#sessionFile && this.#storage.existsSync(this.#sessionFile)))
-				this.#fileIsCurrent = true;
-		});
+		// A prior `flushSync` can self-conflict with this manager's own
+		// unconfirmed deferred publish; drain despite the latch so that
+		// publish can still confirm before we give up on the transcript.
+		await this.#scheduleDiskWork(
+			async () => {
+				const hadWriter = this.#writer !== undefined;
+				await this.#closeWriterHandle();
+				if (hadWriter || (this.#sessionFile && this.#storage.existsSync(this.#sessionFile)))
+					this.#fileIsCurrent = true;
+			},
+			{ ignorePriorError: true },
+		);
 		await this.#dropIfEmptyAndNoDraft();
 		// Wait for any queued backing writes (IndexedSessionStorage per-path
 		// tail) to become durable so a graceful shutdown does not exit while
 		// a fire-and-forget publish is still on the wire.
-		await this.#scheduleDiskWork(async () => {
-			await this.#storage.drain();
-		});
+		await this.#scheduleDiskWork(
+			async () => {
+				await this.#storage.drain();
+			},
+			{ ignorePriorError: true },
+		);
+		if (
+			this.#diskFailure &&
+			this.#sessionFile &&
+			this.#storage.defersSyncPublish &&
+			!this.#entriesReleased &&
+			this.#shouldHaveSessionFile()
+		) {
+			// Deferred-publish only: a synchronous backend's drain() is a
+			// no-op, so any failure there is a genuine external conflict or a
+			// permanent write failure, not a self-race this retry can catch
+			// up on. seal() disabled the ordinary mid-life repair path, so
+			// close() issues the terminal write directly instead.
+			const operationError = this.#diskFailure;
+			const sessionFile = this.#sessionFile;
+			await this.#scheduleDiskWork(
+				async () => {
+					await this.#publishAuthoritativeBody(sessionFile, operationError);
+					this.#clearDiskError();
+				},
+				{ ignorePriorError: true },
+			).catch(() => undefined);
+		}
 		if (this.#diskFailure) throw this.#diskFailure;
 	}
 
@@ -2377,6 +2428,7 @@ export class SessionManager {
 		this.#entries = [];
 		this.#index.clear();
 		this.#closeWriterEventually();
+		this.#entriesReleased = true;
 	}
 
 	getCwd(): string {
@@ -3294,7 +3346,7 @@ export class SessionManager {
 	static getDefaultSessionDir(
 		cwd: string,
 		agentDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): string {
 		return computeDefaultSessionDir(cwd, storage, getSessionsDir(agentDir));
 	}
@@ -3304,7 +3356,7 @@ export class SessionManager {
 	 * @param cwd Working directory (stored in the session header)
 	 * @param sessionDir Optional session directory; defaults to the cwd-derived dir.
 	 */
-	static create(cwd: string, sessionDir?: string, storage: SessionStorage = new FileSessionStorage()): SessionManager {
+	static create(cwd: string, sessionDir?: string, storage: SessionStorage = defaultSessionStorage()): SessionManager {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const manager = new SessionManager(cwd, dir, true, storage);
 		manager.#resetToNewSession();
@@ -3317,7 +3369,7 @@ export class SessionManager {
 	 * `setSessionFile` / `AgentSession.switchSession` when a caller explicitly
 	 * needs a brand-new persisted session at a cwd-derived path.
 	 */
-	static createEmptySessionFile(cwd: string, storage: SessionStorage = new FileSessionStorage()): string {
+	static createEmptySessionFile(cwd: string, storage: SessionStorage = defaultSessionStorage()): string {
 		const sessionDir = SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const id = mintSessionId();
 		const timestamp = nowIso();
@@ -3346,7 +3398,7 @@ export class SessionManager {
 		sourcePath: string,
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 		options?: {
 			copyArtifacts?: boolean;
 			suppressBreadcrumb?: boolean;
@@ -3491,7 +3543,7 @@ export class SessionManager {
 	static async open(
 		filePath: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 		options?: { initialCwd?: string; parentSession?: string; suppressBreadcrumb?: boolean; throwIfMissing?: boolean },
 	): Promise<SessionManager> {
 		const probed = await loadSessionFile(filePath, storage, { throwIfMissing: options?.throwIfMissing });
@@ -3537,7 +3589,7 @@ export class SessionManager {
 	 */
 	static async peekSessionInit(
 		filePath: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<{
 		cwd: string;
 		init: PersistedSessionInit | null;
@@ -3565,7 +3617,7 @@ export class SessionManager {
 	static async continueRecent(
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionManager> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const resolvedCwd = path.resolve(cwd);
@@ -3680,7 +3732,7 @@ export class SessionManager {
 	static async list(
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionInfo[]> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const sessions = await listSessions(dir, storage);
@@ -3688,7 +3740,7 @@ export class SessionManager {
 	}
 
 	/** List all sessions across all project directories, pinned sessions first. */
-	static async listAll(storage: SessionStorage = new FileSessionStorage()): Promise<SessionInfo[]> {
+	static async listAll(storage: SessionStorage = defaultSessionStorage()): Promise<SessionInfo[]> {
 		const sessions = await listAllSessions(storage);
 		return sortPinnedFirst(sessions, await loadPinnedSessionIds());
 	}
@@ -3700,7 +3752,7 @@ export class SessionManager {
 	static async listForPicker(
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionInfo[]> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const pinned = await loadPinnedSessionIds();
@@ -3708,7 +3760,7 @@ export class SessionManager {
 	}
 
 	/** Picker-facing cross-project list, same empty-session rule as {@link listForPicker}. */
-	static async listAllForPicker(storage: SessionStorage = new FileSessionStorage()): Promise<SessionInfo[]> {
+	static async listAllForPicker(storage: SessionStorage = defaultSessionStorage()): Promise<SessionInfo[]> {
 		const pinned = await loadPinnedSessionIds();
 		return sortPinnedFirst(filterSessionsForPicker(await listAllSessions(storage), pinned), pinned);
 	}

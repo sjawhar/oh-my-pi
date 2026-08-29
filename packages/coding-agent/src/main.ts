@@ -103,6 +103,8 @@ import {
 import type { ForeignSessionInfo, ForeignSessionSource, ForeignSessionStore } from "./session/foreign-session-store";
 import { resolveResumableSession, type SessionInfo } from "./session/session-listing";
 import { ForkSourceNotFoundError, SessionManager } from "./session/session-manager";
+import { setDefaultSessionStorage } from "./session/session-storage";
+import { resolveSessionStorage, SessionStorageConfigError } from "./session/session-storage-config";
 import { shouldShowStartupSplash } from "./startup-splash";
 import {
 	discoverSystemPromptOverride,
@@ -126,6 +128,7 @@ import {
 	cfgAutoResume,
 	cfgColorBlindMode,
 	cfgComposerShape,
+	cfgDisplayReduceMotion,
 	cfgImagesAutoResize,
 	cfgMarketplaceAutoUpdate,
 	cfgSetupVersion,
@@ -174,14 +177,15 @@ type SessionPicker = (
 
 /** Resume/import-only graph boundary; ordinary launches never construct a picker. */
 async function loadSessionPicker(): Promise<SessionPicker> {
-	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds }, { FileSessionStorage }] = await Promise.all([
-		import("@oh-my-pi/pi-tui/apps/session-picker"),
-		import("./session/history-storage"),
-		import("./session/session-pins"),
-		import("./session/session-storage"),
-	]);
+	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds }, { defaultSessionStorage }] =
+		await Promise.all([
+			import("@oh-my-pi/pi-tui/apps/session-picker"),
+			import("./session/history-storage"),
+			import("./session/session-pins"),
+			import("./session/session-storage"),
+		]);
 	return (sessions, options) => {
-		const storage = new FileSessionStorage();
+		const storage = defaultSessionStorage();
 		return selectSession(sessions, options, {
 			loadPinnedIds: loadPinnedSessionIds,
 			loadHistoryMatcher: () => {
@@ -1814,6 +1818,22 @@ export async function runRootCommand(
 		const settingsInstance = await settingsPromise;
 		// Process-lifetime: broker/account-policy edits reconfigure the shared credential store.
 		createAuthStorageSettingsSync(settingsInstance, authStorage);
+		// Install the configured session storage before anything lists or opens a
+		// session — the startup composer's recent-sessions load and every
+		// SessionManager below read through this default. A refusal names only the
+		// variable or setting and the path; it never echoes the connection string.
+		try {
+			setDefaultSessionStorage(
+				await logger.time("resolveSessionStorage", resolveSessionStorage, {
+					settings: settingsInstance,
+					env: process.env,
+				}),
+			);
+		} catch (error) {
+			if (!(error instanceof SessionStorageConfigError)) throw error;
+			process.stderr.write(`${chalk.red(`Error: ${error.message}`)}\n`);
+			process.exit(1);
+		}
 		if (parsedArgs.approvalMode) {
 			// Runtime override (not persisted): every `tools.approvalMode` read downstream
 			// sees this value. The wrapper still honours --auto-approve / --yolo on top of it.
@@ -1822,6 +1842,9 @@ export async function runRootCommand(
 			// --auto-approve / --yolo without an explicit --approval-mode: reflect in settings so
 			// setup-time checks (e.g. #wrapToolForAcpPermission) also see the yolo intent.
 			cfgToolsApprovalMode.override(settingsInstance, "yolo");
+		}
+		if (parsedArgs.reduceMotion) {
+			cfgDisplayReduceMotion.override(settingsInstance, parsedArgs.reduceMotion);
 		}
 		if (parsedArgs.mode === "rpc" || parsedArgs.mode === "rpc-ui") {
 			applyProtocolDefaults("rpc", settingsInstance);

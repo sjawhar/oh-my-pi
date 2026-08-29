@@ -33,7 +33,7 @@ Extensions can combine all of the following in one module:
 - slash commands (`pi.registerCommand(...)`)
 - keyboard shortcuts and flags
 - custom message rendering
-- session/message injection APIs (`sendMessage`, `sendUserMessage`, `appendEntry`)
+- session/message APIs (`sendMessage`, `sendUserMessage`, `askEphemeral`, `appendEntry`)
 
 ## Runtime model
 
@@ -213,6 +213,11 @@ Also exposed:
 - `triggerTurn: true` — starts a turn when idle (also honored with `deliverAs: "nextTurn"`: idle prompts immediately; while streaming the queued message schedules an internal continuation)
 
 `pi.sendUserMessage(content, { deliverAs })` always goes through prompt flow. Omit `deliverAs` to start a normal prompt when idle; while streaming, omitted `deliverAs` queues the message as a steer. Set `deliverAs: "followUp"` to wait until the current run finishes. Set `deliverAs: "aside"` to inject the prompt at the next step boundary while a run is live (idle sends start a turn as usual). The message is recorded with `attribution: "user"` unless you pass `attribution: "agent"`; pass `"agent"` for text the extension generated or relayed from another agent, so consumers can tell it apart from what the user typed.
+
+`pi.askEphemeral({ prompt, signal? })` asks through the same `/btw` prompt wrapper and returns
+`Promise<{ replyText: string }>` without appending to, queuing on, or interrupting the primary
+session turn. It rejects when no model is active, the request is aborted, the session is disposed,
+or the provider fails; it never falls back to a steered message.
 
 Payloads passed to `pi.sendMessage` are normalized before delivery (`normalizeCustomMessagePayload` in `session/messages.ts`): non-object payloads are coerced to string content under the default custom type, missing `customType`/`attribution` fields are defaulted, and invalid content collapses to an empty string — malformed payloads no longer persist entries that crash later session resumes.
 
@@ -414,8 +419,15 @@ The runtime handles the JSON-RPC transport and its own list/update refresh first
 
 ### `resources_discover`
 
-`resources_discover` exists in extension types and `ExtensionRunner`.
-Current runtime note: `ExtensionRunner.emitResourcesDiscover(...)` is implemented, but there are no `AgentSession` callsites invoking it in the current codebase.
+Fired once per session, after `session_start`, and again every time `/reload-plugins` runs. Payload: `{ cwd: string; reason: "startup" | "reload" }`. A handler may return `{ skillPaths?: string[]; promptPaths?: string[]; themePaths?: string[] }`; only `skillPaths` currently has a consumer (`promptPaths`/`themePaths` are collected but not yet acted on).
+
+Returned `skillPaths` join skill discovery as an explicitly configured source, scanned the same way as `skills.customDirectories`: `ignoredSkills`/`includeSkills` are honored, entries are deduplicated by real path, and a name collision with a `skills.customDirectories` entry loses to the user's custom directory (extension-contributed directories are the lower-priority configured source).
+
+```ts
+pi.on("resources_discover", (event) => {
+  return { skillPaths: [path.join(myExtensionDir, "skills")] };
+});
+```
 
 ## Tool authoring details
 
