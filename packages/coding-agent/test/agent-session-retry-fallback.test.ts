@@ -16,7 +16,7 @@ import {
 	type ToolCall,
 } from "@oh-my-pi/pi-ai";
 import * as AIError from "@oh-my-pi/pi-ai/error";
-import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
+import { createMockModel, type MockResponse } from "@oh-my-pi/pi-ai/providers/mock";
 import { buildParams } from "@oh-my-pi/pi-ai/providers/openai-responses";
 import { AssistantMessageEventStream } from "@oh-my-pi/pi-ai/utils/event-stream";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
@@ -41,6 +41,7 @@ import { convertToLlm } from "@oh-my-pi/pi-coding-agent/session/messages";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import { TempDir } from "@oh-my-pi/pi-utils";
 import { mockSchedulerWaitWithClock } from "./helpers/mock-scheduler-clock";
+import { servedByCredential } from "./helpers/served-by-credential";
 
 import { cfgRetryUsageReservePolicy } from "@oh-my-pi/pi-coding-agent/session/settings";
 
@@ -2639,71 +2640,293 @@ describe("AgentSession retry fallback", () => {
 		]);
 	});
 
-	it("falls back to the chain when credential rotation exhausts the retry budget", async () => {
-		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
-		const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
-		if (!primaryModel || !fallbackModel) {
-			throw new Error("Expected bundled test models to exist");
-		}
+	// Rotation always claims a sibling credential is available; `servedBy`
+	// names the stored credential row that served the n-th failed request.
+	it.each([
+		{
+			// Rotation spends the whole budget, then the exhausted attempt consults
+			// the chain instead of giving up, and the fallback model gets a fresh
+			// retry budget (attempt resets to 1).
+			switches: "every switch reaches a new account",
+			servedBy: (request: number) => request,
+			primaryRequests: 3,
+			expectedAttempts: [1, 2, 1],
+		},
+		{
+			// As when selection refuses the sibling the rotation check called free:
+			// the repeat goes to the chain instead of spending the rest of the
+			// budget on that account.
+			switches: "the switch lands on the capped account again",
+			servedBy: () => 1,
+			primaryRequests: 2,
+			expectedAttempts: [1, 2],
+		},
+	])(
+		"spends the retry budget only on credential switches that reach a new account: $switches",
+		async ({ servedBy, primaryRequests: expectedPrimaryRequests, expectedAttempts }) => {
+			const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+			const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
+			if (!primaryModel || !fallbackModel) {
+				throw new Error("Expected bundled test models to exist");
+			}
+			const primary = `${primaryModel.provider}/${primaryModel.id}`;
+			const fallback = `${fallbackModel.provider}/${fallbackModel.id}`;
+			const expectedModels = [...Array<string>(expectedPrimaryRequests).fill(primary), fallback];
+			const requestedModels: string[] = [];
+			let primaryRequests = 0;
+			const mock = createMockModel();
+			const agent = new Agent({
+				getApiKey: model => `${model.provider}-test-key`,
+				initialState: {
+					model: primaryModel,
+					systemPrompt: ["Test"],
+					tools: [],
+					messages: [],
+				},
+				streamFn: (model, context, options) => {
+					requestedModels.push(`${model.provider}/${model.id}`);
+					if (model.provider !== primaryModel.provider || model.id !== primaryModel.id) {
+						mock.push({ content: [`ok:${model.provider}/${model.id}`] });
+						return mock.stream(model, context, options);
+					}
+					mock.push({ throw: "429 usage_limit_reached" });
+					return servedByCredential(mock.stream(model, context, options), servedBy(++primaryRequests));
+				},
+			});
 
+			vi.spyOn(modelRegistry.authStorage.limits, "markReached").mockResolvedValue({ switched: true });
+
+			const settings = Settings.isolated({
+				"compaction.enabled": false,
+				"retry.baseDelayMs": 5,
+				"retry.maxRetries": 2,
+				"retry.fallbackChains": {
+					[primary]: [fallback],
+				},
+			});
+
+			session = new AgentSession({
+				agent,
+				sessionManager: SessionManager.inMemory(),
+				settings,
+				modelRegistry,
+			});
+			const { retryStartEvents, retryEndEvents } = trackRetryEvents(session);
+
+			await session.prompt("Exhaust rotation, then fail over");
+			await session.waitForIdle();
+
+			expect(requestedModels).toEqual(expectedModels);
+			expect(session.model?.provider).toBe(fallbackModel.provider);
+			expect(session.model?.id).toBe(fallbackModel.id);
+			expect(retryStartEvents.map(event => event.attempt)).toEqual([...expectedAttempts]);
+			expect(retryEndEvents).toHaveLength(1);
+			expect(retryEndEvents[0]).toMatchObject({ success: true });
+		},
+	);
+
+	// A retry turn that ends aborted leaves the saga's attempt counter running,
+	// so the next turn's first failure would otherwise count as a repeat of the
+	// aborted saga's account and skip a genuine switch. After a user abort
+	// followed by an agent-initiated turn only the `abortRetry()` clear runs;
+	// after an aborted settle the user never cancelled, only the
+	// `resetForNewPrompt()` clear runs.
+	it.each([
+		{
+			ending: "the user aborts the retried request, then prompts again",
+			retriedResponse: { content: ["never finishes"], delayMs: 60_000 } satisfies MockResponse,
+			userAborts: true,
+			nextTurn: (next: AgentSession): Promise<unknown> => next.prompt("Hit the limit again"),
+		},
+		{
+			ending: "the user aborts the retried request, then an agent-initiated turn runs",
+			retriedResponse: { content: ["never finishes"], delayMs: 60_000 } satisfies MockResponse,
+			userAborts: true,
+			nextTurn: (next: AgentSession): Promise<unknown> =>
+				next.sendCustomMessage(
+					{ customType: "background-result", content: "background result", display: false },
+					{ triggerTurn: true },
+				),
+		},
+		{
+			ending: "the retried request settles aborted with partial content, then the user prompts again",
+			retriedResponse: { content: ["partial"], stopReason: "aborted" } satisfies MockResponse,
+			userAborts: false,
+			nextTurn: (next: AgentSession): Promise<unknown> => next.prompt("Hit the limit again"),
+		},
+	])(
+		"trusts a credential switch in the next turn after $ending",
+		async ({ retriedResponse, userAborts, nextTurn }) => {
+			const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+			const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
+			if (!primaryModel || !fallbackModel) {
+				throw new Error("Expected bundled test models to exist");
+			}
+			const primary = `${primaryModel.provider}/${primaryModel.id}`;
+			const requestedModels: string[] = [];
+			const retryStreamStarted = Promise.withResolvers<void>();
+			let primaryRequests = 0;
+			const mock = createMockModel();
+			const agent = new Agent({
+				getApiKey: model => `${model.provider}-test-key`,
+				initialState: { model: primaryModel, systemPrompt: ["Test"], tools: [], messages: [] },
+				streamFn: (model, context, options) => {
+					requestedModels.push(`${model.provider}/${model.id}`);
+					primaryRequests += model.id === primaryModel.id ? 1 : 0;
+					if (model.id !== primaryModel.id || primaryRequests === 4) {
+						mock.push({ content: [`ok:${model.provider}/${model.id}`] });
+						return mock.stream(model, context, options);
+					}
+					if (primaryRequests === 2) {
+						mock.push(retriedResponse);
+						retryStreamStarted.resolve();
+						return mock.stream(model, context, options);
+					}
+					mock.push({ throw: "429 usage_limit_reached" });
+					return servedByCredential(mock.stream(model, context, options), 1);
+				},
+			});
+			vi.spyOn(modelRegistry.authStorage.limits, "markReached").mockResolvedValue({ switched: true });
+			session = new AgentSession({
+				agent,
+				sessionManager: SessionManager.inMemory(),
+				settings: Settings.isolated({
+					"compaction.enabled": false,
+					"retry.baseDelayMs": 5,
+					"retry.fallbackChains": { [primary]: [`${fallbackModel.provider}/${fallbackModel.id}`] },
+				}),
+				modelRegistry,
+			});
+
+			const firstPrompt = session.prompt("Hit the limit, then end the retry aborted");
+			if (userAborts) {
+				await retryStreamStarted.promise;
+				await session.abort();
+			}
+			await firstPrompt;
+			await session.waitForIdle();
+			await nextTurn(session);
+			await session.waitForIdle();
+
+			// The next turn's failure on row 1 starts a new saga: its claimed switch
+			// is trusted and the retry stays on the primary.
+			expect(requestedModels).toEqual([primary, primary, primary, primary]);
+			expect(session.model?.id).toBe(primaryModel.id);
+		},
+	);
+
+	it("trusts a credential switch on a same-provider fallback the usage preflight applies mid-saga", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const fallbackModel = getBundledModel("anthropic", "claude-haiku-4-5");
+		if (!primaryModel || !fallbackModel) {
+			throw new Error("Expected bundled same-provider fallback models");
+		}
+		const primary = `${primaryModel.provider}/${primaryModel.id}`;
+		const fallback = `${fallbackModel.provider}/${fallbackModel.id}`;
 		const requestedModels: string[] = [];
+		let primaryDepleted = false;
+		let fallbackRequests = 0;
 		const mock = createMockModel();
 		const agent = new Agent({
 			getApiKey: model => `${model.provider}-test-key`,
-			initialState: {
-				model: primaryModel,
-				systemPrompt: ["Test"],
-				tools: [],
-				messages: [],
-			},
+			initialState: { model: primaryModel, systemPrompt: ["Test"], tools: [], messages: [] },
 			streamFn: (model, context, options) => {
 				requestedModels.push(`${model.provider}/${model.id}`);
-				if (model.provider === primaryModel.provider && model.id === primaryModel.id) {
-					mock.push({ throw: "429 usage_limit_reached" });
-				} else {
+				if (model.id === primaryModel.id) primaryDepleted = true;
+				else if (++fallbackRequests > 1) {
 					mock.push({ content: [`ok:${model.provider}/${model.id}`] });
+					return mock.stream(model, context, options);
 				}
-				return mock.stream(model, context, options);
+				mock.push({ throw: "429 usage_limit_reached" });
+				return servedByCredential(mock.stream(model, context, options), 1);
 			},
 		});
-
-		// Rotation always claims a sibling credential is available — the shape
-		// of a multi-account pool where the sibling check passes but every
-		// subsequent request keeps failing on the same capped account.
 		vi.spyOn(modelRegistry.authStorage.limits, "markReached").mockResolvedValue({ switched: true });
-
-		const settings = Settings.isolated({
-			"compaction.enabled": false,
-			"retry.baseDelayMs": 5,
-			"retry.maxRetries": 2,
-			"retry.fallbackChains": {
-				[`${primaryModel.provider}/${primaryModel.id}`]: [`${fallbackModel.provider}/${fallbackModel.id}`],
-			},
-		});
-
+		// After the primary's first failure the preflight reports it depleted and
+		// moves to the fallback, which serves from the same credential rows.
+		vi.spyOn(modelRegistry.authStorage.health, "model").mockImplementation(async (_provider, options) =>
+			options.modelId === primaryModel.id && primaryDepleted
+				? {
+						state: "depleted",
+						accounts: [{ credentialId: 1, credentialType: "oauth", selected: true, state: "depleted" }],
+					}
+				: { state: "healthy", accounts: [] },
+		);
 		session = new AgentSession({
 			agent,
 			sessionManager: SessionManager.inMemory(),
-			settings,
+			settings: Settings.isolated({
+				"compaction.enabled": false,
+				"retry.baseDelayMs": 5,
+				"retry.usageAwareFallback": true,
+				"retry.fallbackChains": { [primary]: [fallback] },
+			}),
 			modelRegistry,
 		});
-		const { retryStartEvents, retryEndEvents } = trackRetryEvents(session);
+		const { retryEndEvents } = trackRetryEvents(session);
 
-		await session.prompt("Exhaust rotation, then fail over");
+		await session.prompt("Fail over mid-saga");
 		await session.waitForIdle();
 
-		// Two rotation retries burn the budget on the primary; the exhausted
-		// attempt consults the chain instead of giving up.
-		expect(requestedModels).toEqual([
-			`${primaryModel.provider}/${primaryModel.id}`,
-			`${primaryModel.provider}/${primaryModel.id}`,
-			`${primaryModel.provider}/${primaryModel.id}`,
-			`${fallbackModel.provider}/${fallbackModel.id}`,
-		]);
-		expect(session.model?.provider).toBe(fallbackModel.provider);
-		expect(session.model?.id).toBe(fallbackModel.id);
-		// The fallback model gets a fresh retry budget (attempt resets to 1).
-		expect(retryStartEvents.map(event => event.attempt)).toEqual([1, 2, 1]);
+		// Row 1's failure on the fallback is that model's first: the claimed
+		// switch is trusted instead of failing fast on the primary's record.
+		expect(requestedModels).toEqual([primary, fallback, fallback]);
+		expect(retryEndEvents).toHaveLength(1);
+		expect(retryEndEvents[0]).toMatchObject({ success: true });
+	});
+
+	it("trusts a credential switch on the primary restored mid-saga after its cooldown", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const fallbackModel = getBundledModel("anthropic", "claude-haiku-4-5");
+		if (!primaryModel || !fallbackModel) {
+			throw new Error("Expected bundled same-provider fallback models");
+		}
+		const primary = `${primaryModel.provider}/${primaryModel.id}`;
+		const fallback = `${fallbackModel.provider}/${fallbackModel.id}`;
+		const requestedModels: string[] = [];
+		let primaryRequests = 0;
+		let fallbackRequests = 0;
+		const mock = createMockModel();
+		const agent = new Agent({
+			getApiKey: model => `${model.provider}-test-key`,
+			initialState: { model: primaryModel, systemPrompt: ["Test"], tools: [], messages: [] },
+			streamFn: (model, context, options) => {
+				requestedModels.push(`${model.provider}/${model.id}`);
+				const succeeds = model.id === primaryModel.id ? ++primaryRequests > 2 : ++fallbackRequests > 1;
+				if (succeeds) {
+					mock.push({ content: [`ok:${model.provider}/${model.id}`] });
+					return mock.stream(model, context, options);
+				}
+				// The primary's cooldown runs out while the fallback is failing, so
+				// the next retry restores the primary.
+				if (model.id === fallbackModel.id) modelRegistry.clearSuppressedSelectors();
+				mock.push({ throw: "429 usage_limit_reached" });
+				return servedByCredential(mock.stream(model, context, options), 1);
+			},
+		});
+		// The primary's first failure finds no free sibling and falls back; every
+		// later failure claims a switch to a free sibling.
+		vi.spyOn(modelRegistry.authStorage.limits, "markReached")
+			.mockResolvedValueOnce({ switched: false })
+			.mockResolvedValue({ switched: true });
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settings: Settings.isolated({
+				"compaction.enabled": false,
+				"retry.baseDelayMs": 5,
+				"retry.fallbackChains": { [primary]: [fallback] },
+			}),
+			modelRegistry,
+		});
+		const { retryEndEvents } = trackRetryEvents(session);
+
+		await session.prompt("Restore the primary mid-saga");
+		await session.waitForIdle();
+
+		// Row 1's failure on the restored primary is new for that model: the
+		// claimed switch is trusted and the retry stays on the primary.
+		expect(requestedModels).toEqual([primary, fallback, primary, primary]);
 		expect(retryEndEvents).toHaveLength(1);
 		expect(retryEndEvents[0]).toMatchObject({ success: true });
 	});
@@ -6419,6 +6642,171 @@ describe("AgentSession retry fallback", () => {
 		expect(retryEndEvents).toEqual([expect.objectContaining({ success: true, attempt: 1 })]);
 		expect(session.isRetrying).toBe(false);
 		expect(getLastAssistantMessage(session).stopReason).toBe("stop");
+	});
+
+	describe("when a retry saga's session write throws", () => {
+		// A store that stops accepting writes (a full disk, an unwritable
+		// transcript, a serialization that runs out of memory) makes the writes a
+		// retry saga does before it resolves its retryPromise throw. The saga must
+		// close anyway: left open, the in-flight prompt() hangs behind the pending
+		// promise as in #5382, `isStreaming` stays true, and every later message,
+		// such as an extension's wake-up, is queued as a steer that never drains.
+		const transientError = "overloaded_error: provider returned error 503";
+		const delivery = "DELIVERY-1 from an extension";
+
+		type FailingWrite =
+			// The transcript rewrite that annotates the attempts the saga retried.
+			| "rewrite"
+			// The append of an empty error turn.
+			| "error-turn"
+			// The same append, failing only once the saga announced its first
+			// retry, so the attempt before it still records.
+			| "error-turn-after-first-retry";
+
+		async function expectSagaClosesDespiteFailedWrite(scenario: {
+			responses: MockResponse[];
+			settings: Record<string, unknown>;
+			failingWrite: FailingWrite;
+			success: boolean;
+		}): Promise<void> {
+			const model = getBundledModel("anthropic", "claude-sonnet-4-5");
+			if (!model) throw new Error("Expected bundled Anthropic test model to exist");
+			const mock = createMockModel();
+			const agent = new Agent({
+				getApiKey: requestedModel => `${requestedModel.provider}-test-key`,
+				initialState: { model, systemPrompt: ["Test"], tools: [], messages: [] },
+				// The coding-agent converter turns the extension message into model
+				// input, as it does in a real session.
+				convertToLlm,
+				streamFn: (requestedModel, context, options) => {
+					mock.push(scenario.responses[mock.calls.length] ?? { content: ["Woke for the delivery."] });
+					return mock.stream(requestedModel, context, options);
+				},
+			});
+			const settings = Settings.isolated({
+				"compaction.enabled": false,
+				"retry.baseDelayMs": 5,
+				...scenario.settings,
+			});
+			settings.setModelRole("default", `${model.provider}/${model.id}`);
+			const sessionManager = SessionManager.inMemory();
+			session = new AgentSession({ agent, sessionManager, settings, modelRegistry });
+			const { retryEndEvents } = trackRetryEvents(session);
+
+			let failedWrites = 0;
+			if (scenario.failingWrite === "rewrite") {
+				vi.spyOn(sessionManager, "rewriteEntries").mockImplementation(async () => {
+					failedWrites++;
+					throw new Error("EACCES: permission denied, open 'session.jsonl.tmp'");
+				});
+			} else {
+				let armed = scenario.failingWrite === "error-turn";
+				session.subscribe(event => {
+					if (event.type === "auto_retry_start") armed = true;
+				});
+				const appendMessage = sessionManager.appendMessage.bind(sessionManager);
+				vi.spyOn(sessionManager, "appendMessage").mockImplementation(message => {
+					if (armed && message.role === "assistant" && message.stopReason === "error") {
+						failedWrites++;
+						throw new RangeError("Out of memory");
+					}
+					return appendMessage(message);
+				});
+			}
+
+			await session.prompt("Fail, then settle the retry saga");
+
+			expect(failedWrites).toBeGreaterThan(0);
+			expect(session.isRetrying).toBe(false);
+			expect(session.isStreaming).toBe(false);
+			expect(retryEndEvents).toEqual([expect.objectContaining({ success: scenario.success })]);
+
+			const callsBeforeDelivery = mock.calls.length;
+			await session.sendCustomMessage(
+				{ customType: "test-delivery", content: delivery, display: true, attribution: "agent" },
+				{ deliverAs: "steer", triggerTurn: true },
+			);
+			await session.waitForIdle();
+			expect(mock.calls).toHaveLength(callsBeforeDelivery + 1);
+			expect(JSON.stringify(mock.calls.at(-1)?.context.messages)).toContain(delivery);
+			expect(getLastAssistantMessage(session).content).toEqual([{ type: "text", text: "Woke for the delivery." }]);
+		}
+
+		it("closes a saga that exhausted its retry budget", async () => {
+			await expectSagaClosesDespiteFailedWrite({
+				responses: [{ throw: transientError }, { throw: transientError }],
+				settings: { "retry.maxRetries": 1, "retry.modelFallback": false },
+				failingWrite: "rewrite",
+				success: false,
+			});
+		});
+
+		it("closes a saga whose retry succeeded", async () => {
+			await expectSagaClosesDespiteFailedWrite({
+				responses: [{ throw: transientError }, { content: ["Recovered after one retry."] }],
+				settings: { "retry.maxRetries": 1, "retry.modelFallback": false },
+				failingWrite: "rewrite",
+				success: true,
+			});
+		});
+
+		it("closes a saga that ended on a classifier refusal", async () => {
+			await expectSagaClosesDespiteFailedWrite({
+				responses: [
+					{ throw: transientError },
+					{
+						stopReason: "error",
+						stopDetails: { type: "refusal", category: "cyber", explanation: "Classifier declined." },
+						errorMessage: "Refusal (cyber): Classifier declined this retried turn.",
+					},
+				],
+				settings: { "retry.maxRetries": 2 },
+				failingWrite: "error-turn-after-first-retry",
+				success: false,
+			});
+		});
+
+		it("closes a saga whose hard error found no fallback to switch to", async () => {
+			const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
+			if (!fallbackModel) throw new Error("Expected bundled OpenAI test model to exist");
+			const getApiKey = modelRegistry.getApiKey.bind(modelRegistry);
+			vi.spyOn(modelRegistry, "getApiKey").mockImplementation((requestedModel, sessionId) =>
+				requestedModel.provider === fallbackModel.provider
+					? Promise.resolve(undefined)
+					: getApiKey(requestedModel, sessionId),
+			);
+			await expectSagaClosesDespiteFailedWrite({
+				responses: [{ throw: transientError }, { throw: "unrecoverable model quirk" }],
+				settings: {
+					"retry.maxRetries": 3,
+					"retry.fallbackChains": { "anthropic/*": [`${fallbackModel.provider}/${fallbackModel.id}`] },
+				},
+				failingWrite: "error-turn-after-first-retry",
+				success: false,
+			});
+		});
+
+		it("closes a saga whose provider asked to wait past retry.maxDelayMs", async () => {
+			await expectSagaClosesDespiteFailedWrite({
+				responses: [
+					{
+						throw: '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit. Please try again later."}} retry-after=11180.0005',
+					},
+				],
+				settings: { "retry.maxDelayMs": 100 },
+				failingWrite: "error-turn",
+				success: false,
+			});
+		});
+
+		it("closes a saga that could not record the attempt it was about to retry", async () => {
+			await expectSagaClosesDespiteFailedWrite({
+				responses: [{ throw: transientError }],
+				settings: { "retry.maxRetries": 1, "retry.modelFallback": false },
+				failingWrite: "error-turn",
+				success: false,
+			});
+		});
 	});
 
 	// `session.servingModel` is what the Agent Hub row reads for a live or
