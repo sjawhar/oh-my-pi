@@ -30,6 +30,7 @@ import type { ForeignSessionSource } from "../session/foreign-session-store";
 import type { HistoryStorage } from "../session/history-storage";
 import type { SessionContext } from "../session/session-context";
 import type { SessionManager } from "../session/session-manager";
+import type { RefreshSkillsOptions } from "../session/session-tools";
 import type { ShakeMode } from "../session/shake-types";
 import type { DictationTarget } from "../stt";
 import type { SessionInfo } from "../session/session-listing";
@@ -357,7 +358,8 @@ export interface InteractiveModeContext {
 	flushCompactionQueue(options?: { willRetry?: boolean }): Promise<void>;
 	flushPendingBashComponents(): void;
 	flushPendingModelSwitch(): Promise<void>;
-	setWorkingMessage(message?: string): void;
+	/** No argument restores the default; a function label is re-read on every spinner tick. */
+	setWorkingMessage(message?: string | (() => string)): void;
 	applyPendingWorkingMessage(): void;
 	ensureLoadingAnimation(): void;
 	/** Interrupt key id for a maintenance working row's stop control; undefined while Esc would not cancel it. */
@@ -500,8 +502,8 @@ export interface InteractiveModeContext {
 	): Promise<CompactionOutcome>;
 	openInBrowser(urlOrPath: string): void;
 	refreshSlashCommandState(cwd?: string): Promise<void>;
-	/** Reload session skills and derived `/skill:<name>` commands. */
-	refreshSkillState(): Promise<void>;
+	/** Reload session skills and derived `/skill:<name>` commands; `rediscover` re-emits `resources_discover`. */
+	refreshSkillState(options?: RefreshSkillsOptions): Promise<void>;
 	applyCwdChange(newCwd: string): Promise<boolean>;
 
 	// Selector handling

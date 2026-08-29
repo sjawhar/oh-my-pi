@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `stderrSharesStdoutTerminal()`, which reports whether stderr is the terminal stdout writes to ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+- A process stopped by SIGTERM now prints its registered recovery commands after the terminal is handed back, so a stopped omp session shows `omp --resume <id>` instead of leaving its last frame above the shell prompt like a crash.
+
 ## [18.12.2] - 2026-10-18
 
 ### Added
