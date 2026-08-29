@@ -101,6 +101,8 @@ import {
 import type { ForeignSessionInfo, ForeignSessionSource, ForeignSessionStore } from "./session/foreign-session-store";
 import { resolveResumableSession, type SessionInfo } from "./session/session-listing";
 import { ForkSourceNotFoundError, SessionManager } from "./session/session-manager";
+import { setDefaultSessionStorage } from "./session/session-storage";
+import { resolveSessionStorage, SessionStorageConfigError } from "./session/session-storage-config";
 import { shouldShowStartupSplash } from "./startup-splash";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "./system-prompt";
 import { createPersistedSubagentReviverFactory } from "./task/persisted-revive";
@@ -1721,6 +1723,22 @@ export async function runRootCommand(
 		}
 
 		const settingsInstance = await settingsPromise;
+		// Install the configured session storage before anything lists or opens a
+		// session — the startup composer's recent-sessions load and every
+		// SessionManager below read through this default. A refusal names only the
+		// variable or setting and the path; it never echoes the connection string.
+		try {
+			setDefaultSessionStorage(
+				await logger.time("resolveSessionStorage", resolveSessionStorage, {
+					settings: settingsInstance,
+					env: process.env,
+				}),
+			);
+		} catch (error) {
+			if (!(error instanceof SessionStorageConfigError)) throw error;
+			process.stderr.write(`${chalk.red(`Error: ${error.message}`)}\n`);
+			process.exit(1);
+		}
 		if (parsedArgs.approvalMode) {
 			// Runtime override (not persisted): every settings.get("tools.approvalMode") downstream
 			// sees this value. The wrapper still honours --auto-approve / --yolo on top of it.
@@ -1729,6 +1747,9 @@ export async function runRootCommand(
 			// --auto-approve / --yolo without an explicit --approval-mode: reflect in settings so
 			// setup-time checks (e.g. #wrapToolForAcpPermission) also see the yolo intent.
 			settingsInstance.override("tools.approvalMode", "yolo");
+		}
+		if (parsedArgs.reduceMotion) {
+			settingsInstance.override("display.reduceMotion", parsedArgs.reduceMotion);
 		}
 		if (parsedArgs.mode === "rpc" || parsedArgs.mode === "rpc-ui") {
 			applyRpcDefaultSettingOverrides(settingsInstance);
