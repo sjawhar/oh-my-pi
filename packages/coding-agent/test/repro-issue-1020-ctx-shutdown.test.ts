@@ -38,7 +38,9 @@ async function createHost(initializeUi: boolean) {
 		shutdownRequested: false,
 		syncComposerShape() {},
 		session: {
+			getAgentId: () => undefined,
 			extensionRunner: runner,
+			discoverStartupSkillPaths: async () => {},
 			get isStreaming() {
 				return state.streaming;
 			},
