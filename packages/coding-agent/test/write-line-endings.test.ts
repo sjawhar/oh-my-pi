@@ -84,10 +84,15 @@ describe("write tool keeps the replaced file's line endings and BOM", () => {
 		expect(await fs.readFile(filePath, "utf8")).toBe("\uFEFFclass A {}\r\nclass B {}\r\n");
 		expect(resultText(writeResult)).toContain("Note: kept the replaced file's CRLF line endings and UTF-8 BOM.");
 
+		// A write numbers no line, so the first line-anchored edit under its tag is
+		// refused with a reveal of the anchor; the identical retry then applies.
 		const headerLine = resultText(writeResult).split("\n")[0] ?? "";
-		await new EditTool(session, "hashline").execute("call-2", {
-			input: `${headerLine}\nPUT 2.=2:\n+class C {}\n`,
-		});
+		const edit = new EditTool(session, "hashline");
+		const patchInput = `${headerLine}\nPUT 2.=2:\n+class C {}\n`;
+		const refused = await edit.execute("call-2", { input: patchInput });
+		expect(refused.isError).toBe(true);
+		expect(await fs.readFile(filePath, "utf8")).toBe("\uFEFFclass A {}\r\nclass B {}\r\n");
+		await edit.execute("call-3", { input: patchInput });
 		expect(await fs.readFile(filePath, "utf8")).toBe("\uFEFFclass A {}\r\nclass C {}\r\n");
 	});
 

@@ -2,6 +2,7 @@ import type { AssistantMessage, ImageContent } from "@oh-my-pi/pi-ai";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import { getStreamingPartialJson } from "@oh-my-pi/pi-ai/utils/block-symbols";
 import { type Component, Loader, TERMINAL } from "@oh-my-pi/pi-tui";
+import { isReduceMotion } from "@oh-my-pi/pi-tui/reduce-motion";
 import { formatDuration, isRecord, logger, sanitizeText } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import { extractTextContent } from "../../commit/utils";
@@ -359,13 +360,13 @@ export class EventController {
 				: null,
 		);
 		this.#streamingReveal = new StreamingRevealController({
-			getSmoothStreaming: () => cfgDisplaySmoothStreaming.get(this.ctx.settings),
+			getSmoothStreaming: () => cfgDisplaySmoothStreaming.get(this.ctx.settings) && !isReduceMotion(),
 			getHideThinkingBlock: () => this.ctx.effectiveHideThinkingBlock,
 			getProseOnlyThinking: () => this.ctx.proseOnlyThinking,
 			requestRender: component => this.ctx.ui.requestComponentRender(component),
 		});
 		this.#toolArgsReveal = new ToolArgsRevealController({
-			getSmoothStreaming: () => cfgDisplaySmoothStreaming.get(this.ctx.settings),
+			getSmoothStreaming: () => cfgDisplaySmoothStreaming.get(this.ctx.settings) && !isReduceMotion(),
 			requestRender: component => this.ctx.ui.requestComponentRender(component),
 		});
 		this.composerPrediction = new ComposerPredictionController(ctx);
@@ -2421,6 +2422,14 @@ export class EventController {
 		this.#settleWatchEpoch = undefined;
 		const session = this.ctx.session;
 		try {
+			// The abort alone no longer means "stay quiet": an interrupt that stops no
+			// run leaves the session free to wake on its own jobs, which is the point of
+			// that rule. Ending this wait is the one gesture that does mean it, so say so
+			// explicitly — the results of the jobs this row was waiting for land in
+			// context, and the next deliberate prompt releases the session again. Said
+			// before the abort is awaited: a job that finishes inside that window would
+			// otherwise still start a turn.
+			session.suppressAutoResumeUntilPrompt();
 			await session.abort({ reason: USER_INTERRUPT_LABEL });
 			await this.#runSerialized(async () => {
 				if (this.ctx.session !== session || session.isStreaming) return;
