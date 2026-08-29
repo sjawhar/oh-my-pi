@@ -14,7 +14,11 @@ import * as path from "node:path";
 import { expandPromptTemplate, type PromptTemplate } from "@oh-my-pi/pi-coding-agent/config/prompt-templates";
 import { expandSlashCommand, type FileSlashCommand } from "@oh-my-pi/pi-coding-agent/extensibility/slash-commands";
 import { AgentRegistry, MAIN_AGENT_ID } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
-import { collectIrcPeerRoster } from "@oh-my-pi/pi-coding-agent/task/executor";
+import {
+	collectIrcPeerRoster,
+	type IrcPeerRosterSnapshot,
+	snapshotIrcPeerRoster,
+} from "@oh-my-pi/pi-coding-agent/task/executor";
 import { parseCommandArgs, substituteArgs } from "@oh-my-pi/pi-coding-agent/utils/command-args";
 import { prompt } from "@oh-my-pi/pi-utils";
 
@@ -386,5 +390,32 @@ describe("subagent peer roster prompt", () => {
 		expect(rendered).not.toContain("ParkedSecretId");
 		expect(rendered).not.toContain("secret parked label");
 		expect(rendered).not.toContain("reviewing classified.diff");
+	});
+
+	// A rebuilt prompt with a re-collected roster changes bytes at every peer's new activity, and
+	// Anthropic then rewrites the whole cached conversation after it.
+	test("a rebuilt prompt keeps the roster it first rendered while peers' activity changes", () => {
+		const registry = new AgentRegistry();
+		registry.register({
+			id: "Peer",
+			displayName: "deep",
+			kind: "sub",
+			session: null,
+			status: "running",
+			activity: "reading a.ts",
+		});
+		const inputs: { ircRoster?: IrcPeerRosterSnapshot } = {};
+
+		const first = snapshotIrcPeerRoster(inputs, registry, "Child", "/root-a.jsonl");
+		registry.setActivity("Peer", "editing b.ts");
+		registry.register({ id: "Late", displayName: "reviewer", kind: "sub", session: null, status: "running" });
+		const rebuilt = snapshotIrcPeerRoster(inputs, registry, "Child", "/root-a.jsonl");
+		expect(rebuilt).toEqual(first);
+		expect(rebuilt.peers.map(peer => peer.activity)).toEqual(["reading a.ts"]);
+
+		// A revive into another roster root collects again, so stale trees stay hidden.
+		const moved = snapshotIrcPeerRoster(inputs, registry, "Child", "/root-b.jsonl");
+		expect(moved.peers.map(peer => peer.id).sort()).toEqual(["Late", "Peer"]);
+		expect(moved.peers.find(peer => peer.id === "Peer")?.activity).toBe("editing b.ts");
 	});
 });
