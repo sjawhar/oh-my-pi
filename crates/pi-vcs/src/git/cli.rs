@@ -10,7 +10,8 @@
 //! non-interactive env (`GIT_TERMINAL_PROMPT=0`, askpass rejection, `LC_ALL`
 //! handling), `--no-optional-locks` for reads, fsmonitor/untracked-cache
 //! disabled, ambient `GIT_DIR`-family vars stripped, bounded output capture,
-//! and deadline + SIGTERM→SIGKILL termination via tokio.
+//! and deadline + SIGTERM→SIGKILL termination on both the async and sync
+//! runners (git releases its lock files from its SIGTERM handler only).
 
 use std::{path::Path, process::Stdio, time::Duration};
 
@@ -215,8 +216,17 @@ pub(crate) fn is_spawn_failure(err: &Error) -> bool {
 /// [`SYNC_TIMEOUT`] so a stalled git cannot freeze the UI. Stdout/stderr are
 /// drained concurrently with capped retention, so output larger than the OS
 /// pipe buffer can never stall the child into a spurious timeout.
-pub(crate) fn run_sync(cwd: &Path, args: &[String], timeout: Duration) -> Result<CliOutput> {
-	let argv = hardened_args(args, true);
+///
+/// `allow_index_refresh` permits the one opportunistic write git performs on a
+/// read: persisting the index stat cache it just refreshed. Every other
+/// optional lock stays disabled. See [`run_sync_refreshing`].
+pub(crate) fn run_sync_with(
+	cwd: &Path,
+	args: &[String],
+	timeout: Duration,
+	allow_index_refresh: bool,
+) -> Result<CliOutput> {
+	let argv = hardened_args(args, !allow_index_refresh);
 	let mut cmd = std::process::Command::new("git");
 	cmd.args(&argv)
 		.current_dir(cwd)
@@ -237,7 +247,13 @@ pub(crate) fn run_sync(cwd: &Path, args: &[String], timeout: Duration) -> Result
 		cmd.env_remove(stripped);
 	}
 	cmd.env("LC_MESSAGES", "C");
-	cmd.env("GIT_OPTIONAL_LOCKS", "0");
+	if allow_index_refresh {
+		// `--no-optional-locks` and `GIT_OPTIONAL_LOCKS=0` are the same switch;
+		// pinning the env var would re-disable what the argv opted into.
+		cmd.env_remove("GIT_OPTIONAL_LOCKS");
+	} else {
+		cmd.env("GIT_OPTIONAL_LOCKS", "0");
+	}
 	cmd.env("GIT_TERMINAL_PROMPT", "0");
 	let mut child = cmd.spawn().map_err(|err| spawn_error(cwd, err))?;
 	let stdout = spawn_sync_reader("git-cli-stdout", child.stdout.take());
@@ -248,8 +264,7 @@ pub(crate) fn run_sync(cwd: &Path, args: &[String], timeout: Duration) -> Result
 		match child.try_wait()? {
 			Some(status) => break Some(status),
 			None if std::time::Instant::now() >= deadline => {
-				let _ = child.kill();
-				let _ = child.wait();
+				terminate_sync(&mut child, TERMINATE_GRACE);
 				break None;
 			},
 			None => std::thread::sleep(Duration::from_millis(10)),
@@ -263,6 +278,60 @@ pub(crate) fn run_sync(cwd: &Path, args: &[String], timeout: Duration) -> Result
 		return Err(Error::CliTimeout { command: format!("git {}", argv.join(" ")) });
 	};
 	Ok(CliOutput { exit_code: status.code().unwrap_or(-1), stdout, stderr })
+}
+
+/// Read runner that keeps every optional lock disabled.
+pub(crate) fn run_sync(cwd: &Path, args: &[String], timeout: Duration) -> Result<CliOutput> {
+	run_sync_with(cwd, args, timeout, false)
+}
+
+/// Read runner that lets git persist the index stat cache it refreshed.
+///
+/// Deviates from the blanket read-only hardening for whole-worktree status
+/// only, and deliberately. `git status` re-stats every entry; without the
+/// write-back that work is discarded and repeated on the next call. An index
+/// with no stat data — which is how every worktree `jj workspace add` creates
+/// starts — therefore re-reads and re-hashes the whole tree on every single
+/// status, measured here at 42s wall on a 94k-entry checkout, with
+/// `--no-optional-locks` turning a one-time cost into a permanent one.
+///
+/// Safe under concurrency by construction: the lock is *optional*, so git
+/// skips the write when another process holds `index.lock` rather than
+/// waiting or failing. The fsmonitor and untracked-cache pins in
+/// [`hardened_args`] still apply, so the transient-subprocess state mutation
+/// that hardening targets remains blocked — only the stat refresh is allowed
+/// through.
+pub(crate) fn run_sync_refreshing(
+	cwd: &Path,
+	args: &[String],
+	timeout: Duration,
+) -> Result<CliOutput> {
+	run_sync_with(cwd, args, timeout, true)
+}
+
+/// SIGTERM, grace period, then SIGKILL — the synchronous twin of [`terminate`].
+///
+/// git unlinks its lock files (`index.lock`, ref locks) from its SIGTERM
+/// handler and cannot on SIGKILL. A deadline that only SIGKILLs leaves a stale
+/// lock behind, and every later write in that worktree fails until someone
+/// deletes it by hand.
+fn terminate_sync(child: &mut std::process::Child, grace: Duration) {
+	#[cfg(unix)]
+	{
+		// SAFETY: plain kill(2) on a pid we own; no memory is touched.
+		unsafe {
+			libc::kill(child.id() as i32, libc::SIGTERM);
+		}
+		let deadline = std::time::Instant::now() + grace;
+		while std::time::Instant::now() < deadline {
+			if matches!(child.try_wait(), Ok(Some(_))) {
+				return;
+			}
+			std::thread::sleep(Duration::from_millis(10));
+		}
+	}
+	let _ = child.kill();
+	let _ = child.wait();
 }
 
 /// Drain a child stream on a helper thread, mirroring [`read_capped`].
@@ -487,4 +556,72 @@ pub async fn clone(
 		}
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// A deadline-killed git must receive SIGTERM before SIGKILL. git unlinks
+	/// its lock files (`index.lock`, ref locks) from its SIGTERM handler and
+	/// cannot on SIGKILL, so a SIGKILL-only deadline leaves a stale lock that
+	/// fails every later write in that worktree until a human deletes it.
+	///
+	/// A `!` alias stands in for git holding `index.lock`: git runs the alias
+	/// shell with `clean_on_exit`, forwarding the SIGTERM it receives to the
+	/// shell and waiting for it — the same handler that unlinks its own locks.
+	#[cfg(unix)]
+	#[test]
+	fn run_sync_deadline_lets_git_release_its_locks()
+	-> std::result::Result<(), Box<dyn std::error::Error>> {
+		use std::os::unix::fs::PermissionsExt;
+		let dir = tempfile::tempdir()?;
+		let lock = dir.path().join("index.lock");
+		let script = dir.path().join("hold-lock.sh");
+		const HOLD_LOCK: &str = "#!/bin/sh
+touch \"$1\"
+trap 'rm -f \"$1\"; kill $sleeper; exit 143' TERM
+sleep 60 & sleeper=$!
+wait $sleeper
+";
+		std::fs::write(&script, HOLD_LOCK)?;
+		std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))?;
+		let args = [
+			"-c".to_owned(),
+			format!("alias.hold-lock=!{}", script.display()),
+			"hold-lock".to_owned(),
+			lock.display().to_string(),
+		];
+		let started = std::time::Instant::now();
+		let err = run_sync(dir.path(), &args, Duration::from_millis(300)).unwrap_err();
+		assert!(matches!(err, Error::CliTimeout { .. }), "{err:?}");
+		assert!(
+			!lock.exists(),
+			"git never got to run its SIGTERM handler: the lock it held survived the deadline"
+		);
+		assert!(
+			started.elapsed() < TERMINATE_GRACE,
+			"child honoured SIGTERM but the runner still waited out the grace period"
+		);
+		Ok(())
+	}
+
+	/// A child that ignores SIGTERM is still killed once the grace period
+	/// elapses; the deadline stays a bound, not a request.
+	#[cfg(unix)]
+	#[test]
+	fn terminate_sync_kills_a_child_that_ignores_sigterm()
+	-> std::result::Result<(), Box<dyn std::error::Error>> {
+		let mut child = std::process::Command::new("sh")
+			.args(["-c", "trap '' TERM; sleep 60"])
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::null())
+			.spawn()?;
+		let started = std::time::Instant::now();
+		terminate_sync(&mut child, Duration::from_millis(200));
+		assert!(child.try_wait()?.is_some(), "child outlived the grace period");
+		assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
+		Ok(())
+	}
 }
