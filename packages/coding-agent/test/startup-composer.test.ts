@@ -797,22 +797,51 @@ describe("Composer prepaint", () => {
 			.join("\n");
 		expect(output).toContain("rust-analyzer");
 	});
-	it("transfers the in-flight recent-session load across composer ownership", async () => {
+	it("starts the recent-session load once preferences arrive and transfers it across composer ownership", async () => {
+		// The list reads through the process-wide session storage, which main.ts
+		// installs right after settings resolve — the same moment preferences are
+		// applied. Loading at begin time would list the file tree under `sql`.
 		const terminal = new CountingTerminal(80, 32);
 		const load = Promise.withResolvers<Array<{ name: string; timeAgo: string }>>();
+		let loads = 0;
 		beginStartupComposer({
 			preferences: config,
 			terminal,
 			version: "9.9.9",
 			cache: false,
-			recentSessions: () => load.promise,
+			recentSessions: () => {
+				loads++;
+				return load.promise;
+			},
 		});
+		expect(loads).toBe(0);
+
+		applyStartupComposerPreferences({ ...config, theme: {} });
+		expect(loads).toBe(1);
 
 		const lease = takeStartupComposerLease();
 		expect(lease).toBeDefined();
 		const rows = [{ name: "already loading", timeAgo: "just now" }];
 		load.resolve(rows);
 		expect(await lease?.recentSessions).toEqual(rows);
+		lease?.dispose();
+	});
+	it("a lease taken before preferences carries no recent-session load", () => {
+		const terminal = new CountingTerminal(80, 32);
+		let loads = 0;
+		beginStartupComposer({
+			preferences: config,
+			terminal,
+			version: "9.9.9",
+			cache: false,
+			recentSessions: () => {
+				loads++;
+				return Promise.resolve([]);
+			},
+		});
+		const lease = takeStartupComposerLease();
+		expect(lease?.recentSessions).toBeUndefined();
+		expect(loads).toBe(0);
 		lease?.dispose();
 	});
 	it("defers raw input until resolved settings arrive, adoption as fallback", async () => {

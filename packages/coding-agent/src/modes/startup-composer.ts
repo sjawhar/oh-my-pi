@@ -2,7 +2,7 @@ import type { Terminal } from "@oh-my-pi/pi-tui";
 import { logger } from "@oh-my-pi/pi-utils";
 import { getRecentSessions } from "../session/session-listing";
 import { computeDefaultSessionDir } from "../session/session-paths";
-import { FileSessionStorage } from "../session/session-storage";
+import { defaultSessionStorage } from "../session/session-storage";
 import type { LspServerInfo, RecentSession } from "./components/welcome";
 import { COMPOSER_DEFAULTS, Composer, type ComposerPreferences, type ComposerWelcomeUpdate } from "./composer";
 import {
@@ -36,6 +36,8 @@ interface PendingComposer {
 	readonly composer: Composer;
 	readonly cwd: string;
 	readonly cache: boolean;
+	/** Caller-supplied loader; the load starts once preferences (and the session storage) are in. */
+	readonly loadRecentSessions?: () => Promise<RecentSession[]>;
 	recentSessions?: Promise<RecentSession[] | undefined>;
 }
 
@@ -69,7 +71,11 @@ export class ComposerLease {
 	}
 }
 
-/** Start the canonical Composer with speculative cached state, then refresh recent sessions. */
+/**
+ * Start the canonical Composer with speculative cached state. The recent-sessions
+ * refresh waits for {@link applyStartupComposerPreferences}: settings are resolved
+ * there, and so is the session storage the list reads through.
+ */
 export function beginStartupComposer(options: PrepaintComposerOptions = {}): void {
 	if (pendingComposer) throw new Error("A prepaint composer is already active");
 	const cwd = options.cwd ?? process.cwd();
@@ -110,9 +116,8 @@ export function beginStartupComposer(options: PrepaintComposerOptions = {}): voi
 		} catch {}
 		throw error;
 	}
-	const pending: PendingComposer = { composer, cwd, cache: useCache };
+	const pending: PendingComposer = { composer, cwd, cache: useCache, loadRecentSessions: options.recentSessions };
 	pendingComposer = pending;
-	pending.recentSessions = refreshRecentSessions(pending, options.recentSessions);
 }
 
 /** Take the live prepaint composer away from the module-level startup owner. */
@@ -128,10 +133,15 @@ export function stopPendingStartupComposer(): void {
 	pendingComposer = undefined;
 }
 
-/** Apply final settings to the pending Composer and cache them for the next first frame. */
+/**
+ * Apply final settings to the pending Composer and cache them for the next first frame.
+ * Also starts the recent-sessions refresh: settings resolved means the configured
+ * session storage is installed, so the list reads the right store.
+ */
 export function applyStartupComposerPreferences(update: PrepaintComposerPreferences): void {
 	const pending = pendingComposer;
 	if (!pending) return;
+	pending.recentSessions ??= refreshRecentSessions(pending, pending.loadRecentSessions);
 	const preferences: ComposerPreferences = {
 		quiet: update.quiet,
 		composerShape: update.composerShape,
@@ -190,7 +200,7 @@ async function refreshRecentSessions(
 }
 
 async function loadRecentSessions(cwd: string): Promise<RecentSession[]> {
-	const storage = new FileSessionStorage();
+	const storage = defaultSessionStorage();
 	const dir = computeDefaultSessionDir(cwd, storage);
 	const list = await getRecentSessions(dir, 4, storage);
 	return list.map(session => ({ name: session.name, timeAgo: session.timeAgo }));
