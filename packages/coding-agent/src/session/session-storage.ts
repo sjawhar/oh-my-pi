@@ -931,12 +931,46 @@ export class FileSessionStorage implements SessionStorage {
 	}
 }
 
-function matchesPattern(name: string, pattern: string): boolean {
+let defaultStorage: SessionStorage | undefined;
+
+/**
+ * The storage every session factory, listing, resume, and maintenance path
+ * falls back to when the caller passes none. Lazily a {@link FileSessionStorage}
+ * (stateless, so one shared instance is safe); {@link setDefaultSessionStorage}
+ * replaces it with the configured storage before the first session is opened,
+ * so `--resume`, the resume picker, `--continue`, and listing all read the same
+ * store the session is written to.
+ */
+export function defaultSessionStorage(): SessionStorage {
+	defaultStorage ??= new FileSessionStorage();
+	return defaultStorage;
+}
+
+/** Install the process-wide default storage. Call before any session is opened. */
+export function setDefaultSessionStorage(storage: SessionStorage): void {
+	defaultStorage = storage;
+}
+
+function matchesPatternSegment(name: string, pattern: string): boolean {
 	if (pattern === "*") return true;
 	if (pattern.startsWith("*.")) {
 		return name.endsWith(pattern.slice(1));
 	}
 	return name === pattern;
+}
+
+/**
+ * Match a slash-joined path remainder against a pattern of the same shape
+ * (a single segment such as `"*.jsonl"`, or a wildcard project directory
+ * followed by `"*.jsonl"` for the one-level cross-project case). Segment
+ * counts must agree, so a direct child never matches a two-segment pattern
+ * and a nested key never matches a one-segment one.
+ */
+function matchesPattern(name: string, pattern: string): boolean {
+	const nameParts = name.split("/");
+	const patternParts = pattern.split("/");
+	if (nameParts.length !== patternParts.length) return false;
+	return nameParts.every((part, i) => matchesPatternSegment(part, patternParts[i]));
 }
 
 class MemorySessionStorageWriter implements SessionStorageWriter {
@@ -1193,7 +1227,7 @@ export class MemorySessionStorage implements SessionStorage {
 		for (const path of this.#files.keys()) {
 			if (!path.startsWith(prefix)) continue;
 			const name = path.slice(prefix.length);
-			if (name.includes("/") || name.includes("\\")) continue;
+			if (name.includes("\\")) continue;
 			if (!matchesPattern(name, pattern)) continue;
 			files.push(path);
 		}
