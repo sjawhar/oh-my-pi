@@ -445,6 +445,7 @@ export class CollabGuestLink {
 		if (switched === false) {
 			throw new Error("Collab replica activation was cancelled");
 		}
+		const orphanedLiveBlocks = [...this.#ctx.pendingTools.values()];
 		this.#clearTransientUi();
 		this.#clearAgentMirror();
 		this.state = pending.state;
@@ -455,8 +456,28 @@ export class CollabGuestLink {
 		this.#ctx.syncRunningSubagentBadge();
 		this.#assistantStreamSynced = false;
 		setSessionTerminalTitle(pending.state.sessionName ?? pending.header.title, pending.state.cwd);
-		this.#ctx.chatContainer.disposeChildren();
-		await this.#ctx.renderInitialMessages({ clearTerminalHistory: true });
+		// No eager teardown here: renderInitialMessages() stages the replacement
+		// transcript and disposes the visible children only when the staged tree
+		// commits (ui-helpers), which both preserves its atomicity/rollback
+		// behavior and unregisters live tool blocks from the shared spinner
+		// ticker via ToolExecutionComponent.dispose().
+		try {
+			await this.#ctx.renderInitialMessages({ clearTerminalHistory: true });
+		} catch (err) {
+			// #clearTransientUi() above already dropped these blocks from
+			// pendingTools, and a failed renderInitialMessages() restores the
+			// untouched visible container without disposing its children (its own
+			// rollback only tears down the staged tree that never committed): with
+			// no remaining reference to these blocks, nothing would ever call
+			// dispose() on them again, leaking their shared-ticker registration for
+			// the rest of the process. Stop them in place — the caller's
+			// apply-chain catch preserves the rendered rows, only the ticker
+			// registration needs to go.
+			for (const handle of orphanedLiveBlocks) {
+				handle.dispose?.();
+			}
+			throw err;
+		}
 		await this.#ctx.reloadTodos();
 		this.#updateStatusSegment();
 		this.#readOnly = pending.readOnly;

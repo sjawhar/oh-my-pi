@@ -94,10 +94,22 @@ impl GitRepo {
 				.unwrap_or(&self.info.common_dir)
 				.to_owned();
 		}
-		if self.is_linked_worktree() {
-			return self.info.common_dir.clone();
+		// A common dir that is not literally `.git` is a relocated git dir —
+		// a submodule's internal store (`<super>/.git/modules/<name>`) or a
+		// `--separate-git-dir` checkout — whether reached directly or through
+		// one of its linked worktrees. Prefer its explicit `core.worktree`
+		// pointer, the indirection git itself follows. `--separate-git-dir`
+		// alone (with no further override) writes no `core.worktree`, so a
+		// direct access has no way to recover its own checkout path from the
+		// common dir's config, and neither does a linked worktree of it —
+		// both resolve to the common dir path itself, matching what `git
+		// worktree list` itself reports for that checkout, so they still
+		// agree. Bare repositories carry no `core.worktree` either, so their
+		// worktrees keep collapsing on the shared common dir the same way.
+		if let Some(worktree) = configured_worktree(&self.info.common_dir) {
+			return worktree;
 		}
-		self.info.repo_root.clone()
+		self.info.common_dir.clone()
 	}
 
 	/// Linked-worktree metadata, or `None` for the primary checkout.
@@ -241,6 +253,88 @@ fn read_optional(path: &Path) -> Option<String> {
 	std::fs::read_to_string(path).ok()
 }
 
+/// Resolve a git dir's explicit `core.worktree` override to an absolute
+/// path — the mechanism `git submodule` and `git init --separate-git-dir`
+/// both use to point a git dir at a work tree that is not its own parent
+/// directory. `None` when unset, the ordinary case. Read textually: the
+/// discovery paths this serves must stay gix-free.
+fn configured_worktree(git_dir: &Path) -> Option<PathBuf> {
+	let content = read_optional(&git_dir.join("config"))?;
+	let worktree = parse_core_worktree(&content)?;
+	let path = Path::new(&worktree);
+	if path.is_absolute() {
+		Some(normalize_path(path))
+	} else {
+		Some(normalize_path(&git_dir.join(path)))
+	}
+}
+
+/// Parse `core.worktree` out of git-config text. Sections and keys compare
+/// case-insensitively; subsections (`[core "x"]`) never match; quoted values
+/// unescape git's backslash escapes, unquoted values drop trailing `#`/`;`
+/// comments. Scans the whole file and keeps the last assignment seen —
+/// git's own precedence for a repeated scalar key — rather than stopping at
+/// the first match.
+fn parse_core_worktree(content: &str) -> Option<String> {
+	let mut in_core = false;
+	let mut worktree = None;
+	for raw in content.lines() {
+		let line = raw.trim();
+		if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+			continue;
+		}
+		if let Some(section) = line.strip_prefix('[') {
+			in_core = section
+				.strip_suffix(']')
+				.is_some_and(|name| name.trim().eq_ignore_ascii_case("core"));
+			continue;
+		}
+		if !in_core {
+			continue;
+		}
+		let Some((key, value)) = line.split_once('=') else {
+			continue;
+		};
+		if !key.trim().eq_ignore_ascii_case("worktree") {
+			continue;
+		}
+		let value = value.trim();
+		let value = if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
+			unescape_config_value(&value[1..value.len() - 1])
+		} else if let Some(comment) = value.find(['#', ';']) {
+			value[..comment].trim_end().to_owned()
+		} else {
+			value.to_owned()
+		};
+		worktree = if value.is_empty() { None } else { Some(value) };
+	}
+	worktree
+}
+
+/// Unescape a double-quoted git-config value's body: `\\` and `\"` for the
+/// backslash and quote characters the surrounding quotes require escaping,
+/// plus the `\n`/`\t`/`\b` control-character escapes git's own config
+/// parser recognizes. Any other `\x` drops the backslash and keeps `x`
+/// literally, matching git's parser.
+fn unescape_config_value(quoted: &str) -> String {
+	let mut out = String::with_capacity(quoted.len());
+	let mut chars = quoted.chars();
+	while let Some(ch) = chars.next() {
+		if ch != '\\' {
+			out.push(ch);
+			continue;
+		}
+		match chars.next() {
+			Some('n') => out.push('\n'),
+			Some('t') => out.push('\t'),
+			Some('b') => out.push('\u{8}'),
+			Some(escaped) => out.push(escaped),
+			None => {},
+		}
+	}
+	out
+}
+
 /// Lexically normalize `.`/`..` segments without touching the filesystem, so
 /// relative `gitdir`/`commondir` pointers resolve the same way git does.
 pub(crate) fn normalize_path(path: &Path) -> PathBuf {
@@ -346,5 +440,26 @@ mod tests {
 		assert_eq!(parse_gitdir_pointer("gitdir:../relative"), Some("../relative"));
 		assert_eq!(parse_gitdir_pointer("not a pointer"), None);
 		assert_eq!(parse_gitdir_pointer("gitdir:   "), None);
+	}
+
+	#[test]
+	fn core_worktree_repeated_key_honors_last_occurrence() {
+		// Git itself applies a repeated scalar key in file order, last wins —
+		// `git config --get core.worktree` on this exact text returns `/main`.
+		assert_eq!(
+			parse_core_worktree("[core]\n\tworktree = /wrong\n\tworktree = /main\n"),
+			Some("/main".to_owned())
+		);
+	}
+
+	#[test]
+	fn core_worktree_decodes_quoted_escapes() {
+		// A submodule checkout named `sub"quote` produces this literal text
+		// (verified against real git 2.43): the quote is escaped, and the
+		// backslash preceding it must not survive into the resolved path.
+		assert_eq!(
+			parse_core_worktree("[core]\n\tworktree = \"../../../sub\\\"quote\"\n"),
+			Some(r#"../../../sub"quote"#.to_owned())
+		);
 	}
 }
