@@ -45,6 +45,7 @@ import { replaceFileAtomically } from "../utils/atomic-file";
 import { type EditMode, normalizeEditMode } from "../utils/edit-mode";
 import { isSearchProviderId, SEARCH_PROVIDER_ORDER } from "../web/search/types";
 import { stringifyYamlConfig } from "./config-file";
+import { type ReduceMotionLevel, setReduceMotionLevel } from "./reduce-motion";
 import { validateAgentServiceTierOverrides } from "./service-tier";
 import {
 	type BashInterceptorRule,
@@ -622,6 +623,7 @@ export class Settings {
 		return promise.then(
 			instance => {
 				globalInstance = instance;
+				setReduceMotionLevel(instance.get("display.reduceMotion"));
 				clearBoundSettingsMethods();
 				globalInstancePromise = Promise.resolve(instance);
 				return instance;
@@ -786,6 +788,10 @@ export class Settings {
 		}
 		if (path === "statusLine.sessionAccent") {
 			statusLineSessionAccentSignal.fire();
+		}
+		if (path === "display.reduceMotion") {
+			if (this === globalInstance) setReduceMotionLevel(value as ReduceMotionLevel);
+			reduceMotionSignal.fire();
 		}
 		if (path === "modelRoles") {
 			modelRolesSignal.fire();
@@ -3313,6 +3319,10 @@ export const onExtendedContextChanged = (cb: () => void) => extendedContextSigna
 /** Fires when `statusLine.sessionAccent` changes at runtime. */
 const statusLineSessionAccentSignal = new SettingSignal("statusLine.sessionAccent");
 
+const reduceMotionSignal = new SettingSignal("display.reduceMotion");
+
+export const onReduceMotionChanged: (cb: () => void) => () => void = reduceMotionSignal.on.bind(reduceMotionSignal);
+
 /**
  * Subscribe to session-accent setting changes.
  * Returns an unsubscribe function. Callers should re-read settings in the callback.
@@ -3420,6 +3430,7 @@ export function resetSettingsForTest(): void {
 	globalInstance = null;
 	globalInstancePromise = null;
 	clearBoundSettingsMethods();
+	setReduceMotionLevel("off");
 	configureProviderMaxInFlightRequests(undefined);
 	configureCredentialRedaction(false);
 }
