@@ -44,7 +44,7 @@ import { bottomBorder, divider, row, topBorder } from "../overlay-box";
 import { ExtensionList } from "./extension-list";
 import { InspectorPanel, type ToolRuntimeSource } from "./inspector-panel";
 import { snapshotToolRuntimeSource } from "./live-tool-session";
-import { applyMcpToggleRuntime, mcpServerNeedsProviderTeardown } from "./mcp-runtime";
+import { applyMcpToggleRuntime } from "./mcp-runtime";
 import {
 	applyDisabledExtensionsToState,
 	applyFilter,
@@ -326,8 +326,11 @@ export class ExtensionDashboard implements Component {
 
 	/**
 	 * Provider disable is discovery-only: do not rewrite mcp.json. Disconnect
-	 * live MCP servers owned by this provider so their tools leave the session.
-	 * Re-enable does not auto-connect — startup/reload still owns that.
+	 * the MCP servers owned by this provider so their tools leave the session.
+	 * Every server, not only the connected ones: a lost remote server reads
+	 * "disconnected" between its scheduled reconnects, and only
+	 * `disconnectServer` ends that schedule. Re-enable does not auto-connect —
+	 * startup/reload still owns that.
 	 */
 	async #disconnectProviderMcpServers(providerId: string, level?: "user" | "project"): Promise<void> {
 		const names = [
@@ -338,8 +341,7 @@ export class ExtensionDashboard implements Component {
 							ext.kind === "mcp" &&
 							ext.source.provider === providerId &&
 							(level === undefined || ext.source.level === level) &&
-							!isShadowedExtension(ext) &&
-							mcpServerNeedsProviderTeardown(this.mcpManager, ext.name),
+							!isShadowedExtension(ext),
 					)
 					.map(ext => ext.name),
 			),
