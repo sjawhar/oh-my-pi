@@ -669,6 +669,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
 		args: Vec<CommandArg>,
 	) -> ExecutionSpawnResult {
 		let last_arg = Self::take_last_arg(&args);
+		let exit_params = params.clone();
 		let join_handle = tokio::task::spawn_blocking(move || {
 			let cmd_context = ExecutionContext { shell: &mut shell, command_name, params };
 
@@ -677,7 +678,9 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
 			// Update $_ after command execution.
 			shell.update_last_arg_variable(last_arg);
 
-			result
+			// Ends the stage: runs the EXIT trap it set itself, if any. The trap's
+			// builtins run on this blocking worker too, so mark it for them.
+			Ok(block_on_builtin(shell.end_child_context(&exit_params, result)))
 		});
 
 		ExecutionSpawnResult::StartedTask(join_handle)
@@ -765,6 +768,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
 				let mut shell = *target;
 				let command_name = self.command_name;
 				let args = self.args;
+				let exit_params = params.clone();
 				let join_handle = tokio::spawn(async move {
 					let cmd_context = ExecutionContext { shell: &mut shell, command_name, params };
 					let result =
@@ -774,10 +778,17 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
 					// parent-shell path below.
 					shell.update_last_arg_variable(last_arg);
 
-					match result?.wait().await? {
-						ExecutionWaitResult::Completed(result) => Ok(result),
-						ExecutionWaitResult::Stopped(_) => Ok(ExecutionResult::stopped()),
-					}
+					let result = match result {
+						Ok(spawned) => match spawned.wait().await {
+							Ok(ExecutionWaitResult::Completed(result)) => Ok(result),
+							Ok(ExecutionWaitResult::Stopped(_)) => Ok(ExecutionResult::stopped()),
+							Err(error) => Err(error),
+						},
+						Err(error) => Err(error),
+					};
+
+					// Ends the stage: runs the EXIT trap it set itself, if any.
+					Ok(shell.end_child_context(&exit_params, result).await)
 				});
 				Ok(ExecutionSpawnResult::StartedTask(join_handle))
 			},
@@ -1146,7 +1157,7 @@ pub(crate) async fn invoke_command_in_subshell_and_get_output(
 	s: String,
 ) -> Result<String, error::Error> {
 	// Instantiate a subshell to run the command in.
-	let mut subshell = shell.clone();
+	let mut subshell = shell.clone_for_subshell();
 
 	// Command substitutions don't inherit errexit by default. Only inherit it when
 	// command_subst_inherits_errexit is enabled, otherwise disable errexit in the
@@ -1196,9 +1207,13 @@ async fn run_substitution_command(
 	// If we failed to parse, then we'll fall below and handle it there.
 	if let Ok(program) = &parse_result {
 		if let Some(redir) = try_unwrap_bare_input_redir_program(program) {
-			interp::setup_redirect(&mut shell, &mut params, redir).await?;
-			openfiles::copy_async(&mut params.stdin(&shell), &mut params.stdout(&shell)).await?;
-			return Ok(ExecutionResult::new(0));
+			let result = async {
+				interp::setup_redirect(&mut shell, &mut params, redir).await?;
+				openfiles::copy_async(&mut params.stdin(&shell), &mut params.stdout(&shell)).await?;
+				Ok::<_, error::Error>(ExecutionResult::new(0))
+			}
+			.await;
+			return Ok(shell.end_child_context(&params, result).await);
 		}
 	}
 
@@ -1206,9 +1221,12 @@ async fn run_substitution_command(
 	let source_info = crate::SourceInfo::from("main");
 
 	// Handle the parse result using default shell behavior.
-	shell
+	let result = shell
 		.run_parsed_result(parse_result, &source_info, &params)
-		.await
+		.await;
+
+	// Ends the substitution: runs the EXIT trap it set itself, if any.
+	Ok(shell.end_child_context(&params, result).await)
 }
 
 // Detects a subshell command that consists solely of a single input redirection

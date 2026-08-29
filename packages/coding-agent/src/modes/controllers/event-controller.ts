@@ -2,6 +2,7 @@ import type { AssistantMessage, ImageContent } from "@oh-my-pi/pi-ai";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import { getStreamingPartialJson } from "@oh-my-pi/pi-ai/utils/block-symbols";
 import { type Component, Loader, TERMINAL } from "@oh-my-pi/pi-tui";
+import { isReduceMotion } from "@oh-my-pi/pi-tui/reduce-motion";
 import { formatDuration, isRecord, logger, sanitizeText } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import { extractTextContent } from "../../commit/utils";
@@ -100,6 +101,9 @@ const IRC_MESSAGE_VISIBLE_TTL_MS = 10_000;
  * oldest live-region card retires as soon as a new one would exceed the cap.
  */
 const MAX_LIVE_IRC_CARDS = 4;
+
+/** `#blockingPrompts` key for the session-level dialog bracket; no tool call id can collide with it. */
+const SESSION_USER_WAIT_KEY = "session:user-wait";
 
 const RAW_PARTIAL_JSON_RENDERERS: Record<string, true> = { bash: true, edit: true, apply_patch: true };
 
@@ -211,9 +215,11 @@ export class EventController {
 	 * the call's `tool_execution_end` carries its `running` start result.
 	 */
 	#settledBeforeReturn = new Map<string, Extract<AgentSessionEvent, { type: "tool_execution_update" }>>();
-	/** Tool calls waiting on the user (an approval prompt or `ask`), with the
-	 *  `blocked` status each reports; cleared at their tool_execution_end so the
-	 *  run returns to `working` once none is left. */
+	/** Prompts waiting on the user, with the `blocked` status each reports; a
+	 *  tool call (an approval prompt or `ask`) is keyed by its call id and
+	 *  cleared at its tool_execution_end, and a session-level dialog
+	 *  (`user_wait_start`) by {@link SESSION_USER_WAIT_KEY}. The run returns to
+	 *  `working` once none is left. */
 	#blockingPrompts = new Map<string, RunStatus>();
 	#approvalPreviewGates = new Map<string, ApprovalPreviewGate>();
 	#pendingStreamPreviews = new Map<string, unknown>();
@@ -369,13 +375,14 @@ export class EventController {
 			// frame are coalesced), never a partly revealed prefix from the typing reveal.
 			getSmoothStreaming: () =>
 				cfgDisplaySmoothStreaming.get(this.ctx.settings) &&
+				!isReduceMotion() &&
 				!this.ctx.viewSession.extensionRunner?.getAssistantTextRenderers?.().length,
 			getHideThinkingBlock: () => this.ctx.effectiveHideThinkingBlock,
 			getProseOnlyThinking: () => this.ctx.proseOnlyThinking,
 			requestRender: component => this.ctx.ui.requestComponentRender(component),
 		});
 		this.#toolArgsReveal = new ToolArgsRevealController({
-			getSmoothStreaming: () => cfgDisplaySmoothStreaming.get(this.ctx.settings),
+			getSmoothStreaming: () => cfgDisplaySmoothStreaming.get(this.ctx.settings) && !isReduceMotion(),
 			requestRender: component => this.ctx.ui.requestComponentRender(component),
 		});
 		this.composerPrediction = new ComposerPredictionController(ctx);
@@ -413,6 +420,24 @@ export class EventController {
 			todo_reminder: e => this.#handleTodoReminder(e),
 			todo_auto_clear: e => this.#handleTodoAutoClear(e),
 			irc_message: e => this.#handleIrcMessage(e),
+			user_wait_start: async event => {
+				this.#blockingPrompts.set(SESSION_USER_WAIT_KEY, {
+					state: "blocked",
+					kind: "question",
+					msg: event.prompt,
+				});
+				setRunStatus({ state: "blocked", kind: "question", msg: event.prompt });
+				this.ctx.ui.requestRender();
+			},
+			user_wait_end: async () => {
+				if (!this.#blockingPrompts.delete(SESSION_USER_WAIT_KEY)) return;
+				// Unlike a tool call's prompt, a session dialog can open with no run
+				// behind it (an MCP re-auth, auto-QA consent), so the run only goes
+				// back to `working` when one is actually in flight.
+				const next = this.#blockingPrompts.values().next().value;
+				setRunStatus(next ?? (this.#runActive ? { state: "working" } : { state: "idle" }));
+				this.ctx.ui.requestRender();
+			},
 			notice: e => this.#handleNotice(e),
 			model_changed: async () => {
 				this.ctx.statusLine.invalidate();

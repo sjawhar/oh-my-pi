@@ -35,6 +35,7 @@ const bundledDependencyStubs: Record<string, string> = {
 	"../../session/sub-sessions": "export const collectSubSessions = async () => ({});",
 	"../../session/session-manager":
 		"export class SessionManager { static async open() { return new SessionManager(); } }",
+	"../../session/tool-result-prunes": "export const applyToolResultPrunes = () => {};",
 	"./args": "export const parseExportArgs = () => undefined;",
 	"./web-palette": 'export const webExportThemeVars = () => "";',
 };

@@ -43,6 +43,13 @@ export interface ResolvedApiKey {
 	/** Durable row id of the credential that supplied this bearer, when known. */
 	credentialId?: number;
 	/**
+	 * Kind of credential that supplied this bearer, when the resolver knows it:
+	 * an OAuth login (subscription or account token) or a static API key.
+	 */
+	credentialType?: "oauth" | "api_key";
+	/** Login that minted an OAuth bearer stored under another provider id (e.g. `anthropic-console`). */
+	loginProvider?: string;
+	/**
 	 * The OAuth access token behind this bearer, when the bearer came from a
 	 * stored OAuth credential. A provider whose API key wraps the token in a
 	 * structured document makes the two differ, so a 401 recovery names this
@@ -345,6 +352,9 @@ export async function withAuth<T>(
 	try {
 		initialKey = await resolveApiKeyOnce(resolver, signal);
 	} catch (error) {
+		// An abort during the resolve is the caller's cancellation, not a
+		// resolver failure — surface the caller's reason, unwrapped.
+		signal?.throwIfAborted();
 		// A resolver that deliberately reports a missing key keeps that type.
 		if (error instanceof AIError.MissingApiKeyError) throw error;
 		// A thrown resolver is a broker/OAuth/network failure, not a missing
@@ -354,7 +364,11 @@ export async function withAuth<T>(
 			{ cause: error },
 		);
 	}
-	if (initialKey === undefined) throw missingKey();
+	if (initialKey === undefined) {
+		// An abort during the resolve is the caller's cancellation, not a missing key.
+		signal?.throwIfAborted();
+		throw missingKey();
+	}
 
 	const state = createAuthRetryKeyState(initialKey);
 	let lastError: unknown;

@@ -1112,6 +1112,10 @@ class AutoRetryEndEvent:
     success: bool
     attempt: int
     final_error: str | None = None
+    kind: str | None = None
+    """Error kind of the failure that ended the retry: kind labels joined by `|` (e.g. `usage-limit`, `transient|usage-limit`), or `status:<code>` for an error known only by its HTTP status; test membership, not equality."""
+    reset_at_ms: int | None = None
+    """Epoch ms when the failing credential's limit resets, as the provider stated it; absent when the provider stated no time. Covers only the account this run used; another stored account may become usable sooner."""
     retry_errors: tuple[JsonObject, ...] = ()
     """Persisted retry errors whose presentation changed when the retry settled."""
 
@@ -1236,6 +1240,20 @@ class QueueUpdateEvent:
     follow_up: tuple[str, ...]
     live_steered: int = 0
     """Leading `steering` entries are live steering already sent into the streaming response; `remove_queued_message` cannot reach them."""
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class UserWaitStartEvent:
+    """The session opened a dialog only a person can answer and the turn is held until it settles."""
+    type: Literal["user_wait_start"] = "user_wait_start"
+    prompt: str
+    """What the session is asking a person to decide."""
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class UserWaitEndEvent:
+    """The last dialog waiting on a person settled; the turn goes on."""
+    type: Literal["user_wait_end"] = "user_wait_end"
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -1677,7 +1695,7 @@ UsageLimitState: TypeAlias = UsageLimitLowPriority | UsageLimitWrapUp
 """Provider-neutral state of an account past its usage limit, discriminated by `stage`."""
 
 
-RpcAgentEvent: TypeAlias = AgentStartEvent | AgentEndEvent | TurnStartEvent | TurnEndEvent | MessageStartEvent | MessageUpdateEvent | MessageEndEvent | ToolExecutionStartEvent | ToolExecutionUpdateEvent | ToolStreamUpdateEvent | ToolExecutionEndEvent | AutoCompactionStartEvent | AutoCompactionEndEvent | ManualCompactionStartEvent | ManualCompactionEndEvent | AutoRetryStartEvent | AutoRetryEndEvent | CacheWarmingStartEvent | CacheWarmingEndEvent | RetryFallbackAppliedEvent | RetryFallbackSucceededEvent | ModelChangedEvent | ConfigWarningsChangedEvent | AdvisorCostChangedEvent | AdvisorYieldedEvent | TtsrTriggeredEvent | TodoReminderEvent | TodoAutoClearEvent | IrcMessageEvent | NoticeEvent | ThinkingLevelChangedEvent | GoalUpdatedEvent | QueueUpdateEvent
+RpcAgentEvent: TypeAlias = AgentStartEvent | AgentEndEvent | TurnStartEvent | TurnEndEvent | MessageStartEvent | MessageUpdateEvent | MessageEndEvent | ToolExecutionStartEvent | ToolExecutionUpdateEvent | ToolStreamUpdateEvent | ToolExecutionEndEvent | AutoCompactionStartEvent | AutoCompactionEndEvent | ManualCompactionStartEvent | ManualCompactionEndEvent | AutoRetryStartEvent | AutoRetryEndEvent | CacheWarmingStartEvent | CacheWarmingEndEvent | RetryFallbackAppliedEvent | RetryFallbackSucceededEvent | ModelChangedEvent | ConfigWarningsChangedEvent | AdvisorCostChangedEvent | AdvisorYieldedEvent | TtsrTriggeredEvent | TodoReminderEvent | TodoAutoClearEvent | IrcMessageEvent | NoticeEvent | ThinkingLevelChangedEvent | GoalUpdatedEvent | QueueUpdateEvent | UserWaitStartEvent | UserWaitEndEvent
 """A session event, discriminated by `type`; `set_event_filter` selects which are sent."""
 
 
@@ -2516,6 +2534,8 @@ def parse_auto_retry_end_event(value: object, path: str = "AutoRetryEndEvent") -
         success=required(payload, "success", decode_bool, path),
         attempt=required(payload, "attempt", decode_int, path),
         final_error=optional(payload, "finalError", decode_str, path),
+        kind=optional(payload, "kind", decode_str, path),
+        reset_at_ms=optional(payload, "resetAtMs", decode_int, path),
         retry_errors=defaulted(payload, "retryErrors", array(decode_json_object), path, ()),
     )
 
@@ -2660,6 +2680,21 @@ def parse_queue_update_event(value: object, path: str = "QueueUpdateEvent") -> Q
         steering=required(payload, "steering", array(decode_str), path),
         follow_up=required(payload, "followUp", array(decode_str), path),
         live_steered=defaulted(payload, "liveSteered", decode_int, path, 0),
+    )
+
+
+def parse_user_wait_start_event(value: object, path: str = "UserWaitStartEvent") -> UserWaitStartEvent:
+    payload = expect_object(value, path)
+    required(payload, "type", cast('Decoder[Literal["user_wait_start"]]', literal(frozenset({"user_wait_start"}))), path)
+    return UserWaitStartEvent(
+        prompt=required(payload, "prompt", decode_str, path),
+    )
+
+
+def parse_user_wait_end_event(value: object, path: str = "UserWaitEndEvent") -> UserWaitEndEvent:
+    payload = expect_object(value, path)
+    required(payload, "type", cast('Decoder[Literal["user_wait_end"]]', literal(frozenset({"user_wait_end"}))), path)
+    return UserWaitEndEvent(
     )
 
 
@@ -3200,6 +3235,8 @@ _RPC_AGENT_EVENT_CASES: Final[dict[str, Decoder[RpcAgentEvent]]] = {
         "thinking_level_changed": parse_thinking_level_changed_event,
         "goal_updated": parse_goal_updated_event,
         "queue_update": parse_queue_update_event,
+        "user_wait_start": parse_user_wait_start_event,
+        "user_wait_end": parse_user_wait_end_event,
 }
 
 
@@ -3259,6 +3296,8 @@ _RPC_NOTIFICATION_CASES: Final[dict[str, Decoder[RpcNotification]]] = {
         "thinking_level_changed": parse_rpc_agent_event,
         "goal_updated": parse_rpc_agent_event,
         "queue_update": parse_rpc_agent_event,
+        "user_wait_start": parse_rpc_agent_event,
+        "user_wait_end": parse_rpc_agent_event,
 }
 
 
@@ -3927,6 +3966,14 @@ class WireClient:
         """Subscribe to `queue_update`: Coalesced snapshot of the displayable steering/follow-up queue, sent whenever it changes."""
         return self._listen("queue_update", listener)
 
+    def on_user_wait_start(self, listener: Callable[[UserWaitStartEvent], None]) -> Callable[[], None]:
+        """Subscribe to `user_wait_start`: The session opened a dialog only a person can answer and the turn is held until it settles."""
+        return self._listen("user_wait_start", listener)
+
+    def on_user_wait_end(self, listener: Callable[[UserWaitEndEvent], None]) -> Callable[[], None]:
+        """Subscribe to `user_wait_end`: The last dialog waiting on a person settled; the turn goes on."""
+        return self._listen("user_wait_end", listener)
+
 
 __all__ = [
     "AbortAndRestoreQueueResult",
@@ -4127,6 +4174,8 @@ __all__ = [
     "UsageLimitWrapUp",
     "UserContent",
     "UserMessage",
+    "UserWaitEndEvent",
+    "UserWaitStartEvent",
     "WidgetPlacement",
     "parse_abort_and_restore_queue_result",
     "parse_advisor_cost_changed_event",
@@ -4294,4 +4343,6 @@ __all__ = [
     "parse_usage_limit_wrap_up",
     "parse_user_content",
     "parse_user_message",
+    "parse_user_wait_end_event",
+    "parse_user_wait_start_event",
 ]
