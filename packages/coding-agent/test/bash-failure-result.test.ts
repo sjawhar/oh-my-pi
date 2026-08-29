@@ -139,7 +139,9 @@ describe("BashTool execution results", () => {
 		]) {
 			const result = await tool.execute(`call-pipeline-${scenario.expected[0]}`, { command: scenario.command });
 			const text = result.content.find(c => c.type === "text")?.text ?? "";
-			const stdout = text.replace(/\n\nWall time: \d+\.\d{2} seconds$/, "").trimEnd();
+			const stdout = text
+				.replace(/\n\nWall time: \d+\.\d{2} seconds, ended \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, "")
+				.trimEnd();
 
 			expect(result.isError).toBeUndefined();
 			expect(stdout).toBe(scenario.expected);

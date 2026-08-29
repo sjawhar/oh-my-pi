@@ -185,6 +185,23 @@ describe("task live progress rendering", () => {
 		expect(collapsedText).not.toContain("line 1");
 		expect(collapsedText).not.toContain("raw output:");
 	});
+
+	it("strips the wall-time notice that states the end time from expanded subagent recent output", () => {
+		setViewportRows(40);
+		const progress = makeProgress(
+			[
+				"line 1",
+				"line 2",
+				"Wall time: 3.69 seconds, ended 2026-10-19T02:58:12Z",
+				"[raw output: artifact://123]",
+			].reverse(),
+		);
+
+		const expandedText = renderProgressText(progress, true, uiTheme);
+		expect(expandedText).toContain("line 2");
+		expect(expandedText).not.toContain("Wall time:");
+		expect(expandedText).not.toContain("ended 2026");
+	});
 	it("sanitizes control sequences from expanded subagent recent output", () => {
 		setViewportRows(40);
 		const progress = makeProgress(["safe after \x1b[2Kclear", "raw\rprompt"]);

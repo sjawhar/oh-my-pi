@@ -6,6 +6,7 @@
 
 - Added `applyBinaryPatch(oldPath, patchPath, outPath)`, which applies an HDiffPatch single-stream delta patch (zstd or uncompressed) to a file
 - macOS desktop sessions keep the display awake while in use (released five minutes after the last call or on close); capabilities report `screenLocked`/`displayAsleep`, `screenState` reads both without waiting on queued work, captures carry `screenLocked`, and failures name the state ([#15188](https://github.com/can1357/oh-my-pi/pull/15188) by [@will-bogusz](https://github.com/will-bogusz))
+- Added `TtyWriter.discard()`, which drops terminal output that was queued but not yet written; the chunk already being written still finishes ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
 
 ### Changed
 
@@ -22,6 +23,12 @@
 - Fixed Kotlin, Swift, Elixir and Sass code being highlighted with the Java, Objective-C, Ruby and Haml grammars
 - Fixed code inside string interpolations (Python f-strings, Julia `$(…)`, Elixir `#{…}`) being colored as part of the string
 - Fixed `supportsLanguage` returning `true` for languages `highlightCode` leaves unhighlighted
+- Fixed a `git status` that exceeded its deadline leaving a stale `.git/index.lock` behind, which made every later git or jj write in that worktree fail until the lock was deleted by hand ([#13405](https://github.com/can1357/oh-my-pi/pull/13405) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed `TtyWriter.flushSync()` and `stop()` sometimes waiting out their whole timeout after the queued output had already been written ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed `TtyWriter.stop()` occasionally hanging forever when the queue had already drained ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed stalls when highlighting Markdown tool previews with many inline spans or backslash escapes ([#13838](https://github.com/can1357/oh-my-pi/pull/13838) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed the embedded shell skipping an EXIT trap set inside `( ... )`, `$( ... )`, a pipeline stage or a background job, so `trap 'rm -f "$f"' EXIT` cleanups there left their files behind
+- Fixed `exit`, `return`, `break`, `continue`, a failed expansion or a failed redirect in a pipeline stage or `$(< file)` of the embedded shell ending the whole command, so `cmd | { ...; exit 0; }; next` no longer drops `next`
 
 ## [18.8.8] - 2026-10-10
 

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { RenderResultOptions } from "../src/tools/renderer";
 import { getThemeByName, setThemeInstance, type Theme } from "@oh-my-pi/pi-tui/theme";
-import { bashToolRenderer, formatBackgroundNotice } from "@oh-my-pi/pi-tui/tools/bash";
+import { bashToolRenderer, formatBackgroundNotice, formatWallTimeNotice } from "@oh-my-pi/pi-tui/tools/bash";
 import { previewWindowRows } from "@oh-my-pi/pi-tui/render/render-utils";
 import { ImageProtocol, TERMINAL } from "@oh-my-pi/pi-tui";
 import { sanitizeText } from "@oh-my-pi/pi-utils";
@@ -137,6 +137,31 @@ describe("bashToolRenderer", () => {
 		// Notice text must not appear in the output region — the styled label is the
 		// only place wall time is shown so users don't read it twice.
 		expect(rendered).not.toContain("Wall time: 1.23 seconds");
+	});
+
+	it("strips the textual wall-time notice that states the end time", async () => {
+		const component = bashToolRenderer.renderResult(
+			{
+				content: [
+					{ type: "text", text: `hello\n\n${formatWallTimeNotice(1230, Date.UTC(2026, 9, 19, 2, 58, 12, 999))}` },
+				],
+				details: { timeoutSeconds: 5, wallTimeMs: 1230 },
+				isError: false,
+			},
+			{ expanded: false, isPartial: false },
+			uiTheme,
+			{ command: "echo hi" },
+		);
+		const rendered = sanitizeText(component.render(120).join("\n"));
+		expect(rendered).toContain("Wall: 1.23s");
+		expect(rendered).not.toContain("Wall time: 1.23 seconds");
+		expect(rendered).not.toContain("ended 2026-10-19T02:58:12Z");
+	});
+
+	it("formats the wall-time notice with the UTC end time truncated to the second", () => {
+		expect(formatWallTimeNotice(3690, Date.UTC(2026, 9, 19, 2, 58, 12, 999))).toBe(
+			"Wall time: 3.69 seconds, ended 2026-10-19T02:58:12Z",
+		);
 	});
 
 	it("shows a supervised service's readiness and output without a command timeout", async () => {
