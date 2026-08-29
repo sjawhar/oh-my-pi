@@ -2,10 +2,22 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed `PruneResult.undo()` from `pruneToolOutputs` and `pruneSupersededToolResults`; persist `PruneResult.pruned` instead of rolling the prune back when saving it fails.
+
 ### Added
 
+- `CustomMessage` has an optional `tag`, a caller correlation id that stays with the message ([#14323](https://github.com/can1357/oh-my-pi/pull/14323) by [@sjawhar](https://github.com/sjawhar))
+- Added `PruneResult.pruned`, a list of exported `ToolResultPrune` records (each blanked tool result's entry id, notice, and `prunedAt`), and `blankToolResult()`, which applies one record to a loaded copy of its tool result.
+- Chat and judgment spans now carry `omp.gen_ai.provider.id` (the provider id before OTel normalization, such as `openai-codex`) and `omp.gen_ai.auth.kind` (`api_key`, `console_oauth`, `subscription_oauth` or `unknown`), so subscription, Console-login and API-key calls can be told apart
+- Chat and judgment spans now split cache writes into `gen_ai.usage.cache_creation.ephemeral_5m_input_tokens` and `gen_ai.usage.cache_creation.ephemeral_1h_input_tokens` when the provider reports cache lifetimes
 - `PI_INTENT_DESC` replaces the schema description of the injected `i` intent field
 - `AgentTool.approvalRestrictionPaths` reports paths a call reads, so restricted folders cover them without the approval being remembered per path ([#17133](https://github.com/can1357/oh-my-pi/pull/17133) by [@iliaal](https://github.com/iliaal))
+
+### Fixed
+
+- A turn that fails with a thrown `CredentialUnavailableError` now carries its transient classification (`errorId`) on the error message, so a host's turn retry can treat it as retryable ([#14031](https://github.com/can1357/oh-my-pi/pull/14031) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.13.3] - 2026-10-28
 

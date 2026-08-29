@@ -44,6 +44,8 @@ export interface PauseScreenHost {
 		showOverlay(component: Component, options?: OverlayOptions): OverlayHandle;
 		setFocus(component: Component): void;
 		requestRender(): void;
+		/** Paint one frame synchronously, without the scheduler's hop and cadence. */
+		renderNow(): void;
 		readonly terminal: { readonly rows: number };
 	};
 	showStatus(message: string, options?: { dim?: boolean }): void;
@@ -417,21 +419,39 @@ export class PauseScreenComponent implements Component, OverlayFocusOwner {
  */
 export async function runPauseScreen(host: PauseScreenHost, options?: PauseScreenOptions): Promise<void> {
 	if (!agentPauseGate.pause()) return;
-	const component = new PauseScreenComponent(host, options);
-	const overlay = host.ui.showOverlay(component, {
-		width: "100%",
-		maxHeight: "100%",
-		anchor: "top-left",
-		margin: 0,
-		fullscreen: true,
-	});
 	try {
-		host.ui.setFocus(component);
-		await component.run();
+		const component = new PauseScreenComponent(host, options);
+		const overlay = host.ui.showOverlay(component, {
+			width: "100%",
+			maxHeight: "100%",
+			anchor: "top-left",
+			margin: 0,
+			fullscreen: true,
+		});
+		try {
+			host.ui.setFocus(component);
+			await component.run();
+		} finally {
+			component.dispose();
+			host.ui.setFocus(component);
+			overlay.hide();
+			// Paint before the gate opens, never after. `overlay.hide()` only
+			// *schedules* a frame (one scheduler hop, then the frame cadence and
+			// the adaptive floor), while `resume()` wakes every parked agent loop
+			// in the same tick: their microtasks, and everything those loops
+			// queue, run ahead of that frame. Until it lands the terminal still
+			// holds the frame this overlay drew PAUSED on, so a reader of the
+			// pane — a person, or an operator running `tmux capture-pane` — sees
+			// a session that is already working as still held. Measured
+			// 2026-10-28 on pane %11 of the grouped `agents` sessions: the gate
+			// opened 2.0 s after the resume key and the pane still showed the
+			// overlay, hold timer frozen, 4.4 s after it.
+			host.ui.renderNow();
+		}
 	} finally {
-		component.dispose();
-		host.ui.setFocus(component);
-		overlay.hide();
+		// Every path from the engage above, so no throw in setFocus, hide or the
+		// paint can strand the gate: a leaked pause freezes every agent in the
+		// process with no UI left to release it.
 		const heldMs = agentPauseGate.resume();
 		if (heldMs !== undefined) {
 			host.showStatus(`Resumed after ${formatCoarseDuration(heldMs)} — agents are running again.`);

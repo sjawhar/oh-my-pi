@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as url from "node:url";
 
+import { agentPauseGate } from "@oh-my-pi/pi-agent-core";
 import {
 	type Api,
 	type AssistantMessage,
@@ -25,6 +26,7 @@ import type { ModelRegistry } from "../config/model-registry";
 import { roleCandidatePool } from "../config/model-roles";
 import { formatModelStringWithRouting } from "../config/model-resolver";
 import { collectOnlineTinyCandidates, expandOnlineTinyModelFallbacks } from "../tiny/online-candidates";
+import { isReduceMotion } from "@oh-my-pi/pi-tui/reduce-motion";
 import type { Settings } from "../config/settings";
 import titleMarkerInstruction from "../prompts/system/title-marker-instruction.md" with { type: "text" };
 import titleSystemPrompt from "../prompts/system/title-system.md" with { type: "text" };
@@ -178,6 +180,30 @@ function getTitleModels(registry: ModelRegistry, settings: Settings, currentMode
 }
 
 /**
+ * Hold a title request until the process-global pause gate releases.
+ *
+ * `/pause` freezes every agent loop at its next model or tool call, but title
+ * generation runs outside `agentLoop`, so the gate never saw it: a paused
+ * session kept calling the provider. Holding beats declining — a caller reads
+ * a null title as a refusal and can spend a second, context-based request on
+ * it later, and a session paused through its first turn would stay unnamed in
+ * the resume list — and costs nothing, because every caller already runs this
+ * in the background. `signal` releases the wait without releasing the gate, so
+ * disposal and interrupts still cancel the request, and the abort checks that
+ * follow each call site handle it.
+ *
+ * Each call site tests {@link agentPauseGate.paused} itself rather than
+ * delegating the test to this function: awaiting it unconditionally would cost
+ * a running session a microtask, and the automatic title request must already
+ * be in flight when a prompt resolves — `test/slash-commands/rename.test.ts`
+ * asserts exactly that, and fails on the extra tick.
+ */
+async function holdUntilResumed(signal: AbortSignal | undefined, sessionId: string | undefined): Promise<void> {
+	logger.debug("title-generator: held by the pause gate", { sessionId, reason: "paused" });
+	await agentPauseGate.waitUntilResumed(signal);
+}
+
+/**
  * Generate a title for a session based on the first user message.
  *
  * @param firstMessage The first user message
@@ -235,6 +261,9 @@ export async function generateSessionTitle(
 		);
 	}
 
+	// The local worker bills nothing, but `/pause` means nothing new starts.
+	if (agentPauseGate.paused) await holdUntilResumed(signal, sessionId);
+	if (signal?.aborted) return null;
 	// A local role selection is an explicit no-billing boundary. If the worker
 	// fails (download missing, runtime crash, abort, or no output), leave the
 	// session untitled rather than advancing into a paid fallback candidate.
@@ -328,6 +357,10 @@ async function generateTitleOnlineWithModels(
 			model: modelName,
 		};
 		logger.debug("title-generator: start", modelContext);
+		// `agentLoop` polls the pause gate before every model call; a title
+		// request runs outside that loop, so poll it here too, per attempt: a
+		// fallback candidate must not call a provider either.
+		if (agentPauseGate.paused) await holdUntilResumed(signal, sessionId);
 
 		if (signal?.aborted) {
 			logger.debug("title-generator: aborted before attempt", {
@@ -951,6 +984,7 @@ function stopTerminalTitleSpinner(): void {
 function startTerminalTitleSpinner(): void {
 	if (
 		isNativeRendering() ||
+		isReduceMotion() ||
 		isStaticTitleHost() ||
 		terminalTitleRuntime.disposed ||
 		terminalTitleRuntime.timer ||
@@ -1038,6 +1072,12 @@ export function initTerminalTitleState(): void {
 		else if (terminalTitleRuntime.state === "working" && terminalTitleRuntime.enabled) startTerminalTitleSpinner();
 		emitTerminalTitle();
 	});
+}
+
+export function applyTerminalTitleReduceMotion(): void {
+	if (isReduceMotion()) stopTerminalTitleSpinner();
+	else if (terminalTitleRuntime.enabled && terminalTitleRuntime.state === "working") startTerminalTitleSpinner();
+	emitTerminalTitle();
 }
 
 /**
