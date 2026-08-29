@@ -33,7 +33,7 @@ Extensions can combine all of the following in one module:
 - slash commands (`pi.registerCommand(...)`)
 - keyboard shortcuts and flags
 - custom message rendering
-- session/message injection APIs (`sendMessage`, `sendUserMessage`, `appendEntry`)
+- session/message APIs (`sendMessage`, `sendUserMessage`, `askEphemeral`, `appendEntry`)
 
 ## Runtime model
 
@@ -202,6 +202,11 @@ Also exposed:
 
 `pi.sendUserMessage(content, { deliverAs })` always goes through prompt flow. Omit `deliverAs` to start a normal prompt when idle; while streaming, omitted `deliverAs` queues the message as a steer. Set `deliverAs: "followUp"` to wait until the current run finishes. Set `deliverAs: "aside"` to inject the prompt at the next step boundary while a run is live (idle sends start a turn as usual).
 
+`pi.askEphemeral({ prompt, signal? })` asks through the same `/btw` prompt wrapper and returns
+`Promise<{ replyText: string }>` without appending to, queuing on, or interrupting the primary
+session turn. It rejects when no model is active, the request is aborted, the session is disposed,
+or the provider fails; it never falls back to a steered message.
+
 Payloads passed to `pi.sendMessage` are normalized before delivery (`normalizeCustomMessagePayload` in `session/messages.ts`): non-object payloads are coerced to string content under the default custom type, missing `customType`/`attribution` fields are defaulted, and invalid content collapses to an empty string — malformed payloads no longer persist entries that crash later session resumes.
 
 ## 2) Handler context (`ExtensionContext`)
@@ -210,6 +215,7 @@ Handlers and tool `execute` receive `ctx` with:
 
 - `ui`
 - `hasUI`
+- `agent` — `{ id, isSubagent }`: the agent this session runs as. `id` is the registry id (`"Main"` for the top-level session, the task-derived id for a subagent); `isSubagent` is `true` inside a session spawned by `task`/`agent()`/`workpool()`. Process-wide events reach every session's runner, so a handler that must act once for the whole process guards on it (see MCP notifications below).
 - `cwd`
 - `sessionManager` (read-only)
 - `modelRegistry`, `model`
@@ -331,10 +337,13 @@ Cancelable pre-events:
 
 - `mcp_notification` — fired for every JSON-RPC notification received from a connected MCP server, AFTER the manager's own handling of known list/update methods (`notifications/tools/list_changed`, `notifications/resources/list_changed`, `notifications/resources/updated`, `notifications/prompts/list_changed`). Unknown or server-custom methods are also delivered. Payload: `{ server: string; method: string; params: unknown }`. Multiple extensions may subscribe; a handler that throws does not prevent other handlers from firing. Notifications received before any listener attaches are buffered (bounded FIFO, cap 100, drop-oldest) and drained into the first subscriber — so startup-time frames aren't lost even if the extension binds after MCP discovery.
 
+Frames fan out to **every** session sharing the MCP manager: the top-level session and each subagent it spawned all run the same extensions and each receives the same frame. A handler that turns a frame into a steer must therefore check `ctx.agent.isSubagent`, or every parked subagent will answer the same notification — with `triggerTurn`, each answer can itself produce a new frame and the process feeds back on itself.
+
 Bridging a push-capable MCP into a session steer:
 
 ```ts
-pi.on("mcp_notification", (event) => {
+pi.on("mcp_notification", (event, ctx) => {
+  if (ctx.agent.isSubagent) return; // the top-level session owns the conversation
   if (event.server !== "peer-bus") return;
   if (event.method !== "notifications/peer_message") return;
   const params = event.params as { from: string; text: string };
@@ -353,8 +362,15 @@ The runtime handles the JSON-RPC transport and its own list/update refresh first
 
 ### `resources_discover`
 
-`resources_discover` exists in extension types and `ExtensionRunner`.
-Current runtime note: `ExtensionRunner.emitResourcesDiscover(...)` is implemented, but there are no `AgentSession` callsites invoking it in the current codebase.
+Fired once per session, after `session_start`, and again every time `/reload-plugins` runs. Payload: `{ cwd: string; reason: "startup" | "reload" }`. A handler may return `{ skillPaths?: string[]; promptPaths?: string[]; themePaths?: string[] }`; only `skillPaths` currently has a consumer (`promptPaths`/`themePaths` are collected but not yet acted on).
+
+Returned `skillPaths` join skill discovery as an explicitly configured source, scanned the same way as `skills.customDirectories`: `ignoredSkills`/`includeSkills` are honored, entries are deduplicated by real path, and a name collision with a `skills.customDirectories` entry loses to the user's custom directory (extension-contributed directories are the lower-priority configured source).
+
+```ts
+pi.on("resources_discover", (event) => {
+  return { skillPaths: [path.join(myExtensionDir, "skills")] };
+});
+```
 
 ## Tool authoring details
 

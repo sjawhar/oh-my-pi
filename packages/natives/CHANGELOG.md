@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `maxBytes` to `VcsGitRepo.diffText` options: rendering stops and the call rejects with an `OutputTooLarge` VcsError once the patch crosses the cap, so callers can bound the memory a large change set may consume ([#11454](https://github.com/can1357/oh-my-pi/pull/11454) by [@sjawhar](https://github.com/sjawhar)).
+
+### Fixed
+
+- Fixed a `git status` that exceeded its deadline leaving a stale `.git/index.lock` behind, which made every later git or jj write in that worktree fail until the lock was deleted by hand.
+
 ## [18.1.17] - 2026-09-10
 
 ### Fixed

@@ -5,6 +5,7 @@ import { type Component, Loader, TERMINAL } from "@oh-my-pi/pi-tui";
 import { formatDuration, logger, prompt, sanitizeText } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import { extractTextContent } from "../../commit/utils";
+import { isReduceMotion } from "../../config/reduce-motion";
 import { settings } from "../../config/settings";
 import { AssistantMessageComponent } from "../../modes/components/assistant-message";
 import { detectCacheInvalidation } from "../../modes/components/cache-invalidation-marker";
@@ -241,13 +242,13 @@ export class EventController {
 				: null,
 		);
 		this.#streamingReveal = new StreamingRevealController({
-			getSmoothStreaming: () => this.ctx.settings.get("display.smoothStreaming"),
+			getSmoothStreaming: () => this.ctx.settings.get("display.smoothStreaming") && !isReduceMotion(),
 			getHideThinkingBlock: () => this.ctx.effectiveHideThinkingBlock,
 			getProseOnlyThinking: () => this.ctx.proseOnlyThinking,
 			requestRender: component => this.ctx.ui.requestComponentRender(component),
 		});
 		this.#toolArgsReveal = new ToolArgsRevealController({
-			getSmoothStreaming: () => this.ctx.settings.get("display.smoothStreaming"),
+			getSmoothStreaming: () => this.ctx.settings.get("display.smoothStreaming") && !isReduceMotion(),
 			requestRender: component => this.ctx.ui.requestComponentRender(component),
 		});
 		this.#handlers = {
@@ -1143,6 +1144,27 @@ export class EventController {
 		this.#displaceableTodoComponent = undefined;
 		previous.seal();
 		this.ctx.ui.requestRender();
+	}
+
+	/**
+	 * Detach both displacement trackers and return whichever components were
+	 * live, without touching their animation state. `#handleToolExecutionEnd`
+	 * settles a displaceable `hub`/`todo` result out of `pendingTools` into
+	 * these trackers instead (see the `isDisplaceableBlock()` branch there), so
+	 * a caller that enumerates only `pendingTools` before replacing the whole
+	 * transcript — the collab guest resync (`guest.ts#finalizeSnapshot`) —
+	 * misses a still-animated "waiting" card. That caller must fold this
+	 * method's result into its own live-block accounting.
+	 */
+	takeDisplaceableComponents(): ToolExecutionHandle[] {
+		const components: ToolExecutionHandle[] = [];
+		if (this.#displaceablePollComponent) components.push(this.#displaceablePollComponent);
+		if (this.#displaceableTodoComponent && this.#displaceableTodoComponent !== this.#displaceablePollComponent) {
+			components.push(this.#displaceableTodoComponent);
+		}
+		this.#displaceablePollComponent = undefined;
+		this.#displaceableTodoComponent = undefined;
+		return components;
 	}
 
 	/**
