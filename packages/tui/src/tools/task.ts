@@ -2367,6 +2367,8 @@ export interface AgentProgress {
 	resolvedThinkingLevel?: ConfiguredThinkingLevel;
 	/** True when {@link resolvedModel} is the target of an active retry fallback (not the originally configured model). Lets observer-only UIs (collab guests, Agent Hub rows with no live session) flag the fallback and keep the provider. */
 	resolvedModelIsFallback?: boolean;
+	/** Why fallback routing chose {@link resolvedModel} (`Fallback: <from> -> <to>` and the cause); set only while {@link resolvedModelIsFallback}. */
+	resolvedModelFallbackReason?: string;
 	/** Extension routing note (e.g. model-pools) explaining why {@link resolvedModel} was chosen. */
 	resolvedModelRoute?: string;
 	/** True when a live advisor was attached to this run's session, not merely enabled in settings. */
@@ -2395,10 +2397,7 @@ export interface AgentProgress {
 	 * the final error so the parent UI can render "blocked: rate-limited"
 	 * instead of waiting for a status that never arrives.
 	 */
-	retryFailure?: {
-		attempt: number;
-		errorMessage: string;
-	};
+	retryFailure?: TaskRetryFailure;
 	/**
 	 * Snapshot of the most recent `task` tool call's in-flight `TaskToolDetails`,
 	 * captured from `tool_execution_update`. Lets the parent UI surface live
@@ -2407,6 +2406,24 @@ export interface AgentProgress {
 	 * `extractedToolData.task` after that.
 	 */
 	inflightTaskDetails?: TaskToolDetails;
+}
+
+/** How a subagent's auto-retry gave up: copied from its failing `auto_retry_end`. */
+export interface TaskRetryFailure {
+	attempt: number;
+	errorMessage: string;
+	/**
+	 * `AIError.stringify` of the final error id: kind labels joined by `|` (e.g. `usage-limit`,
+	 * `transient|usage-limit`), or `status:<code>` for an error known only by its HTTP status;
+	 * test membership, not equality.
+	 */
+	kind?: string;
+	/**
+	 * Epoch ms when the failing credential's limit resets, as the provider stated it; absent when
+	 * the provider stated no time. Covers only the account this run used; another stored account
+	 * may become usable sooner.
+	 */
+	resetAtMs?: number;
 }
 
 /** Result from a single agent execution */
@@ -2448,6 +2465,8 @@ export interface SingleResult {
 	resolvedThinkingLevel?: ConfiguredThinkingLevel;
 	/** True when {@link resolvedModel} is the target of an active retry fallback. Mirrors {@link AgentProgress.resolvedModelIsFallback} onto the settled result. */
 	resolvedModelIsFallback?: boolean;
+	/** Mirrors {@link AgentProgress.resolvedModelFallbackReason} onto the settled result. */
+	resolvedModelFallbackReason?: string;
 	/** Mirrors {@link AgentProgress.resolvedModelRoute} onto the settled result. */
 	resolvedModelRoute?: string;
 	/** Retains {@link AgentProgress.advisor} after the advised session is disposed. */
@@ -2497,10 +2516,7 @@ export interface SingleResult {
 	 * Lets the parent task tool surface a "blocked: rate-limited" outcome
 	 * instead of a generic failure.
 	 */
-	retryFailure?: {
-		attempt: number;
-		errorMessage: string;
-	};
+	retryFailure?: TaskRetryFailure;
 	/** Output metadata for agent:// URL integration */
 	outputMeta?: { lineCount: number; charCount: number };
 }

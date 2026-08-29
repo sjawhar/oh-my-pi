@@ -55,7 +55,20 @@ export function formatTaskResultSummary(
 	// streaming prose (provider stream error, missing yield) would otherwise
 	// show only the half-written text and no reason. Aborts carry their own
 	// <abort-reason>; an empty output already previews the error itself.
-	const error = result.exitCode !== 0 && !result.aborted && result.output.trim().length > 0 ? result.error : undefined;
+	const failed = result.exitCode !== 0 && !result.aborted;
+	const error = failed && result.output.trim().length > 0 ? result.error : undefined;
+	// The prose error names the provider's wording; the kind and reset time let
+	// the parent decide between waiting for the limit and rerouting the work.
+	const retryFailure =
+		failed && result.retryFailure?.kind
+			? {
+					kind: result.retryFailure.kind,
+					resetAt:
+						result.retryFailure.resetAtMs === undefined
+							? undefined
+							: new Date(result.retryFailure.resetAtMs).toISOString(),
+				}
+			: undefined;
 	const outputCharCount = result.outputMeta?.charCount ?? output.length;
 	const truncated = outputCharCount > FULL_OUTPUT_THRESHOLD && result.outputPath !== undefined;
 	const preview = truncated ? previewHead(output) : output;
@@ -65,6 +78,16 @@ export function formatTaskResultSummary(
 	// "parked" status must not read as resumable.
 	const refStatus = AgentRegistry.global().get(result.id)?.status;
 	const resumable = result.aborted && !result.isolated && (refStatus === "idle" || refStatus === "parked");
+	// A fallback answered for the requested model: name what served and why, so
+	// the parent never reads a substituted run as the model it dispatched.
+	const modelFallback =
+		result.resolvedModelIsFallback && result.resolvedModel
+			? {
+					served: result.resolvedModel,
+					requested: result.modelOverride === undefined ? undefined : [result.modelOverride].flat().join(", "),
+					reason: escapeHarnessTags(result.resolvedModelFallbackReason ?? ""),
+				}
+			: undefined;
 	return prompt.render(taskSummaryTemplate, {
 		agentName: result.agent,
 		id: result.id,
@@ -72,8 +95,10 @@ export function formatTaskResultSummary(
 		duration: formatDuration(options.totalDurationMs),
 		abortReason: result.aborted ? escapeHarnessTags(result.abortReason ?? "") || undefined : undefined,
 		error: error === undefined ? undefined : escapeHarnessTags(error),
+		retryFailure,
 		resumable,
 		preview: escapeHarnessTags(preview),
+		modelFallback,
 		truncated,
 		meta: result.outputMeta
 			? {

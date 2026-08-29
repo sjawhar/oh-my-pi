@@ -124,7 +124,10 @@ describe("headless persistence-failure surface", () => {
 		expect(line).toContain("ENOSPC");
 		expect(line).not.toContain("\u001b");
 		expect(exitCode).toBe(1);
-		expect(() => manager.flushSync()).toThrow("ENOSPC");
+		// Storage accepts writes again, so the next flush appends the entry the
+		// failed write missed instead of staying latched.
+		expect(() => manager.flushSync()).not.toThrow();
+		expect(fs.readFileSync(manager.getSessionFile() as string, "utf8")).toContain("boom-user");
 	});
 
 	it("reports a recovered write failure as retryable instead of claiming lost durability", async () => {
@@ -247,6 +250,7 @@ describe("headless persistence-failure surface", () => {
 					return () => {};
 				},
 				onPersistenceNotice: () => () => {},
+				getPersistenceFailure: () => persistenceError,
 			},
 			getLastAssistantMessage: () => assistant(""),
 			prepareForHeadlessAdvisorDrain: () => {},
