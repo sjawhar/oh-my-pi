@@ -61,9 +61,11 @@ function createMockSession(
 	const session = {
 		...createSessionDefaults(),
 		state,
+		getAgentId: () => undefined,
 		agent: { state: { systemPrompt: ["test"] } },
 		model: undefined,
 		extensionRunner: undefined,
+		discoverStartupSkillPaths: async () => {},
 		sessionManager: {
 			appendSessionInit: () => {},
 		},
