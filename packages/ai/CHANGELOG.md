@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- `UserMessage` has an optional `tag`, a caller correlation id that stays with the message and is never sent to providers ([#14323](https://github.com/can1357/oh-my-pi/pull/14323) by [@sjawhar](https://github.com/sjawhar))
+- Added `CredentialUnavailableError`, a transient error for a configured credential source that produced no key; unlike `MissingApiKeyError`, a retry may succeed ([#14031](https://github.com/can1357/oh-my-pi/pull/14031) by [@sjawhar](https://github.com/sjawhar)).
+
+### Fixed
+
+- Fixed Anthropic sessions on a custom `baseUrl` (a gateway in front of Anthropic) losing the server-side fallback marker and redacted thinking from a persisted turn, which made the next request fail with `thinking … blocks in the latest assistant message cannot be modified` ([#12352](https://github.com/can1357/oh-my-pi/pull/12352) by [@sjawhar](https://github.com/sjawhar)).
+- Persisted server-side fallback markers are now replayed to any Anthropic endpoint the request opts into fallbacks with, not only api.anthropic.com ([#12352](https://github.com/can1357/oh-my-pi/pull/12352) by [@sjawhar](https://github.com/sjawhar)).
+- Anthropic's `thinking … blocks in the latest assistant message cannot be modified` rejection now retries without that turn's replayed thinking instead of ending the turn with the error ([#12352](https://github.com/can1357/oh-my-pi/pull/12352) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed Anthropic conversations surfacing a 400 when a fallback or prefix change would replay only part of the latest assistant turn's thinking ([#12352](https://github.com/can1357/oh-my-pi/pull/12352) by [@sjawhar](https://github.com/sjawhar)).
+- For a tool with `lenientArgValidation` (the flag now lives on the base `Tool` type), `validateToolArguments` keeps every argument repair but puts back any unrecognized key it deleted to reach success, so a tool that owns its refusal sees every key the model wrote instead of a silently narrowed "valid" subset (a key the null-is-absent repair drops, such as a null optional field or an unknown null-valued key inside a closed nested object, stays dropped) ([#12871](https://github.com/can1357/oh-my-pi/pull/12871) by [@sjawhar](https://github.com/sjawhar)).
+
 ## [18.8.3] - 2026-10-07
 
 ### Added

@@ -186,8 +186,43 @@ export interface TerminalFrameProvider {
 	/** Re-offer finalized history after a display reset or resize replay. */
 	beginHistoryReplay?(): void;
 	/** Force every currently eligible finalized prefix to retire before stop. */
-	beginHistoryFlush?(): void;
+	beginHistoryFlush?(options?: HistoryFlushOptions): void;
+	/** Ends the flush begun by beginHistoryFlush, so later frames retire by pressure again. */
+	endHistoryFlush?(): void;
 }
+
+/** How the stop-time history flush writes un-retired rows; what a provider's beginHistoryFlush receives. */
+export interface HistoryFlushOptions {
+	/**
+	 * Write the newest un-retired rows as whole blocks, at most this many rows,
+	 * except that the newest block is written whole even when it alone is
+	 * taller; the older eligible blocks retire without being written anywhere.
+	 * Pass a cap only when the process is exiting and either another copy of
+	 * the transcript survives or a fast exit matters more than scrollback (a
+	 * disconnect, a signal restore).
+	 */
+	maxRows?: number;
+}
+
+/**
+ * How TUI.stop() hands the terminal back. A handoff that resumes with start()
+ * never caps its flush: the session continues, so skipped rows would be lost.
+ */
+export type TUIStopOptions =
+	| {
+			/**
+			 * The caller resumes with start() after this stop (suspend, external
+			 * editors). While a fullscreen overlay holds the screen, nothing is
+			 * flushed: nothing is committed, and retirement continues by pressure
+			 * once the overlay closes.
+			 */
+			resuming: true;
+			maxRows?: never;
+	  }
+	| (HistoryFlushOptions & { resuming?: false });
+
+/** The cap an exiting stop passes as `maxRows`. */
+export const EXIT_FLUSH_MAX_ROWS = 2_000;
 
 export interface TUIStartOptions {
 	/** Clear saved native scrollback before the first paint. */
@@ -894,8 +929,13 @@ export class TUI extends Container {
 	 * fire the next frame immediately (see #4145).
 	 */
 	#lastFrameCostMs = 0;
-	static readonly #MIN_RENDER_INTERVAL_MS = 1000 / 30;
-	static readonly #INPUT_RENDER_GRACE_MS = TUI.#MIN_RENDER_INTERVAL_MS;
+	static readonly #DEFAULT_MIN_RENDER_INTERVAL_MS = 1000 / 30;
+	static #minRenderIntervalMs = TUI.#DEFAULT_MIN_RENDER_INTERVAL_MS;
+	static readonly #INPUT_RENDER_GRACE_MS = TUI.#DEFAULT_MIN_RENDER_INTERVAL_MS;
+
+	static setMinRenderInterval(intervalMs: number): void {
+		TUI.#minRenderIntervalMs = intervalMs;
+	}
 	/**
 	 * Cap on the adaptive floor derived from `#lastFrameCostMs`. Bounds the UI
 	 * responsiveness at ~5 fps under sustained heavy renders — anything slower
@@ -967,6 +1007,7 @@ export class TUI extends Container {
 	#hasEverRendered = false;
 	#stopped = false;
 	#cancelPostmortemRestore?: () => void;
+	#exitFlushProvider: (() => HistoryFlushOptions) | undefined;
 	/** True between a `deferInput` start() and enableInput(). */
 	#inputDeferred = false;
 	// Always-on event-loop lag probe. The high default threshold keeps it quiet;
@@ -1326,6 +1367,17 @@ export class TUI extends Container {
 		this.#inlineMouseProvider = provider;
 	}
 
+	/**
+	 * How an exiting stop flushes: `stop()` without options, and a postmortem
+	 * restore for any reason but a signal (a fatal error, `postmortem.quit()`
+	 * without a prior stop, a bare `process.exit()`). Read at that moment:
+	 * return `{ maxRows }` only while another copy of the transcript survives.
+	 * Without a provider an exiting stop flushes in full.
+	 */
+	setExitFlushProvider(provider: (() => HistoryFlushOptions) | undefined): void {
+		this.#exitFlushProvider = provider;
+	}
+
 	/** Transition mouse reporting, emitting only the sequences a change needs. */
 	#setMouseTracking(state: MouseTrackingState): void {
 		if (state === this.#mouseTracking) return;
@@ -1500,12 +1552,24 @@ export class TUI extends Container {
 				}
 				this.#beginResizeAltPaint();
 			},
-			() => this.stop(),
+			// Always capped: the terminal is usually gone (SIGHUP), so the rows the
+			// cap skips could not be shown anyway.
+			() => this.stop({ maxRows: EXIT_FLUSH_MAX_ROWS }),
 			{ deferInput: this.#inputDeferred, isLoopStalled: () => this.#watchdog.isStalled() },
 		);
 		if (this.#stopped) return;
 		this.#cancelPostmortemRestore?.();
-		this.#cancelPostmortemRestore = postmortem.register("tui-restore", () => this.stop());
+		// Postmortem runs this synchronously on any exit that finds the TUI still
+		// running. A signal caps it: after SIGHUP the terminal is gone, and
+		// SIGTERM/SIGINT usually come shortly before a kill. Any other reason is
+		// an exiting stop.
+		this.#cancelPostmortemRestore = postmortem.register("tui-restore", reason =>
+			reason === postmortem.Reason.SIGHUP ||
+			reason === postmortem.Reason.SIGTERM ||
+			reason === postmortem.Reason.SIGINT
+				? this.stop({ maxRows: EXIT_FLUSH_MAX_ROWS })
+				: this.stop(),
+		);
 		for (const listener of this.#startListeners) {
 			try {
 				listener();
@@ -2396,6 +2460,8 @@ export class TUI extends Container {
 
 	/**
 	 * Retire every eligible history batch into native scrollback before quitting.
+	 * With `flush.maxRows` (an exiting stop) only the newest rows of that history
+	 * are written; the older eligible blocks retire without reaching scrollback.
 	 *
 	 * The only frame path that deliberately does not composite overlays. Its
 	 * output is the transcript the shell prompt lands under, and it forces
@@ -2406,32 +2472,52 @@ export class TUI extends Container {
 	 * charge a no-longer-painted modal's images against the cap and delete the
 	 * transcript's visible graphics on the way out.
 	 */
-	#flushHistoryBeforeStop(): void {
+	#flushHistoryBeforeStop(flush: HistoryFlushOptions): void {
 		const provider = this.#frameProvider;
 		if (provider?.beginHistoryFlush === undefined) return;
 		const width = this.terminal.columns;
 		const height = this.terminal.rows;
 		if (width <= 0 || height <= 0) return;
-		provider.beginHistoryFlush();
-		while (true) {
-			let plan: TerminalFramePlan;
-			let viewport: string[];
-			do {
-				this.#imageBudget.beginPass();
-				plan = provider.renderFrame({ columns: width, rows: height });
-				viewport = Array.from(plan.viewport);
-				if (viewport.length > height) viewport = viewport.slice(0, height);
-			} while (this.#imageBudget.endPass());
-			if (plan.history === undefined) return;
-			const acceptedBefore = this.#acceptedHistoryBatchId;
-			this.#emitPlanFrame(width, height, viewport, plan.history, provider);
-			if (plan.history.id > acceptedBefore && this.#acceptedHistoryBatchId === acceptedBefore) {
-				throw new Error("History flush did not accept the offered batch");
+		provider.beginHistoryFlush(flush);
+		try {
+			while (true) {
+				let plan: TerminalFramePlan;
+				let viewport: string[];
+				let passes = 0;
+				// The pass that composes a fresh batch measures blocks out of display
+				// order (a capped flush walks newest-first), so when it saw images the
+				// budget may have demoted the newest ones; the frame that writes the
+				// batch then comes from a later pass, which re-renders the offer in
+				// display order.
+				do {
+					this.#imageBudget.beginPass();
+					plan = provider.renderFrame({ columns: width, rows: height });
+					viewport = Array.from(plan.viewport);
+					if (viewport.length > height) viewport = viewport.slice(0, height);
+					passes++;
+				} while (
+					this.#imageBudget.endPass() ||
+					(passes === 1 && plan.history !== undefined && this.#imageBudget.observedCount > 0)
+				);
+				if (plan.history === undefined) return;
+				const acceptedBefore = this.#acceptedHistoryBatchId;
+				this.#emitPlanFrame(width, height, viewport, plan.history, provider);
+				if (plan.history.id > acceptedBefore && this.#acceptedHistoryBatchId === acceptedBefore) {
+					throw new Error("History flush did not accept the offered batch");
+				}
 			}
+		} finally {
+			provider.endHistoryFlush?.();
 		}
 	}
 
-	stop(): void {
+	/**
+	 * Hand the terminal back. Without options this is an exiting stop, which
+	 * flushes as the exit flush provider says (in full without one). See
+	 * {@link TUIStopOptions} for a handoff that resumes with start().
+	 */
+	stop(options: TUIStopOptions = this.#exitFlushProvider?.() ?? {}): void {
+		const { resuming, ...flush } = options;
 		this.#cancelPostmortemRestore?.();
 		this.#cancelPostmortemRestore = undefined;
 		this.#debugServer?.stop();
@@ -2446,17 +2532,19 @@ export class TUI extends Container {
 		}
 		this.#resizeSettleTimer?.cancel();
 		this.#resizeSettleTimer = undefined;
-		if (this.#resizeInPlaceActive && this.terminal.rows > 0) {
-			// The hardware cursor sits wherever the drag left it, but tracking still
-			// describes the pre-resize row (no alt-buffer restore replays it back).
-			// The shell handoff below moves relatively from the tracked row, so park
-			// absolutely on the bottom row and record it first.
-			this.terminal.write(`\x1b[${this.terminal.rows};1H`);
-			this.#hardwareCursorRow = this.terminal.rows - 1;
-		}
+		// Settle the backlog from before the stop first, so the screen-mode exits
+		// below head the queue: a later settle's wait drains them before it can
+		// discard anything, and one that finds the pump still blocked in the same
+		// write leaves them queued. Never re-emit ?1049l instead: on the normal
+		// screen it restores a stale saved cursor.
+		const backlogDrained = this.terminal.settleOutput?.() ?? true;
 		this.#resizeInPlaceActive = false;
 		this.#altToggleEchoPending = false;
 		this.#cancelResizeProbe();
+		// A handoff from under a fullscreen overlay resumes into that overlay, so
+		// it flushes nothing: nothing is committed, and pressure retires those
+		// rows once the overlay closes. Read before the alternate-screen exit.
+		const skipFlush = resuming === true && this.#altActive;
 		if (this.#resizeAltActive) {
 			this.#resizeAltActive = false;
 			this.terminal.write(`${this.#takePendingAltEnter()}${this.#keyboardEnhancementExit()}\x1b[?1049l`);
@@ -2487,13 +2575,25 @@ export class TUI extends Container {
 			this.terminal.write(MOUSE_TRACKING_OFF);
 			this.#mouseTracking = "off";
 		}
-		// A latched destructive reset (settled rebuild-mode resize, /clear) pairs
-		// ED3 with a complete-ledger replay. Running that pair during stop would
-		// erase native history and re-stream the whole transcript at quit; drop
-		// the latch so the flush below writes only un-retired rows.
-		this.#clearScrollbackOnNextRender = false;
-		// The surface already holds the transcript; there's no row history to retire.
-		if (!nativeWasLive) this.#flushHistoryBeforeStop();
+		// Flush only when no skip applies: a resuming stop under a fullscreen
+		// overlay (above), or a backlog from before the stop that could not drain,
+		// whose flushed rows would only be discarded and, at a handoff, marked
+		// committed without arriving. Skipped rows stay un-retired: later frames
+		// retire them, and at exit they remain in the session file.
+		if (!skipFlush && backlogDrained) {
+			// A latched destructive reset (settled rebuild-mode resize, /clear)
+			// pairs ED3 with a complete-ledger replay. Running that pair during
+			// stop would erase native history and re-stream the whole transcript at
+			// quit; drop the latch, and the flush cancels the replay, so only
+			// un-retired rows are written. A skipped flush keeps both halves for
+			// the later frame that runs them together.
+			this.#clearScrollbackOnNextRender = false;
+			// The native surface already holds the transcript: no row history to retire.
+			if (!nativeWasLive) this.#flushHistoryBeforeStop(flush);
+		}
+		// Drain or drop what the flush queued before the handoff writes below, so
+		// the prompt placement and cursor show land after it, not mid-output.
+		this.terminal.settleOutput?.();
 		// Deliberately leave transmitted images in the terminal's graphics store:
 		// placeholder cells committed to native scrollback render only while their
 		// image data lives, so a delete-by-id here blanks every transcript image
@@ -2510,25 +2610,19 @@ export class TUI extends Container {
 			this.#ghosttyInitialImageDelayTimer.cancel();
 			this.#ghosttyInitialImageDelayTimer = undefined;
 		}
-		// Place the parent shell on the first line after the rendered content. When
-		// that line is still inside the viewport, moving there and writing `\r` is
-		// enough; emitting `\r\n` would create an extra blank row. If the content
-		// already reaches the viewport bottom, scroll exactly once so the prompt
-		// lands directly below the last visible TUI row.
+		// Place the parent shell on the first line after the rendered content,
+		// addressed absolutely like every frame: a settle may have discarded the
+		// tail of a frame after it moved the cursor, so the tracked position can
+		// be wrong. When that line is inside the viewport the move alone is
+		// enough; when the content already reaches the viewport bottom, one line
+		// feed scrolls so the prompt lands directly below the last visible row.
 		if (this.#previousFrameLength > 0) {
 			// Provider frames anchor the mutable viewport below retained history;
 			// the shell prompt belongs on the first row after that content.
 			const targetRow = this.#providerViewportTop + this.#previousFrameLength;
 			const viewportBottom = this.terminal.rows - 1;
-			const clampedCursorRow = Math.max(0, Math.min(this.#hardwareCursorRow, viewportBottom));
-			const moveTargetRow = Math.min(targetRow, viewportBottom);
-			const lineDiff = moveTargetRow - clampedCursorRow;
-			if (lineDiff > 0) {
-				this.terminal.write(`\x1b[${lineDiff}B`);
-			} else if (lineDiff < 0) {
-				this.terminal.write(`\x1b[${-lineDiff}A`);
-			}
-			this.terminal.write(targetRow <= viewportBottom ? "\r" : "\r\n");
+			const placementRow = Math.min(targetRow, viewportBottom);
+			this.terminal.write(`\x1b[${placementRow + 1};1H${targetRow <= viewportBottom ? "" : "\n"}`);
 		}
 
 		// Force: the parent shell needs the cursor back regardless of what the
@@ -2662,7 +2756,7 @@ export class TUI extends Container {
 		}
 		const now = this.#renderScheduler.now();
 		const elapsed = now - this.#lastRenderAt;
-		const cadenceDelay = Math.max(0, TUI.#MIN_RENDER_INTERVAL_MS - elapsed);
+		const cadenceDelay = Math.max(0, TUI.#minRenderIntervalMs - elapsed);
 		// Adaptive backpressure — target ~50% render duty cycle: the next frame
 		// starts no sooner than `last_frame_end + last_frame_cost`, i.e.
 		// `last_frame_start + 2 × last_frame_cost`. So `elapsed` (which counts
@@ -4289,7 +4383,7 @@ export class TUI extends Container {
 		if (full && rowsBuffer !== "") this.#fullRedrawCount += 1;
 		// DEC 1049 restores the normal-buffer cursor on exit. Track this buffer's
 		// visibility and marker position without replacing that saved normal row,
-		// which stop() and a late native-surface handshake use after the restore.
+		// which a late native-surface handshake uses after the restore.
 		if (target) this.#hardwareCursorState = target;
 		else this.#recordHardwareCursorHidden();
 	}
