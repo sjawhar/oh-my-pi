@@ -15,13 +15,14 @@ import { buildSessionContext } from "./session-context";
 import type { FileEntry, RawFileEntry, SessionEntry, SessionHeader } from "./session-entries";
 import { migrateToCurrentVersion } from "./session-migrations";
 import { isExternalizableImagePosition, isPersistenceTruncatedString } from "./session-persistence";
-import { FileSessionStorage, type SessionStorage } from "./session-storage";
+import { defaultSessionStorage, FileSessionStorage, type SessionStorage } from "./session-storage";
 import {
 	parseTitleSlotFromContent,
 	parseTitleSlotLine,
 	type SessionTitleUpdate,
 	titleUpdateFromSlot,
 } from "./session-title-slot";
+import { applyToolResultPrunes } from "./tool-result-prunes";
 
 const LF = new Uint8Array([0x0a]);
 
@@ -119,6 +120,9 @@ export interface SessionLoadResult {
 	malformedRecords: number;
 	/** Byte length of the snapshot actually parsed, or `null` when the path did not exist. */
 	sourceSize?: number | null;
+	/** Modification time and storage identity captured before parsing the snapshot. */
+	sourceMtimeMs?: number | null;
+	sourceIdentity?: string;
 	/** Whether non-empty session data was found without a valid leading session header. */
 	invalidHeader: boolean;
 }
@@ -440,13 +444,18 @@ async function loadWithKnownSize(
 /** Load and validate a session while retaining malformed-record diagnostics. */
 export async function loadSessionFile(
 	filePath: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 	options: LoadSessionOptions = {},
 ): Promise<SessionLoadResult> {
 	try {
-		const statSize = storage.statSync(filePath).size;
-		const { loaded, sourceSize } = await loadWithKnownSize(filePath, storage, statSize, options);
-		return { ...loaded, sourceSize };
+		const sourceStat = storage.statSync(filePath);
+		const { loaded, sourceSize } = await loadWithKnownSize(filePath, storage, sourceStat.size, options);
+		return {
+			...loaded,
+			sourceSize,
+			sourceMtimeMs: sourceStat.mtimeMs,
+			sourceIdentity: sourceStat.identity,
+		};
 	} catch (err) {
 		if (options?.throwIfMissing && (isEnoent(err) || isEnotdir(err))) {
 			throw err;
@@ -470,7 +479,7 @@ export async function loadSessionFile(
  */
 export async function loadEntriesFromFile(
 	filePath: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 	options?: { throwIfMissing?: boolean },
 ): Promise<FileEntry[]> {
 	return (await loadSessionFile(filePath, storage, options)).entries;
@@ -483,7 +492,7 @@ export async function loadEntriesFromFile(
 export async function visitEntriesFromFile(
 	filePath: string,
 	visit: (entry: FileEntry) => void | boolean,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 ): Promise<void> {
 	const size = storage.statSync(filePath).size;
 	if (shouldStreamEntries(storage, size)) {
@@ -653,16 +662,18 @@ export function resolveBlobRefsInEntriesSync(entries: FileEntry[], blobStore: Bl
 
 /**
  * Read-only transcript view of a session file: load entries, migrate to the
- * current version, resolve blob refs, and build the display transcript along
- * the persisted leaf path (last entry). Uses transcript mode (collapsed to the
- * latest compaction) so failed/aborted tail turns stay visible, unlike the
- * provider-context builder which drops them. Does NOT create a writer or take
- * the session lock — safe to call against a file another session is writing.
+ * current version, apply prune records, resolve blob refs, and build the
+ * display transcript along the persisted leaf path (last entry). Uses
+ * transcript mode (collapsed to the latest compaction) so failed/aborted tail
+ * turns stay visible, unlike the provider-context builder which drops them.
+ * Does NOT create a writer or take the session lock — safe to call against a
+ * file another session is writing.
  */
 export async function loadSessionMessagesReadOnly(filePath: string): Promise<AgentMessage[]> {
 	const entries = await loadEntriesFromFile(filePath);
 	if (entries.length === 0) return [];
 	migrateToCurrentVersion(entries);
+	applyToolResultPrunes(entries);
 	for (const entry of entries) repairTruncatedSnapcompactFrames(entry);
 	const blobs = new BlobStore(getBlobsDir());
 	const sessionEntries = entries.filter((e): e is SessionEntry => e.type !== "session");

@@ -1,5 +1,10 @@
 use syntect::parsing::{SyntaxDefinition, SyntaxSet};
 
+/// Grammars vendored as `.sublime-syntax` sources and added after syntect's
+/// defaults. Most are grammars syntect lacks; `Markdown` shadows syntect's
+/// built-in one, because a syntax added later wins syntect's name, extension
+/// and token lookups. That file's header records why we carry a copy of a
+/// grammar syntect already ships, and the checks for dropping it again.
 const EXTRA_SYNTAXES: &[(&str, &str)] = &[
 	("Julia", include_str!("Julia.sublime-syntax")),
 	("Nix", include_str!("Nix.sublime-syntax")),
@@ -25,6 +30,7 @@ const EXTRA_SYNTAXES: &[(&str, &str)] = &[
 	("Terraform", include_str!("Terraform.sublime-syntax")),
 	("TOML", include_str!("TOML.sublime-syntax")),
 	("VimL", include_str!("VimL.sublime-syntax")),
+	("Markdown", include_str!("Markdown.sublime-syntax")),
 ];
 
 /// Builds the serialized artifact's syntax set from newline-aware defaults and

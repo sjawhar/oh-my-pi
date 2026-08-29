@@ -101,6 +101,7 @@ import {
 import { forgetExternalizedImages, prepareEntryForPersistence } from "./session-persistence";
 import { loadPinnedSessionIds, sortPinnedFirst } from "./session-pins";
 import {
+	defaultSessionStorage,
 	FileSessionStorage,
 	MemorySessionStorage,
 	type SessionStorage,
@@ -114,9 +115,13 @@ import {
 	normalizeWorkspaceDirectory,
 } from "./session-workspace";
 import { recordSessionRecap, recordSessionTitle } from "./session-index";
+import { applyToolResultPrunes } from "./tool-result-prunes";
 
 const JSONL_SUFFIX_LENGTH = ".jsonl".length;
 const DRAFT_ONLY_SESSION_MARKER = ".draft-only-session";
+const utf8Encoder = new TextEncoder();
+/** UTF-8 bytes of the intended body encoded per step when verifying a failed acknowledgement. */
+const ACK_COMPARE_WINDOW_BYTES = 1 << 16;
 const DISCARDED_ENTRY_BRANCH_MARKER = "discarded-entry-branch";
 /**
  * Read-back-and-retry passes one full rewrite makes after meeting another
@@ -752,23 +757,88 @@ interface SessionBodyStamp {
 
 /**
  * One full-file serialization: title slot, header, and entry lines in file
- * order plus their total UTF-8 byte length. Kept as lines so the file backend
- * streams them instead of materializing one string the size of the session.
+ * order. `lines` regenerates on every iteration so file storage can write
+ * bodies without allocating a transcript-sized array.
  */
 interface SessionFileBody {
-	lines: string[];
-	bytes: number;
+	lines: Iterable<string>;
+	readonly bytes: number;
 	stamp: SessionBodyStamp;
 }
 
 /** Whether `text` is exactly the concatenation of `lines`, compared without building it. */
-function textMatchesLines(text: string, lines: readonly string[]): boolean {
+function textMatchesLines(text: string, lines: Iterable<string>): boolean {
 	let offset = 0;
 	for (const line of lines) {
 		if (!text.startsWith(line, offset)) return false;
 		offset += line.length;
 	}
 	return offset === text.length;
+}
+
+/**
+ * Compare the UTF-8 encoding of a generated JSONL body to the durable file's raw
+ * bytes without materializing either transcript. Nothing is decoded, so no decoder
+ * normalization (such as dropping a leading byte-order mark) can make different
+ * bytes match.
+ */
+async function fileMatchesLines(filePath: string, lines: Iterable<string>): Promise<boolean> {
+	const iterator = lines[Symbol.iterator]();
+	const expected = Buffer.allocUnsafe(ACK_COMPARE_WINDOW_BYTES);
+	let expectedLength = 0;
+	let expectedOffset = 0;
+	let line = "";
+	let lineRead = 0;
+
+	/** Encode the next window of the body into `expected`; false once the body is exhausted. */
+	const encodeNextWindow = (): boolean => {
+		while (lineRead === line.length) {
+			const next = iterator.next();
+			if (next.done) return false;
+			line = next.value;
+			lineRead = 0;
+		}
+		// `encodeInto` never splits a code point, and the window always fits one.
+		const { read, written } = utf8Encoder.encodeInto(line.slice(lineRead), expected);
+		lineRead += read;
+		expectedLength = written;
+		expectedOffset = 0;
+		return true;
+	};
+
+	try {
+		for await (const chunk of Bun.file(filePath).stream()) {
+			let chunkOffset = 0;
+			while (chunkOffset < chunk.byteLength) {
+				if (expectedOffset === expectedLength && !encodeNextWindow()) return false;
+				const sharedLength = Math.min(expectedLength - expectedOffset, chunk.byteLength - chunkOffset);
+				const differs = expected.compare(
+					chunk,
+					chunkOffset,
+					chunkOffset + sharedLength,
+					expectedOffset,
+					expectedOffset + sharedLength,
+				);
+				if (differs !== 0) return false;
+				expectedOffset += sharedLength;
+				chunkOffset += sharedLength;
+			}
+		}
+	} catch {
+		return false;
+	}
+	return expectedOffset === expectedLength && !encodeNextWindow();
+}
+
+/** Whether `loaded` still describes the current session object without parsing it again. */
+function sessionSnapshotIsCurrent(storage: SessionStorage, filePath: string, loaded: SessionLoadResult): boolean {
+	if (loaded.sourceSize === undefined || loaded.sourceMtimeMs === undefined) return false;
+	const current = storage.statSync(filePath);
+	return (
+		current.size === loaded.sourceSize &&
+		current.mtimeMs === loaded.sourceMtimeMs &&
+		current.identity === loaded.sourceIdentity
+	);
 }
 
 /**
@@ -873,6 +943,8 @@ export class SessionManager {
 	#fileIsCurrent = false;
 	/** In-memory entries diverged from disk (load-migration/sanitize) → next persist must full-rewrite. */
 	#rewriteRequired = false;
+	/** Earliest append that did not reach durable storage; later appends must rewrite it before extending the file. */
+	#firstUndurableEntryIndex: number | undefined;
 	/** Malformed records the loader skipped for the current session file; reported by `/dump anon`. */
 	#loadedMalformedRecords = 0;
 	/** Byte length this manager last loaded or durably wrote; `null` means the path was absent. */
@@ -884,6 +956,23 @@ export class SessionManager {
 	 * nothing (rvEW).
 	 */
 	#deferredPublishGen = 0;
+	/**
+	 * Path of the latest deferred publish while the backend has neither
+	 * confirmed nor rejected it. A synchronous rewrite of that path queues
+	 * nothing meanwhile: it could only carry the last confirmed size, which
+	 * the store's queue-time check rejects against this manager's own
+	 * queued body. The publish's confirmation re-issues the transcript
+	 * instead, carrying the size the backend confirmed; an atomic rewrite
+	 * waits for that confirmation before taking its size.
+	 */
+	#unconfirmedPublishPath: string | undefined;
+	/**
+	 * A deferred publish's confirmation arrived after {@link seal} and found
+	 * the transcript had outgrown the body it confirmed. The seal refuses the
+	 * re-issue that confirmation owes, so {@link close} publishes the
+	 * transcript once its drain settles.
+	 */
+	#closeOwesPublish = false;
 	/** Lazy gate crossed (ensureOnDisk / loaded file): every entry must persist from now on. */
 	#forceFileCreation = false;
 	/**
@@ -1426,7 +1515,7 @@ export class SessionManager {
 		try {
 			await (this.#storage.writeLinesAtomic
 				? this.#storage.writeLinesAtomic(target, body.lines, options)
-				: this.#storage.writeTextAtomic(target, body.lines.join(""), options));
+				: this.#storage.writeTextAtomic(target, Array.from(body.lines).join(""), options));
 		} catch (error) {
 			const retryPath = await this.#recoverFromWriteConflict(error, recoveries);
 			if (retryPath) return this.#publishAuthoritativeBody(retryPath, operationError, commitGuard, recoveries + 1);
@@ -1436,15 +1525,14 @@ export class SessionManager {
 			} catch (drainFailure) {
 				recoveryErrors.push(toError(drainFailure));
 			}
-			let actual: string;
 			try {
-				actual = await this.#storage.readText(target);
+				if (!(await this.#bodyMatchesStorage(target, body))) {
+					recoveryErrors.push(new Error("Authoritative session repair did not match durable storage."));
+					throw this.#latchIndeterminate(operationError, recoveryErrors);
+				}
 			} catch (readFailure) {
+				if (readFailure instanceof SessionPersistenceIndeterminateError) throw readFailure;
 				recoveryErrors.push(toError(readFailure));
-				throw this.#latchIndeterminate(operationError, recoveryErrors);
-			}
-			if (!textMatchesLines(actual, body.lines)) {
-				recoveryErrors.push(new Error("Authoritative session repair did not match durable storage."));
 				throw this.#latchIndeterminate(operationError, recoveryErrors);
 			}
 		}
@@ -1470,8 +1558,29 @@ export class SessionManager {
 		this.#expectedDiskSize = (this.#expectedDiskSize ?? 0) + Buffer.byteLength(line, "utf8");
 	}
 
+	#recordAppendFailure(entry: SessionEntry, errorLike: unknown): void {
+		const entryIndex = this.#entries.indexOf(entry);
+		if (
+			entryIndex >= 0 &&
+			(this.#firstUndurableEntryIndex === undefined || entryIndex < this.#firstUndurableEntryIndex)
+		) {
+			this.#firstUndurableEntryIndex = entryIndex;
+		}
+		this.#fileIsCurrent = false;
+		this.#rewriteRequired = true;
+		this.#noteDiskFailure(errorLike);
+	}
+
 	#recordFullRewrite(bytes: number): void {
 		this.#expectedDiskSize = bytes;
+		this.#firstUndurableEntryIndex = undefined;
+		this.#clearDiskError();
+	}
+
+	/** Verify a failed acknowledgement without materializing a file-backed transcript. */
+	async #bodyMatchesStorage(sessionFile: string, body: SessionFileBody): Promise<boolean> {
+		if (this.#storage instanceof FileSessionStorage) return fileMatchesLines(sessionFile, body.lines);
+		return textMatchesLines(await this.#storage.readText(sessionFile), body.lines);
 	}
 
 	/**
@@ -1482,23 +1591,28 @@ export class SessionManager {
 	 * holds and latched, so the next append retries the transcript instead of
 	 * reusing an `expectedSize` the backend never reached.
 	 *
-	 * `onConfirm` runs only once the backend confirms the queued publish. A
-	 * deferred rewrite must neither record the replacement nor mark the manager
-	 * current before then (hV-oB): an append racing the unconfirmed publish
-	 * would otherwise take the hot path and land a bare append on a body the
-	 * backend may still reject, inflating the CAS token past anything durable.
-	 * A rewrite racing it instead carries the last confirmed token, which the
-	 * store's queue-time size check fail-fasts before a second provisional
-	 * publish can queue behind the unconfirmed one.
+	 * `onConfirm` runs only once the backend confirms the queued publish, and
+	 * only while it is the latest (`generation`): a newer deferred publish owns
+	 * the durability record then, and this body is no longer on the backend
+	 * (rvEW). A deferred rewrite must neither record the replacement nor mark
+	 * the manager current before then (hV-oB): an append racing the
+	 * unconfirmed publish would otherwise take the hot path and land a bare
+	 * append on a body the backend may still reject, inflating the CAS token
+	 * past anything durable. A rewrite racing it queues nothing (see
+	 * {@link #unconfirmedPublishPath}); `onConfirm` re-issues the transcript.
 	 */
-	#confirmDeferredPublish(sessionFile: string, onConfirm?: () => void): void {
+	#confirmDeferredPublish(sessionFile: string, generation: number, onConfirm: () => void): void {
 		const confirmed = this.#storage.confirmWrites?.(sessionFile);
+		this.#unconfirmedPublishPath = confirmed ? sessionFile : undefined;
 		if (!confirmed) return;
 		void confirmed
 			.then(() => {
-				onConfirm?.();
+				if (generation !== this.#deferredPublishGen) return;
+				this.#unconfirmedPublishPath = undefined;
+				onConfirm();
 			})
 			.catch(err => {
+				if (generation === this.#deferredPublishGen) this.#unconfirmedPublishPath = undefined;
 				this.#fileIsCurrent = false;
 				this.#rewriteRequired = true;
 				try {
@@ -1520,26 +1634,51 @@ export class SessionManager {
 		});
 	}
 
-	/** Serialize the whole file — title slot, header, entries — as lines, stamped with the state they came from. */
+	/** Serialize the whole file lazily, retaining only one JSONL record at a time. */
 	#serializeBody(): SessionFileBody {
 		const titleLine = this.#titleSlotLine();
 		const headerLine = this.#lineFor(this.#header);
 		const entries = this.#entries;
-		const lines = [titleLine, headerLine];
-		let bytes = Buffer.byteLength(titleLine, "utf8") + Buffer.byteLength(headerLine, "utf8");
-		for (const entry of entries) {
-			const line = this.#lineFor(entry);
-			bytes += Buffer.byteLength(line, "utf8");
-			lines.push(line);
-		}
+		const entryCount = entries.length;
+		const manager = this;
+		let bytes = 0;
+		const lines: Iterable<string> = {
+			*[Symbol.iterator]() {
+				bytes = 0;
+				let bytesSinceGc = 0;
+				for (const line of [titleLine, headerLine]) {
+					const lineBytes = Buffer.byteLength(line, "utf8");
+					bytes += lineBytes;
+					bytesSinceGc += lineBytes;
+					yield line;
+				}
+				for (let index = 0; index < entryCount; index++) {
+					const line = manager.#lineFor(entries[index]!);
+					const lineBytes = Buffer.byteLength(line, "utf8");
+					bytes += lineBytes;
+					bytesSinceGc += lineBytes;
+					yield line;
+					if (bytesSinceGc >= 64 * 1024 * 1024) {
+						Bun.gc(false);
+						bytesSinceGc = 0;
+					}
+				}
+			},
+		};
 		const stamp: SessionBodyStamp = {
 			entries,
-			entryCount: entries.length,
+			entryCount,
 			lastEntry: entries.at(-1),
 			revision: this.#bodyRevision,
 			prefix: titleLine + headerLine,
 		};
-		return { lines, bytes, stamp };
+		return {
+			lines,
+			get bytes() {
+				return bytes;
+			},
+			stamp,
+		};
 	}
 
 	#historyContainsAssistantMessage(): boolean {
@@ -1580,6 +1719,9 @@ export class SessionManager {
 		if (!this.#persist || !this.#shouldHaveSessionFile()) return;
 		let targetPath = this.#liveRelocationWritePath() ?? this.#sessionFile;
 		if (!targetPath) return;
+		// This manager's own publish of the path is still unconfirmed: its
+		// confirmation re-issues the transcript (see #unconfirmedPublishPath).
+		if (targetPath === this.#unconfirmedPublishPath) return;
 
 		try {
 			if (this.#sessionOwnedElsewhere()) targetPath = this.#moveOffSessionFile("open-elsewhere");
@@ -1591,7 +1733,7 @@ export class SessionManager {
 				try {
 					const options = { expectedSize: this.#expectedDiskSize };
 					if (this.#storage.writeLinesSync) this.#storage.writeLinesSync(targetPath, body.lines, options);
-					else this.#storage.writeTextSync(targetPath, body.lines.join(""), options);
+					else this.#storage.writeTextSync(targetPath, Array.from(body.lines).join(""), options);
 					break;
 				} catch (err) {
 					const retryPath = this.#recoverFromWriteConflictSync(err, recoveries);
@@ -1600,24 +1742,20 @@ export class SessionManager {
 					body = this.#serializeBody();
 				}
 			}
-			this.#clearDiskError();
 			if (this.#storage.defersSyncPublish) {
 				// The publish is only queued: record nothing and stay non-current
-				// until the backend confirms (hV-oB). A racing rewrite still
-				// carries the last confirmed token, so the store's queue-time
-				// size check fail-fasts it instead of queueing a second
-				// provisional publish behind the unconfirmed one; a racing
-				// append retries the transcript on the cold path instead of
-				// landing a bare append on a body the backend may still reject.
-				// The success handler below is the single place the replacement
-				// becomes durable state.
+				// until the backend confirms (hV-oB). A racing rewrite of this
+				// path queues nothing until then, and a racing append retries the
+				// transcript on that cold path instead of landing a bare append
+				// on a body the backend may still reject. The success handler
+				// below is the single place the replacement becomes durable state.
+				// A manager current on the previous body (a branch from a flushed
+				// session) must stop being current too, or racing appends take
+				// the hot path onto the queued body.
+				this.#fileIsCurrent = false;
 				const generation = ++this.#deferredPublishGen;
 				const { bytes, stamp } = body;
-				this.#confirmDeferredPublish(targetPath, () => {
-					// A newer deferred publish owns the durability record now;
-					// this body is no longer on the backend, so record nothing.
-					if (generation !== this.#deferredPublishGen) return;
-					this.#recordFullRewrite(bytes);
+				this.#confirmDeferredPublish(targetPath, generation, () => {
 					const entries = this.#entries;
 					const bodyIsCurrent =
 						stamp.entries === entries &&
@@ -1627,16 +1765,20 @@ export class SessionManager {
 						stamp.prefix === this.#titleSlotLine() + this.#lineFor(this.#header);
 					if (!bodyIsCurrent) {
 						// Entries raced the unconfirmed publish: the confirmed
-						// body predates them. Stay non-current and re-issue the
-						// full transcript instead of declaring it durable
-						// (rvEW); the re-issued publish carries the
-						// just-confirmed size token, so its queue-time check
-						// passes.
+						// body predates them. Record only its size, so a failure
+						// latched since it was issued still stands, stay
+						// non-current and re-issue the full transcript instead
+						// of declaring it durable (rvEW); the re-issued publish
+						// carries the just-confirmed size token, so its
+						// queue-time check passes. A sealed manager leaves that write to close().
+						this.#expectedDiskSize = bytes;
 						this.#fileIsCurrent = false;
 						this.#rewriteRequired = true;
-						this.#rewriteSynchronously();
+						if (this.#released) this.#closeOwesPublish = true;
+						else this.#rewriteSynchronously();
 						return;
 					}
+					this.#recordFullRewrite(bytes);
 					if (!this.#sessionFileRelocating || targetPath === this.#sessionFile) {
 						this.#fileIsCurrent = true;
 						this.#materializeBreadcrumb();
@@ -1677,7 +1819,7 @@ export class SessionManager {
 	 * synchronous rewrite from being overwritten by the stale body serialized
 	 * before it ran.
 	 */
-	async #rewriteAtomically(): Promise<void> {
+	async #rewriteAtomically(retryAfterFailure = false): Promise<void> {
 		if (!this.#persist || !this.#sessionFile) return;
 		if (this.#released) return;
 
@@ -1691,7 +1833,7 @@ export class SessionManager {
 					this.#hasTitleSlot = true;
 				}
 			},
-			{ epoch: startEpoch },
+			{ epoch: startEpoch, ignorePriorError: retryAfterFailure },
 		);
 	}
 
@@ -1712,6 +1854,13 @@ export class SessionManager {
 			do {
 				this.#atomicRewriteDirty = false;
 				await this.#closeWriterHandle();
+				// This manager's own publish of the file is still unconfirmed:
+				// its confirmation settles #expectedDiskSize (or re-issues, which
+				// moves the epoch and supersedes this rewrite below).
+				const unconfirmed = this.#unconfirmedPublishPath;
+				if (unconfirmed !== undefined && unconfirmed === this.#sessionFile) {
+					await this.#storage.confirmWrites?.(unconfirmed).catch(() => undefined);
+				}
 				if (this.#sessionOwnedElsewhere()) this.#moveOffSessionFile("open-elsewhere");
 				const sessionFile = this.#sessionFile;
 				if (!sessionFile) return false;
@@ -1724,7 +1873,7 @@ export class SessionManager {
 				try {
 					await (this.#storage.writeLinesAtomic
 						? this.#storage.writeLinesAtomic(sessionFile, body.lines, options)
-						: this.#storage.writeTextAtomic(sessionFile, body.lines.join(""), options));
+						: this.#storage.writeTextAtomic(sessionFile, Array.from(body.lines).join(""), options));
 				} catch (error) {
 					if (await this.#recoverFromWriteConflict(error, recoveries)) {
 						recoveries++;
@@ -1732,14 +1881,22 @@ export class SessionManager {
 						this.#atomicRewriteDirty = true;
 						continue;
 					}
+					let landed = false;
 					try {
-						if (textMatchesLines(await this.#storage.readText(sessionFile), body.lines)) {
-							this.#recordFullRewrite(body.bytes);
-						}
+						landed = await this.#bodyMatchesStorage(sessionFile, body);
 					} catch {
 						// Preserve the publish error when durable state cannot be read back.
 					}
-					throw error;
+					if (!landed) throw error;
+					// A body proven durable despite its failed acknowledgement has published, except while an
+					// atomic entry batch is open: the body carries the batch's uncommitted entries, so the
+					// batch must still see the failure and roll them back. Recording the landed size lets the
+					// rollback's repair replace that body instead of adopting the staged entries back as
+					// another writer's.
+					if (this.#atomicEntryBatch) {
+						this.#expectedDiskSize = body.bytes;
+						throw error;
+					}
 				}
 				if (this.#diskEpoch !== epoch) return false;
 				this.#recordFullRewrite(body.bytes);
@@ -1764,10 +1921,7 @@ export class SessionManager {
 			this.#atomicRewriteDirty = true;
 			return;
 		}
-		if (this.#diskFailure) {
-			// The failed entry and any later entries remain in memory. A full
-			// replacement is the writability probe and restores all of them once
-			// transient storage pressure clears.
+		if (this.#firstUndurableEntryIndex !== undefined) {
 			this.#fileIsCurrent = false;
 			this.#rewriteRequired = true;
 		}
@@ -1852,16 +2006,10 @@ export class SessionManager {
 				const confirmed = writer.appendSync ? writer.flush() : writer.append(line);
 				void confirmed
 					.then(() => this.#recordDurableAppend(line))
-					.catch(err => {
-						this.#fileIsCurrent = false;
-						this.#rewriteRequired = true;
-						this.#noteDiskFailure(err);
-					});
+					.catch(err => this.#recordAppendFailure(entry, err));
 			}
 		} catch (err) {
-			this.#fileIsCurrent = false;
-			this.#rewriteRequired = true;
-			this.#noteDiskFailure(err);
+			this.#recordAppendFailure(entry, err);
 		}
 	}
 
@@ -2308,6 +2456,7 @@ export class SessionManager {
 		}
 
 		const migrated = migrateToCurrentVersion(fileEntries);
+		applyToolResultPrunes(fileEntries);
 		await resolveBlobRefsInEntries(fileEntries, this.#blobs);
 		// loadEntriesFromFile guarantees entries[0] is a valid session header.
 		const header = fileEntries[0] as SessionHeader;
@@ -2641,7 +2790,7 @@ export class SessionManager {
 	/** Persist this session's transcript as a newly identified OMP session. */
 	async persistCopy(
 		options?: { sessionDir?: string; suppressBreadcrumb?: boolean },
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionManager> {
 		const sessionDir = options?.sessionDir ?? SessionManager.getDefaultSessionDir(this.#cwd, undefined, storage);
 		const manager = new SessionManager(this.#cwd, sessionDir, true, storage);
@@ -2839,9 +2988,8 @@ export class SessionManager {
 		const claim = this.#sessionClaim;
 		claim?.release?.();
 		if (claim) claim.release = undefined;
-		// A prior `flushSync` can self-conflict with this manager's own
-		// unconfirmed deferred publish; drain despite the latch so that
-		// publish can still confirm before we give up on the transcript.
+		// Close and drain despite a latched failure, so a queued publish can
+		// still confirm before we give up on the transcript.
 		await this.#scheduleDiskWork(
 			async () => {
 				const hadWriter = this.#writer !== undefined;
@@ -2863,7 +3011,7 @@ export class SessionManager {
 			{ ignorePriorError: true },
 		);
 		if (
-			this.#diskFailure &&
+			(this.#diskFailure || this.#closeOwesPublish) &&
 			this.#sessionFile &&
 			this.#storage.defersSyncPublish &&
 			!this.#entriesReleased &&
@@ -2872,13 +3020,16 @@ export class SessionManager {
 			// Deferred-publish only: a synchronous backend's drain() is a
 			// no-op, so any failure there is a genuine external conflict or a
 			// permanent write failure, not a self-race this retry can catch
-			// up on. seal() disabled the ordinary mid-life repair path, so
-			// close() issues the terminal write directly instead.
-			const operationError = this.#diskFailure;
+			// up on. seal() disabled the ordinary mid-life repair path and the
+			// re-issue a late confirmation owes, so close() issues the
+			// terminal write directly instead.
+			const operationError =
+				this.#diskFailure ?? new Error("Session entries were still unpublished when the session closed.");
 			const sessionFile = this.#sessionFile;
 			await this.#scheduleDiskWork(
 				async () => {
 					await this.#publishAuthoritativeBody(sessionFile, operationError);
+					this.#closeOwesPublish = false;
 					this.#clearDiskError();
 				},
 				{ ignorePriorError: true },
@@ -3112,6 +3263,14 @@ export class SessionManager {
 	 */
 	isSessionOnDisk(): boolean {
 		return !!this.#sessionFile && this.#storage.existsSync(this.#sessionFile);
+	}
+
+	/**
+	 * Whether a disk failure is latched: the session file stopped being written,
+	 * and the failed entry and any later ones live only in memory.
+	 */
+	hasPersistenceFailure(): boolean {
+		return this.#diskFailure !== undefined;
 	}
 
 	getArtifactsDir(): string | null {
@@ -3524,13 +3683,13 @@ export class SessionManager {
 	}
 
 	/**
-	 * Rewrite the session file after in-place entry updates (e.g. pruning old tool
-	 * outputs). Use sparingly.
+	 * Rewrite the whole session file after in-place entry updates that have no
+	 * append-only record. Costs the full transcript in bytes; use sparingly.
 	 */
 	async rewriteEntries(): Promise<void> {
 		this.#bodyRevision++;
 		if (!this.#persist || !this.#sessionFile) return;
-		await this.#rewriteAtomically();
+		await this.#rewriteAtomically(true);
 	}
 
 	/**
@@ -3540,6 +3699,7 @@ export class SessionManager {
 	 * @param display Whether to show in TUI (true = styled display, false = hidden)
 	 * @param details Optional extension-specific metadata (not sent to LLM)
 	 * @param attribution Who initiated this message for billing/attribution semantics
+	 * @param tag Caller correlation id of the input the message came from
 	 */
 	appendCustomMessageEntry<T = unknown>(
 		customType: string | undefined,
@@ -3548,6 +3708,7 @@ export class SessionManager {
 		details?: T,
 		attribution: MessageAttribution | undefined = "agent",
 		timestamp?: number,
+		tag?: string,
 	): string {
 		const normalized = normalizeCustomMessagePayload<T>({ customType, content, display, details, attribution });
 		const fresh = this.#freshEntryFields();
@@ -3559,6 +3720,7 @@ export class SessionManager {
 			// Drop AgentSession-internal transient fields before disk persistence.
 			details: stripInternalDetailsFields(normalized.details),
 			attribution: normalized.attribution,
+			...(tag !== undefined && { tag }),
 			...fresh,
 			// Prefer the initiating message's own timestamp: without it the entry
 			// records the emission time, which on rebuild excludes provider
@@ -3801,6 +3963,10 @@ export class SessionManager {
 	 * the new artifact manager waits for it before allocating ids or resolving
 	 * `artifact://`, so kept references stay valid and new ids cannot collide.
 	 * Returns the new file path, or undefined when not persisting.
+	 *
+	 * Callers `flush()` first. On a store that defers sync publishes, the
+	 * branch's publish supersedes a still-unconfirmed publish of the source,
+	 * so entries the source had not yet published reach only the branch.
 	 */
 	createBranchedSession(leafId: string, options?: { copyArtifacts?: boolean }): string | undefined {
 		const sourceSessionFile = this.#sessionFile;
@@ -3882,7 +4048,7 @@ export class SessionManager {
 	static getDefaultSessionDir(
 		cwd: string,
 		agentDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): string {
 		return computeDefaultSessionDir(cwd, storage, getSessionsDir(agentDir));
 	}
@@ -3892,7 +4058,7 @@ export class SessionManager {
 	 * @param cwd Working directory (stored in the session header)
 	 * @param sessionDir Optional session directory; defaults to the cwd-derived dir.
 	 */
-	static create(cwd: string, sessionDir?: string, storage: SessionStorage = new FileSessionStorage()): SessionManager {
+	static create(cwd: string, sessionDir?: string, storage: SessionStorage = defaultSessionStorage()): SessionManager {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const manager = new SessionManager(cwd, dir, true, storage);
 		manager.#resetToNewSession();
@@ -3905,7 +4071,7 @@ export class SessionManager {
 	 * `setSessionFile` / `AgentSession.switchSession` when a caller explicitly
 	 * needs a brand-new persisted session at a cwd-derived path.
 	 */
-	static createEmptySessionFile(cwd: string, storage: SessionStorage = new FileSessionStorage()): string {
+	static createEmptySessionFile(cwd: string, storage: SessionStorage = defaultSessionStorage()): string {
 		const sessionDir = SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const id = mintSessionId();
 		const timestamp = nowIso();
@@ -3934,7 +4100,7 @@ export class SessionManager {
 		sourcePath: string,
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 		options?: {
 			copyArtifacts?: boolean;
 			suppressBreadcrumb?: boolean;
@@ -3957,6 +4123,7 @@ export class SessionManager {
 			throw err;
 		}
 		migrateToCurrentVersion(sourceEntries);
+		applyToolResultPrunes(sourceEntries);
 		await resolveBlobRefsInEntries(sourceEntries, manager.#blobs);
 
 		const sourceHeader = sourceEntries.find(entry => entry.type === "session") as SessionHeader | undefined;
@@ -4055,7 +4222,7 @@ export class SessionManager {
 	static async open(
 		filePath: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 		options?: { initialCwd?: string; parentSession?: string; suppressBreadcrumb?: boolean; throwIfMissing?: boolean },
 	): Promise<SessionManager> {
 		const probed = await loadSessionFile(filePath, storage, { throwIfMissing: options?.throwIfMissing });
@@ -4076,14 +4243,15 @@ export class SessionManager {
 				: path.dirname(path.resolve(filePath)));
 		const manager = new SessionManager(cwd, dir, true, storage);
 		manager.#suppressBreadcrumb = options?.suppressBreadcrumb === true;
-		// Freshness gate for fail-closed callers (revive): the cwd probe above
-		// yields, so re-read after it and adopt only the fresh snapshot. A
-		// transcript deleted, truncated, or replaced mid-probe then fails
-		// closed here (ENOENT / holds-no-entries, without minting) instead of
-		// reviving stale history. Other callers keep the single probe read.
-		const loaded = options?.throwIfMissing
-			? await loadSessionFile(filePath, storage, { throwIfMissing: true })
-			: probed;
+		// Fail-closed callers yield while probing the recorded cwd. Re-stat the
+		// snapshot before adoption and parse again only if its bytes, mtime, or
+		// backing-object identity changed. A deleted, truncated, or replaced
+		// transcript then still fails closed without a second parse of a stable
+		// multi-gigabyte session.
+		const loaded =
+			options?.throwIfMissing && !sessionSnapshotIsCurrent(storage, filePath, probed)
+				? await loadSessionFile(filePath, storage, { throwIfMissing: true })
+				: probed;
 		await manager.#setSessionFile(filePath, loaded, {
 			throwIfMissing: options?.throwIfMissing,
 			newSession: { parentSession: options?.parentSession },
@@ -4144,7 +4312,7 @@ export class SessionManager {
 	 */
 	static async peekSessionInit(
 		filePath: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<{
 		cwd: string;
 		init: PersistedSessionInit | null;
@@ -4172,7 +4340,7 @@ export class SessionManager {
 	static async continueRecent(
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionManager> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const resolvedCwd = path.resolve(cwd);
@@ -4298,7 +4466,7 @@ export class SessionManager {
 	static async list(
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionInfo[]> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const sessions = await listSessions(dir, storage);
@@ -4306,7 +4474,7 @@ export class SessionManager {
 	}
 
 	/** List all sessions across all project directories, pinned sessions first. */
-	static async listAll(storage: SessionStorage = new FileSessionStorage()): Promise<SessionInfo[]> {
+	static async listAll(storage: SessionStorage = defaultSessionStorage()): Promise<SessionInfo[]> {
 		const sessions = await listAllSessions(storage);
 		return sortPinnedFirst(sessions, await loadPinnedSessionIds());
 	}
@@ -4320,7 +4488,7 @@ export class SessionManager {
 	static async listForPicker(
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionInfo[]> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const [pinned, siblingDirs] = await Promise.all([loadPinnedSessionIds(), worktreeSessionDirs(cwd, dir)]);
@@ -4328,7 +4496,7 @@ export class SessionManager {
 	}
 
 	/** Picker-facing cross-project list, same empty-session rule as {@link listForPicker}. */
-	static async listAllForPicker(storage: SessionStorage = new FileSessionStorage()): Promise<SessionInfo[]> {
+	static async listAllForPicker(storage: SessionStorage = defaultSessionStorage()): Promise<SessionInfo[]> {
 		const pinned = await loadPinnedSessionIds();
 		return sortPinnedFirst(filterSessionsForPicker(await listAllSessions(storage), pinned), pinned);
 	}

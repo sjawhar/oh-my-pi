@@ -12,6 +12,9 @@
 - Exported `matchesReplacementCredential` and `isSameOAuthAccount`, which tell whether storing a credential replaces an existing account row and whether two credentials belong to the same account ([#14901](https://github.com/can1357/oh-my-pi/pull/14901) by [@will-bogusz](https://github.com/will-bogusz))
 - Added `AuthStorage.sessions.permits(provider, sessionId, credentialId)`, which tells whether a stored account may serve a session restricted to an account pool ([#15135](https://github.com/can1357/oh-my-pi/pull/15135) by [@will-bogusz](https://github.com/will-bogusz))
 - Added `judgeQuestions()`, which loads judge questions from an imported JSON file with choice labels and answer types inferred from each question's `criteria`, and `renderQuestion()` for templated instructions
+- `UserMessage` has an optional `tag`, a caller correlation id that stays with the message and is never sent to providers ([#14323](https://github.com/can1357/oh-my-pi/pull/14323) by [@sjawhar](https://github.com/sjawhar))
+- Added `CredentialUnavailableError`, a transient error for a configured credential source that produced no key; unlike `MissingApiKeyError`, a retry may succeed ([#14031](https://github.com/can1357/oh-my-pi/pull/14031) by [@sjawhar](https://github.com/sjawhar)).
+- Added **Anthropic Console** to `/login`: sign in with a Claude Console account to use Claude models billed to your Console organization, without creating an API key. Console logins sit alongside Claude Pro/Max logins for the same organization.
 
 ### Changed
 
@@ -39,6 +42,11 @@
 - Fixed side requests on GPT-6 Responses and Codex models missing the conversation's prompt cache after a reasoning-effort change: they now keep its request-level effort and replay its `configuration_update` items
 - Fixed Codex side requests never reading the conversation's prompt cache: they now send its session headers, which the backend routes cache affinity by, while keeping their own request identity
 - Fixed GPT-6 models in `pro` reasoning mode receiving `configuration_update` items, which that mode rejects; their effort changes stay on the request-level effort
+- Fixed Anthropic sessions on a custom `baseUrl` (a gateway in front of Anthropic) losing the server-side fallback marker and redacted thinking from a persisted turn, which made the next request fail with `thinking … blocks in the latest assistant message cannot be modified` ([#12352](https://github.com/can1357/oh-my-pi/pull/12352) by [@sjawhar](https://github.com/sjawhar)).
+- Persisted server-side fallback markers are now replayed to any Anthropic endpoint the request opts into fallbacks with, not only api.anthropic.com ([#12352](https://github.com/can1357/oh-my-pi/pull/12352) by [@sjawhar](https://github.com/sjawhar)).
+- Anthropic's `thinking … blocks in the latest assistant message cannot be modified` rejection now retries without that turn's replayed thinking instead of ending the turn with the error ([#12352](https://github.com/can1357/oh-my-pi/pull/12352) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed Anthropic conversations surfacing a 400 when a fallback or prefix change would replay only part of the latest assistant turn's thinking ([#12352](https://github.com/can1357/oh-my-pi/pull/12352) by [@sjawhar](https://github.com/sjawhar)).
+- For a tool with `lenientArgValidation` (the flag now lives on the base `Tool` type), `validateToolArguments` keeps every argument repair but puts back any unrecognized key it deleted to reach success, so a tool that owns its refusal sees every key the model wrote instead of a silently narrowed "valid" subset (a key the null-is-absent repair drops, such as a null optional field or an unknown null-valued key inside a closed nested object, stays dropped) ([#12871](https://github.com/can1357/oh-my-pi/pull/12871) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.8.9] - 2026-10-10
 
