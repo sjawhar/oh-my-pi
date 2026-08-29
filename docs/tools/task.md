@@ -78,14 +78,14 @@ Background response (`async.enabled=true`):
 - Live progress streams into the same tool block via `onUpdate(...)`; final results arrive as async-result injections. Non-isolated completions get an idle/follow-up hint when messaging is enabled. Aborted agents that can be resumed get a resume hint; isolated runs point at the transcript. The current `task-follow-up.md` template still labels isolated runs non-resumable, despite the retained-workspace lifecycle described below.
 
 Settled response (`async.enabled=false`, no job manager, every item's agent `blocking: true`, or async job body):
-- `content`: summary rendered from `packages/coding-agent/src/prompts/tools/task-summary.md`; output up to 11500 chars is inline whole, longer output shows a 5000-char preview and `agent://<id>` holds the full output. A sync batch concatenates the per-spawn summaries.
+- `content`: summary rendered from `packages/coding-agent/src/prompts/tools/task-summary.md`; output up to 11500 chars is inline whole, longer output shows a 5000-char preview and `agent://<id>` holds the full output. A sync batch concatenates the per-spawn summaries. A structured child that ends without `yield` adds `missing-yield="initial"` or `missing-yield="wake"` to its `<task-result>` header. A failed run whose auto-retry gave up on an error carrying an error id adds `<retry-failure kind="…" reset-at="…" />`, with `reset-at` (ISO 8601) only when the provider stated when the failing credential's limit resets. `kind` is `AIError.stringify` of the final error id: kind labels joined by `|` (e.g. `usage-limit`, `transient|usage-limit`), or `status:<code>` for an error known only by its HTTP status; test membership, not equality.
 - `details.results`: one `SingleResult` per spawn; `usage`, `outputPaths` populated (aggregated across spawns for a sync batch).
 
 `SingleResult` includes:
 - identity: `index`, `id`, `agent`, `agentSource`, `task`, `description`, optional `assignment` (internal payload names; the wire fields are `name`/`agent`/`task`)
-- status: `exitCode`, optional `error`, optional `aborted`, optional `abortReason`, optional `retryFailure`
-- output: `output`, `stderr`, `truncated`, `durationMs`, `tokens`, `requests`, optional `contextTokens`/`contextWindow`, `usage`
-- model: optional `modelOverride`, `modelRole`, `resolvedModel`, `resolvedModelIdentity`, `resolvedThinkingLevel`, `resolvedModelIsFallback`, `resolvedModelRoute`, `advisor`
+- status: `exitCode`, optional `error`, optional `aborted`, optional `abortReason`, optional `retryFailure` (`TaskRetryFailure`: `attempt`, `errorMessage`, optional `kind`, optional `resetAtMs`)
+- output: `output`, `stderr`, `truncated`, `durationMs`, `tokens`, `requests`, optional `contextTokens`/`contextWindow`, `usage`, optional `missingYield` (`"initial"` or `"wake"`)
+- model: optional `modelOverride`, `modelRole`, `resolvedModel`, `resolvedModelIdentity`, `resolvedThinkingLevel`, `resolvedModelIsFallback`, `resolvedModelFallbackReason`, `resolvedModelRoute`, `advisor`
 - structured result: optional `structuredOutput` with schema source/mode, validation status, parsed `data`, and validation `error`
 - artifact metadata: `outputPath?`, `isolated?`, `patchPath?`, `hasRootChanges?`, `branchName?`, `branchBaseSha?`, `nestedPatches?`, `nestedPatchPaths?`, `outputMeta?`
 - extracted tool data: `extractedToolData?` from registered subprocess tool handlers such as `yield`
@@ -188,7 +188,7 @@ Artifacts and side channels:
 - Isolation preparation failures return `Isolated subagent execution could not be prepared: ...`. They distinguish missing Git repositories, pure Jujutsu workspaces without colocated Git, and oversized snapshots. Unavailable backends fall back through the PAL candidate list; other setup/capture failures preserve available output and recovery artifacts.
 - Job registration failure returns `Failed to start background task job(s): ...`; a batch that schedules only some jobs reports the failed ids in the immediate text and keeps the started ones running.
 - Child failures surface as `SingleResult.exitCode = 1` with `stderr`/`error` populated; the async job is marked failed but the delivery text still carries the output plus a follow-up/transcript hint.
-- If the child omits `yield`, `finalizeSubprocessOutput(...)` injects warnings such as `SYSTEM WARNING: Subagent exited without calling yield tool after 3 reminders.`
+- If a structured child omits `yield`, `finalizeSubprocessOutput(...)` sets `missingYield` and prefixes the output with `SYSTEM WARNING: Subagent exited without calling yield tool after 3 reminders.` (first run) or `SYSTEM WARNING: Structured subagent replied without calling yield.` (a wake turn the parent owns: its message woke the agent, or its steer entered a turn a peer started). A wake delivers only its final report turn under that warning. Without an output schema, nonempty prose keeps exit code 0 and the `completed` status; with one, or with empty output, the run fails. `structured: false` children and valid JSON fallback results get no warning.
 - `agent://<id>` reads report unavailable sessions/artifact directories, missing ids, or invalid JSON for field extraction. `agent://all` is write-only; message targets cannot carry JSON-path suffixes.
 
 ## Notes

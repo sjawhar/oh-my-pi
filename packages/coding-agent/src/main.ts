@@ -129,6 +129,8 @@ import {
 	type SessionInfo,
 } from "./session/session-listing";
 import { ForkSourceNotFoundError, SessionManager, SessionMoveRefusedError } from "./session/session-manager";
+import { setDefaultSessionStorage } from "./session/session-storage";
+import { resolveSessionStorage, SessionStorageConfigError } from "./session/session-storage-config";
 import { forkIfMovedAway } from "./session/session-transfer";
 import { shouldShowStartupSplash } from "./startup-splash";
 import {
@@ -166,6 +168,7 @@ import {
 	cfgAutoResume,
 	cfgColorBlindMode,
 	cfgComposerShape,
+	cfgDisplayReduceMotion,
 	cfgImagesAutoResize,
 	cfgMarketplaceAutoUpdate,
 	cfgSetupVersion,
@@ -218,14 +221,15 @@ type SessionPicker = (
 
 /** Resume/import-only graph boundary; ordinary launches never construct a picker. */
 async function loadSessionPicker(init?: { allowRename?: boolean }): Promise<SessionPicker> {
-	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds }, { FileSessionStorage }] = await Promise.all([
-		import("@oh-my-pi/pi-tui/apps/session-picker"),
-		import("./session/history-storage"),
-		import("./session/session-pins"),
-		import("./session/session-storage"),
-	]);
+	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds }, { defaultSessionStorage }] =
+		await Promise.all([
+			import("@oh-my-pi/pi-tui/apps/session-picker"),
+			import("./session/history-storage"),
+			import("./session/session-pins"),
+			import("./session/session-storage"),
+		]);
 	return (sessions, options) => {
-		const storage = new FileSessionStorage();
+		const storage = defaultSessionStorage();
 		return selectSession(sessions, options, {
 			loadPinnedIds: loadPinnedSessionIds,
 			loadHistoryMatcher: () => {
@@ -1846,6 +1850,17 @@ export async function runRootCommand(
 			}
 			let result: string;
 			try {
+				// The session to export is read through the configured storage (a table row
+				// under `session.storage: sql`); the install below runs only after this branch.
+				// A refusal exits through the catch with the same message that install prints.
+				setDefaultSessionStorage(
+					await resolveSessionStorage({
+						settings:
+							deps.settings ??
+							(await Settings.loadReadOnly({ cwd: getProjectDir(), configFiles: parsedArgs.config })),
+						env: process.env,
+					}),
+				);
 				const outputPath = parsedArgs.messages.length > 0 ? parsedArgs.messages[0] : undefined;
 				const { exportFromFile } = await import("./export/html");
 				result = await exportFromFile(parsedArgs.export, outputPath);
@@ -1963,6 +1978,22 @@ export async function runRootCommand(
 		const settingsInstance = await settingsPromise;
 		// Process-lifetime: broker/account-policy edits reconfigure the shared credential store.
 		createAuthStorageSettingsSync(settingsInstance, authStorage);
+		// Install the configured session storage before anything lists or opens a
+		// session — every session listing and SessionManager below reads through
+		// this default. A refusal names only the variable or setting and the path;
+		// it never echoes the connection string.
+		try {
+			setDefaultSessionStorage(
+				await logger.time("resolveSessionStorage", resolveSessionStorage, {
+					settings: settingsInstance,
+					env: process.env,
+				}),
+			);
+		} catch (error) {
+			if (!(error instanceof SessionStorageConfigError)) throw error;
+			process.stderr.write(`${chalk.red(`Error: ${error.message}`)}\n`);
+			process.exit(1);
+		}
 		if (parsedArgs.approvalMode) {
 			// Runtime override (not persisted): every `tools.approvalMode` read downstream
 			// sees this value. The wrapper still honours --auto-approve / --yolo on top of it.
@@ -1975,6 +2006,9 @@ export async function runRootCommand(
 		// Runtime overrides (not persisted): the session's cost gate reads its thresholds from settings.
 		if (parsedArgs.warnCost !== undefined) cfgSessionWarnCost.override(settingsInstance, parsedArgs.warnCost);
 		if (parsedArgs.maxCost !== undefined) cfgSessionMaxCost.override(settingsInstance, parsedArgs.maxCost);
+		if (parsedArgs.reduceMotion) {
+			cfgDisplayReduceMotion.override(settingsInstance, parsedArgs.reduceMotion);
+		}
 		if (parsedArgs.mode === "rpc" || parsedArgs.mode === "rpc-ui") {
 			applyProtocolDefaults("rpc", settingsInstance);
 		} else if (parsedArgs.mode === "acp") {

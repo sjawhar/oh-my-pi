@@ -34,7 +34,7 @@ function requireEditor(): string {
 
 async function editAnnotationDraft(tui: TUI, draft: string, commit: (text: string | null) => void): Promise<void> {
 	const editor = requireEditor();
-	tui.stop();
+	tui.stop({ resuming: true });
 	try {
 		commit(await openInEditor(editor, draft, { extension: ".md" }));
 	} finally {

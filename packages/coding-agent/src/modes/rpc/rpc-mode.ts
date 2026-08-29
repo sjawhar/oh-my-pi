@@ -32,14 +32,8 @@ import {
 	getExtensionUISelectOptionLabel,
 	timedOutAskDialogResult,
 } from "../../extensibility/extensions";
-import {
-	type BuiltSkillPromptMessage,
-	loadSkillPrompt,
-	parseSkillInvocation,
-	type Skill,
-	type SkillPromptInput,
-	type SkillRediscoverySource,
-} from "../../extensibility/skills";
+import { loadSkillPrompt } from "../../extensibility/skills";
+import { type RpcSkillCommandSession, resolveRpcSkillInvocation, runRpcSkillCommand } from "./rpc-skill-invocation";
 import { type Theme, theme } from "@oh-my-pi/pi-tui/theme";
 import { AgentLifecycleManager } from "../../registry/agent-lifecycle";
 import {
@@ -55,11 +49,12 @@ import { reconnectMcpManagerServer } from "../../mcp/oauth-reauth";
 import type { RestoredQueuedMessage } from "../../session/agent-session-types";
 import { CACHE_WARMING_MODES } from "../../session/cache-warmer";
 import { findMostRecentNonEmptySession, findRecentSessionContinuation } from "../../session/session-listing";
-import { SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/messages";
+import { USER_INTERRUPT_LABEL } from "../../session/messages";
 import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins";
 import { buildAvailableSlashCommands } from "../../slash-commands/available-commands";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
 import { cfgSttEnabled } from "../../stt/settings";
+import type { SlashCommandHost } from "../../slash-commands/types";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
 import { USER_TODO_EDIT_CUSTOM_TYPE } from "../../tools/todo";
 import type { EventBus } from "../../utils/event-bus";
@@ -251,59 +246,7 @@ export type RpcSessionChangeResult =
 
 export type RpcSessionChangeSession = Pick<AgentSession, "newSession" | "switchSession" | "branch" | "fork">;
 
-export type RpcSkillCommandSession = Pick<
-	AgentSession,
-	"buildUserSkillPrompt" | "renderUserSkillPrompt" | "promptCustomMessage" | "skills" | "skillsSettings"
-> &
-	SkillRediscoverySource;
 export type RpcSkillCommandResult = { agentInvoked: true };
-
-export interface RpcSkillInvocation extends SkillPromptInput {
-	skill: Skill;
-	queueChipText: string;
-}
-
-/**
- * Fast in-memory pre-check for a skill invocation: settings gate, text shape,
- * and skill lookup. Returns null when the message is not a runnable skill
- * command. Performs no I/O — safe to run on the RPC serial queue.
- */
-export function resolveRpcSkillInvocation(session: RpcSkillCommandSession, text: string): RpcSkillInvocation | null {
-	if (!session.skillsSettings?.enableSkillCommands) return null;
-	const parsed = parseSkillInvocation(text);
-	if (!parsed) return null;
-	const skill = session.skills.find(candidate => candidate.name === parsed.name);
-	if (!skill) return null;
-	return { skill, args: parsed.args, prompt: parsed.prompt, queueChipText: text };
-}
-
-/**
- * Slow half of a skill invocation: builds the skill prompt message (file I/O)
- * and dispatches it through the full prompt pipeline (usage preflight,
- * compaction checks, provider calls). Resolves once the turn is scheduled.
- * Must not run on the RPC serial queue's response path — register it with
- * watchAndReportPromptResult and answer the command once it is admitted.
- */
-export async function runRpcSkillCommand(
-	session: RpcSkillCommandSession,
-	invocation: RpcSkillInvocation,
-	streamingBehavior: "steer" | "followUp" = "steer",
-	prebuilt?: BuiltSkillPromptMessage,
-	onPromptAdmitted?: () => void,
-	images?: ImageContent[],
-): Promise<boolean> {
-	const built = prebuilt ?? (await session.buildUserSkillPrompt(invocation.skill, invocation));
-	return session.promptCustomMessage(
-		{
-			customType: SKILL_PROMPT_MESSAGE_TYPE,
-			content: images?.length ? [{ type: "text", text: built.message }, ...images] : built.message,
-			display: true,
-			details: built.details,
-			attribution: "user",
-		},
-		{ streamingBehavior, queueChipText: invocation.queueChipText, onPromptAdmitted },
-	);
-}
 
 /**
  * Skill branch of the `prompt` command: resolves the invocation cheaply, then
@@ -342,14 +285,12 @@ export async function dispatchRpcSkillPrompt(input: {
 	await watchAndReportPromptResult({
 		ticket: input.ticket,
 		startPrompt: onPromptAdmitted =>
-			runRpcSkillCommand(
-				input.session,
-				invocation,
-				input.streamingBehavior ?? "steer",
-				built,
+			runRpcSkillCommand(input.session, invocation, {
+				streamingBehavior: input.streamingBehavior,
+				prebuilt: built,
 				onPromptAdmitted,
-				input.images,
-			),
+				images: input.images,
+			}),
 		results: input.results,
 		onError: input.onError,
 		extensionUserMessageTracker: input.extensionUserMessageTracker,
@@ -365,7 +306,7 @@ export async function tryRunRpcSkillCommand(
 ): Promise<RpcSkillCommandResult | false> {
 	const invocation = resolveRpcSkillInvocation(session, text);
 	if (!invocation) return false;
-	await runRpcSkillCommand(session, invocation, streamingBehavior, undefined, undefined, images);
+	await runRpcSkillCommand(session, invocation, { streamingBehavior, images });
 	return { agentInvoked: true };
 }
 
@@ -1735,6 +1676,54 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	};
 	inputRead.then(rejectStartupDialogs, rejectStartupDialogs);
 
+	// Output all agent events as JSON; prompt results follow the frame that settled them.
+	// Subscribed before extension startup so a turn a `session_start` handler triggers
+	// streams to the client from its first event instead of appearing only once startup returns.
+	session.subscribe(event => {
+		sessionEvents.forward(event);
+		// Before the prompt-result and settle reports: a goal continuation decided at this
+		// agent_end is scheduled (and reported as pending) before either reads settlement.
+		goalController.observe(event);
+		promptResults.observe(event);
+		settleWatcher.observe(event);
+	});
+
+	const getAvailableCommands = async () => buildAvailableSlashCommands(session);
+	const reloadPluginState = async () => {
+		const cwd = session.sessionManager.getCwd();
+		const projectPath = await resolveActiveProjectRegistryPath(cwd);
+		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
+		await session.refreshSkillsAndCommands();
+		await emitAvailableCommandsUpdate();
+	};
+	const emitAvailableCommandsUpdate = async () => {
+		output({ type: "available_commands_update", commands: await getAvailableCommands() });
+	};
+	// What a built-in reports to the client, for a typed `prompt` and for an extension's `sendUserInput`
+	// alike; defined before `initializeExtensions` because `session_start` handlers can already send input.
+	const slashCommandHost: SlashCommandHost = {
+		mcpManager: options.mcpManager,
+		// `/mcp reauth` writes config-file credentials; RPC mode wires no tools-changed
+		// callback, so refresh the session binding once the reconnect recovers tools.
+		reconnectMcpServer: options.mcpManager
+			? async (mcpName, selected) => {
+					const manager = options.mcpManager!;
+					const state = await reconnectMcpManagerServer(manager, mcpName, selected);
+					if (state) await session.refreshMCPTools(manager.getTools());
+					return state;
+				}
+			: undefined,
+		output: commandOutput => output({ type: "command_output", text: commandOutput }),
+		refreshCommands: emitAvailableCommandsUpdate,
+		reloadPlugins: reloadPluginState,
+		notifyTitleChanged: async () => {
+			output({ type: "session_info_update", title: session.sessionName, sessionId: session.sessionId });
+		},
+		notifyConfigChanged: async () => {
+			output({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
+		},
+	};
+
 	// Set up extensions with RPC-based UI context
 	await initializeExtensions(session, {
 		mode: "rpc",
@@ -1779,17 +1768,14 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		},
 		// Headless hosts get the extension runner's no-op UI: hasUI=false, dialogs resolve to defaults.
 		uiContext: headless ? undefined : rpcUiContext,
+		slashCommandHost,
+		// Start reading commands while a turn a startup handler triggered still runs:
+		// the client gets `negotiate_protocol`, `get_state` and `abort` answered (and an
+		// extension dialog that turn raises gets its response read) instead of waiting
+		// for the whole turn.
+		drainSends: false,
 	});
 
-	// Output all agent events as JSON; prompt results follow the frame that settled them.
-	session.subscribe(event => {
-		sessionEvents.forward(event);
-		// Before the prompt-result and settle reports: a goal continuation decided at this
-		// agent_end is scheduled (and reported as pending) before either reads settlement.
-		goalController.observe(event);
-		promptResults.observe(event);
-		settleWatcher.observe(event);
-	});
 	await goalController.reconcile();
 	await goalController.settled();
 
@@ -1824,12 +1810,14 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			await liveBridge.stop();
 			await session.dispose();
 		} catch (error) {
-			if (!persistenceFailure || error !== persistenceFailure) throw error;
+			// The latch holds the latest failure, which may not be the one the observer first heard.
+			const latched = persistenceFailure && session.sessionManager.getPersistenceFailure();
+			if (!latched || error !== latched) throw error;
 			// The notice frame this failure queued must reach the client before the
 			// process ends (review 3983906393).
 			await outputWriter.close();
 			try {
-				if (!process.stderr.write(`${formatPersistenceDurabilityFailure(persistenceFailure.message)}\n`)) {
+				if (!process.stderr.write(`${formatPersistenceDurabilityFailure(latched.message)}\n`)) {
 					const { promise, resolve } = Promise.withResolvers<void>();
 					// A closed stream never emits `drain`; resolve on error/close too
 					// so an undeliverable mirror cannot strand the exit.
@@ -1855,17 +1843,6 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		process.exit(0);
 	};
 
-	const getAvailableCommands = async () => buildAvailableSlashCommands(session);
-	const reloadPluginState = async () => {
-		const cwd = session.sessionManager.getCwd();
-		const projectPath = await resolveActiveProjectRegistryPath(cwd);
-		clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
-		await session.refreshSkillsAndCommands();
-		await emitAvailableCommandsUpdate();
-	};
-	const emitAvailableCommandsUpdate = async () => {
-		output({ type: "available_commands_update", commands: await getAvailableCommands() });
-	};
 	session.subscribeCommandMetadataChanged(() => {
 		void emitAvailableCommandsUpdate();
 	});
@@ -1926,32 +1903,11 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 					sessionManager: session.sessionManager,
 					settings: session.settings,
 					cwd: session.sessionManager.getCwd(),
-					output: commandOutput => output({ type: "command_output", text: commandOutput }),
-					refreshCommands: emitAvailableCommandsUpdate,
-					reloadPlugins: reloadPluginState,
-					mcpManager: options.mcpManager,
-					reconnectMcpServer: options.mcpManager
-						? async (mcpName, selected) => {
-								const manager = options.mcpManager!;
-								const state = await reconnectMcpManagerServer(manager, mcpName, selected);
-								if (state) {
-									// RPC mode wires no tools-changed callback; refresh the
-									// session binding so later prompts see the recovered tools.
-									await session.refreshMCPTools(manager.getTools());
-								}
-								return state;
-							}
-						: undefined,
+					...slashCommandHost,
 					signal: builtinAbort.signal,
 					runCommandInBackground: task => {
 						backgroundedBuiltin = true;
 						shutdownCoordinator.track(task().finally(() => builtinCommandAborts.delete(builtinAbort)));
-					},
-					notifyTitleChanged: async () => {
-						output({ type: "session_info_update", title: session.sessionName, sessionId: session.sessionId });
-					},
-					notifyConfigChanged: async () => {
-						output({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 					},
 				});
 				if (!backgroundedBuiltin) builtinCommandAborts.delete(builtinAbort);
