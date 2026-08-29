@@ -182,4 +182,24 @@ describe("SessionManager cwd adoption on resume", () => {
 		expect(manager.getSessionDir()).not.toBe(path.resolve(store));
 		expect(storage.fullReads).toBe(1);
 	});
+	it("opens an unchanged fail-closed session with one full read", async () => {
+		const project = makeTempDir("@pi-cwd-fail-closed-");
+		const sessionDir = path.join(project, "sessions");
+		const file = await writeSession(project, sessionDir);
+		class CountingFileSessionStorage extends FileSessionStorage {
+			fullReads = 0;
+
+			override readText(filePath: string): Promise<string> {
+				this.fullReads++;
+				return super.readText(filePath);
+			}
+		}
+		const storage = new CountingFileSessionStorage();
+
+		const manager = await SessionManager.open(file, undefined, storage, { throwIfMissing: true });
+
+		expect(manager.getSessionFile()).toBe(path.resolve(file));
+		expect(storage.fullReads).toBe(1);
+		await manager.close();
+	});
 });
