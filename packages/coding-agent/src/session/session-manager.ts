@@ -96,6 +96,7 @@ import {
 import { prepareEntryForPersistence } from "./session-persistence";
 import { loadPinnedSessionIds, sortPinnedFirst } from "./session-pins";
 import {
+	defaultSessionStorage,
 	FileSessionStorage,
 	MemorySessionStorage,
 	type SessionStorage,
@@ -2166,7 +2167,7 @@ export class SessionManager {
 	/** Persist this session's transcript as a newly identified OMP session. */
 	async persistCopy(
 		options?: { sessionDir?: string; suppressBreadcrumb?: boolean },
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionManager> {
 		const sessionDir = options?.sessionDir ?? SessionManager.getDefaultSessionDir(this.#cwd, undefined, storage);
 		const manager = new SessionManager(this.#cwd, sessionDir, true, storage);
@@ -2632,6 +2633,14 @@ export class SessionManager {
 		return !!this.#sessionFile && this.#storage.existsSync(this.#sessionFile);
 	}
 
+	/**
+	 * Whether a disk failure is latched: the session file stopped being written,
+	 * and the failed entry and any later ones live only in memory.
+	 */
+	hasPersistenceFailure(): boolean {
+		return this.#diskFailure !== undefined;
+	}
+
 	getArtifactsDir(): string | null {
 		if (this.#adoptedArtifactManager) return this.#adoptedArtifactManager.dir;
 		return artifactsDirectoryFor(this.#sessionFile);
@@ -3042,6 +3051,7 @@ export class SessionManager {
 	 * @param display Whether to show in TUI (true = styled display, false = hidden)
 	 * @param details Optional extension-specific metadata (not sent to LLM)
 	 * @param attribution Who initiated this message for billing/attribution semantics
+	 * @param tag Caller correlation id of the input the message came from
 	 */
 	appendCustomMessageEntry<T = unknown>(
 		customType: string | undefined,
@@ -3050,6 +3060,7 @@ export class SessionManager {
 		details?: T,
 		attribution: MessageAttribution | undefined = "agent",
 		timestamp?: number,
+		tag?: string,
 	): string {
 		const normalized = normalizeCustomMessagePayload<T>({ customType, content, display, details, attribution });
 		const fresh = this.#freshEntryFields();
@@ -3061,6 +3072,7 @@ export class SessionManager {
 			// Drop AgentSession-internal transient fields before disk persistence.
 			details: stripInternalDetailsFields(normalized.details),
 			attribution: normalized.attribution,
+			...(tag !== undefined && { tag }),
 			...fresh,
 			// Prefer the initiating message's own timestamp: without it the entry
 			// records the emission time, which on rebuild excludes provider
@@ -3374,7 +3386,7 @@ export class SessionManager {
 	static getDefaultSessionDir(
 		cwd: string,
 		agentDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): string {
 		return computeDefaultSessionDir(cwd, storage, getSessionsDir(agentDir));
 	}
@@ -3384,7 +3396,7 @@ export class SessionManager {
 	 * @param cwd Working directory (stored in the session header)
 	 * @param sessionDir Optional session directory; defaults to the cwd-derived dir.
 	 */
-	static create(cwd: string, sessionDir?: string, storage: SessionStorage = new FileSessionStorage()): SessionManager {
+	static create(cwd: string, sessionDir?: string, storage: SessionStorage = defaultSessionStorage()): SessionManager {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const manager = new SessionManager(cwd, dir, true, storage);
 		manager.#resetToNewSession();
@@ -3397,7 +3409,7 @@ export class SessionManager {
 	 * `setSessionFile` / `AgentSession.switchSession` when a caller explicitly
 	 * needs a brand-new persisted session at a cwd-derived path.
 	 */
-	static createEmptySessionFile(cwd: string, storage: SessionStorage = new FileSessionStorage()): string {
+	static createEmptySessionFile(cwd: string, storage: SessionStorage = defaultSessionStorage()): string {
 		const sessionDir = SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const id = mintSessionId();
 		const timestamp = nowIso();
@@ -3426,7 +3438,7 @@ export class SessionManager {
 		sourcePath: string,
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 		options?: {
 			copyArtifacts?: boolean;
 			suppressBreadcrumb?: boolean;
@@ -3571,7 +3583,7 @@ export class SessionManager {
 	static async open(
 		filePath: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 		options?: { initialCwd?: string; parentSession?: string; suppressBreadcrumb?: boolean; throwIfMissing?: boolean },
 	): Promise<SessionManager> {
 		const probed = await loadSessionFile(filePath, storage, { throwIfMissing: options?.throwIfMissing });
@@ -3617,7 +3629,7 @@ export class SessionManager {
 	 */
 	static async peekSessionInit(
 		filePath: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<{
 		cwd: string;
 		init: PersistedSessionInit | null;
@@ -3645,7 +3657,7 @@ export class SessionManager {
 	static async continueRecent(
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionManager> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const resolvedCwd = path.resolve(cwd);
@@ -3760,7 +3772,7 @@ export class SessionManager {
 	static async list(
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionInfo[]> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const sessions = await listSessions(dir, storage);
@@ -3768,7 +3780,7 @@ export class SessionManager {
 	}
 
 	/** List all sessions across all project directories, pinned sessions first. */
-	static async listAll(storage: SessionStorage = new FileSessionStorage()): Promise<SessionInfo[]> {
+	static async listAll(storage: SessionStorage = defaultSessionStorage()): Promise<SessionInfo[]> {
 		const sessions = await listAllSessions(storage);
 		return sortPinnedFirst(sessions, await loadPinnedSessionIds());
 	}
@@ -3780,7 +3792,7 @@ export class SessionManager {
 	static async listForPicker(
 		cwd: string,
 		sessionDir?: string,
-		storage: SessionStorage = new FileSessionStorage(),
+		storage: SessionStorage = defaultSessionStorage(),
 	): Promise<SessionInfo[]> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const pinned = await loadPinnedSessionIds();
@@ -3788,7 +3800,7 @@ export class SessionManager {
 	}
 
 	/** Picker-facing cross-project list, same empty-session rule as {@link listForPicker}. */
-	static async listAllForPicker(storage: SessionStorage = new FileSessionStorage()): Promise<SessionInfo[]> {
+	static async listAllForPicker(storage: SessionStorage = defaultSessionStorage()): Promise<SessionInfo[]> {
 		const pinned = await loadPinnedSessionIds();
 		return sortPinnedFirst(filterSessionsForPicker(await listAllSessions(storage), pinned), pinned);
 	}

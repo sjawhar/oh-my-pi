@@ -2,6 +2,7 @@ import type { AssistantMessage, ImageContent } from "@oh-my-pi/pi-ai";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import { getStreamingPartialJson } from "@oh-my-pi/pi-ai/utils/block-symbols";
 import { type Component, Loader, TERMINAL } from "@oh-my-pi/pi-tui";
+import { isReduceMotion } from "@oh-my-pi/pi-tui/reduce-motion";
 import { formatDuration, isRecord, logger, prompt, sanitizeText } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import { extractTextContent } from "../../commit/utils";
@@ -299,13 +300,13 @@ export class EventController {
 				: null,
 		);
 		this.#streamingReveal = new StreamingRevealController({
-			getSmoothStreaming: () => cfgDisplaySmoothStreaming.get(this.ctx.settings),
+			getSmoothStreaming: () => cfgDisplaySmoothStreaming.get(this.ctx.settings) && !isReduceMotion(),
 			getHideThinkingBlock: () => this.ctx.effectiveHideThinkingBlock,
 			getProseOnlyThinking: () => this.ctx.proseOnlyThinking,
 			requestRender: component => this.ctx.ui.requestComponentRender(component),
 		});
 		this.#toolArgsReveal = new ToolArgsRevealController({
-			getSmoothStreaming: () => cfgDisplaySmoothStreaming.get(this.ctx.settings),
+			getSmoothStreaming: () => cfgDisplaySmoothStreaming.get(this.ctx.settings) && !isReduceMotion(),
 			requestRender: component => this.ctx.ui.requestComponentRender(component),
 		});
 		this.#handlers = {
@@ -1125,9 +1126,7 @@ export class EventController {
 			// still removable, and finalize it regardless so it can retire.
 			const abandoned = this.ctx.streamingComponent;
 			if (abandoned) {
-				if (this.ctx.chatContainer.canRemoveBlock(abandoned)) {
-					this.ctx.chatContainer.removeChild(abandoned);
-				}
+				this.ctx.chatContainer.removeChild(abandoned);
 				abandoned.markTranscriptBlockFinalized();
 			}
 			this.#finalizeAbandonedPostToolSegments();
@@ -1212,11 +1211,7 @@ export class EventController {
 		const previous = this.#displaceablePollComponent;
 		if (!previous) return;
 		this.#displaceablePollComponent = undefined;
-		if (
-			nextToolName === "wait" &&
-			previous.isDisplaceableBlock() &&
-			this.ctx.chatContainer.canRemoveBlock(previous)
-		) {
+		if (nextToolName === "wait" && previous.isDisplaceableBlock()) {
 			this.ctx.chatContainer.removeChild(previous);
 		}
 		// Sealing stops the waiting-poll spinner and freezes the block (for a
@@ -1234,9 +1229,7 @@ export class EventController {
 		}
 		if (previous.canBeDisplacedBy(nextToolName)) {
 			this.#displaceableTodoComponent = undefined;
-			if (this.ctx.chatContainer.canRemoveBlock(previous)) {
-				this.ctx.chatContainer.removeChild(previous);
-			}
+			this.ctx.chatContainer.removeChild(previous);
 			previous.seal();
 			this.ctx.ui.requestRender();
 			return;
@@ -1901,9 +1894,7 @@ export class EventController {
 			const previous = this.#displaceableTodoComponent;
 			if (previous && previous !== component && previous.isDisplaceableBlock()) {
 				this.#displaceableTodoComponent = undefined;
-				if (this.ctx.chatContainer.canRemoveBlock(previous)) {
-					this.ctx.chatContainer.removeChild(previous);
-				}
+				this.ctx.chatContainer.removeChild(previous);
 				previous.seal();
 			}
 			this.#displaceableTodoComponent = component;
@@ -2010,9 +2001,7 @@ export class EventController {
 						const previous = this.#displaceableTodoComponent;
 						if (previous && previous !== component && previous.isDisplaceableBlock()) {
 							this.#displaceableTodoComponent = undefined;
-							if (this.ctx.chatContainer.canRemoveBlock(previous)) {
-								this.ctx.chatContainer.removeChild(previous);
-							}
+							this.ctx.chatContainer.removeChild(previous);
 							previous.seal();
 						}
 						this.#displaceableTodoComponent = component;

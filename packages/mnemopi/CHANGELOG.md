@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `MNEMOPI_STATED_WEIGHT` / `MNEMOPI_INFERRED_WEIGHT` / `MNEMOPI_TOOL_WEIGHT` / `MNEMOPI_IMPORTED_WEIGHT` / `MNEMOPI_UNKNOWN_WEIGHT` and `MNEMOPI_TIER1_WEIGHT` / `MNEMOPI_TIER2_WEIGHT` / `MNEMOPI_TIER3_WEIGHT` having no effect: recall now scores each memory with the configured veracity and degradation-tier weights instead of a fixed table; the defaults are unchanged
+- Fixed `enhancedRecall` answering a short query with the cached results of an unrelated longer query that contained most of its words: a word-overlap cache hit now also needs the shared words to make up at least half of the cached query, and a repeated word counts once
+
 ## [18.4.4] - 2026-09-29
 
 ### Added
