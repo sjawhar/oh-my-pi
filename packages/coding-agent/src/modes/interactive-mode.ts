@@ -34,7 +34,7 @@ import {
 	setTuiTight,
 	TERMINAL,
 	Text,
-	type TUI,
+	TUI,
 	visibleWidth,
 } from "@oh-my-pi/pi-tui";
 import type { TerminalAppearanceRequestToken } from "@oh-my-pi/pi-tui/terminal";
@@ -60,9 +60,11 @@ import type { CollabHost } from "../collab/host";
 import { formatKeyHint, KeybindingsManager } from "../config/keybindings";
 import { formatModelString, type ResolvedModelRoleValue } from "../config/model-resolver";
 import { applyProviderGlobalsFromSettings } from "../config/provider-globals";
+import { reduceMotionLevel } from "../config/reduce-motion";
 import {
 	isSettingsInitialized,
 	onModelRolesChanged,
+	onReduceMotionChanged,
 	onStatusLineSessionAccentChanged,
 	Settings,
 	settings,
@@ -148,6 +150,7 @@ import { resumeCommand } from "../utils/resume-command";
 import { getSessionAccentAnsi, getSessionAccentHex } from "../utils/session-color";
 import { messageHasDisplayableThinking } from "../utils/thinking-display";
 import {
+	applyTerminalTitleReduceMotion,
 	disposeTerminalTitleState,
 	popTerminalTitle,
 	pushTerminalTitle,
@@ -929,6 +932,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		// buffered during startup remains in the same editor instance.
 		this.ui.setMaxInlineImages(settings.get("tui.maxInlineImages"));
 		this.ui.setShowHardwareCursor(settings.get("showHardwareCursor"));
+		this.#applyReduceMotion();
+		this.#eventBusUnsubscribers.push(onReduceMotionChanged(() => this.#applyReduceMotion()));
 		// OSC 66 text-sizing is Kitty-only; resolve the setting against the terminal's
 		// capability (`TERMINAL.supportsTextSizing` defaults on for Kitty) so it stays off
 		// unless the user opts in, and never emits raw escapes on other terminals.
@@ -1377,9 +1382,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		);
 		this.#eventBusUnsubscribers.push(
 			this.session.subscribeCommandMetadataChanged(() => {
-				const retainedCommands = this.#pendingSlashCommands.filter(command => !command.name.startsWith("skill:"));
-				const skillCommands = this.#rebuildSkillCommandsFromSession();
-				this.#pendingSlashCommands = [...retainedCommands, ...skillCommands];
+				void this.#syncSkillSlashCommands().catch(error => {
+					logger.warn("Failed to resync skill slash commands", { error: String(error) });
+				});
 			}),
 		);
 		// Set up theme file watcher
@@ -1477,12 +1482,29 @@ export class InteractiveMode implements InteractiveModeContext {
 		return commands;
 	}
 
-	/** Reload session skills and the `/skill:<name>` command list. */
-	async refreshSkillState(): Promise<void> {
-		await this.session.refreshSkills();
+	/**
+	 * Retains non-skill pending slash commands, rebuilds `/skill:<name>` entries
+	 * from live session skills, and re-points the editor's autocomplete provider
+	 * at the result. The provider snapshots `#pendingSlashCommands` when
+	 * `refreshSlashCommandState` builds it, and `init:slashCommands` runs before
+	 * the startup `resources_discover` pass — so without the rebuild, skills an
+	 * extension contributes at startup are invocable but never offered in
+	 * autocomplete until the next reload. Reuses the session's already
+	 * discovered file commands, so this never re-walks the providers.
+	 */
+	async #syncSkillSlashCommands(): Promise<void> {
 		const retainedCommands = this.#pendingSlashCommands.filter(command => !command.name.startsWith("skill:"));
 		const skillCommands = this.#rebuildSkillCommandsFromSession();
 		this.#pendingSlashCommands = [...retainedCommands, ...skillCommands];
+		if (this.#baseAutocompleteProvider) {
+			await this.refreshSlashCommandState(undefined, this.session.slashCommands);
+		}
+	}
+
+	/** Reload session skills and the `/skill:<name>` command list. */
+	async refreshSkillState(): Promise<void> {
+		await this.session.refreshSkills();
+		await this.#syncSkillSlashCommands();
 	}
 
 	/** Reload slash commands and autocomplete for the provided working directory. */
@@ -2115,6 +2137,12 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	#computeEditorMaxHeight(): number {
 		return computeEditorMaxHeight(this.ui.terminal.rows);
+	}
+
+	#applyReduceMotion(): void {
+		TUI.setMinRenderInterval(reduceMotionLevel() === "strict" ? 250 : 1000 / 30);
+		applyTerminalTitleReduceMotion();
+		this.ui.requestRender();
 	}
 
 	#syncEditorMaxHeight(): void {
@@ -5981,8 +6009,15 @@ export class InteractiveMode implements InteractiveModeContext {
 	}
 
 	// Hook UI methods
-	initHooksAndCustomTools(): Promise<void> {
-		return this.#extensionUiController.initHooksAndCustomTools();
+	async initHooksAndCustomTools(): Promise<void> {
+		await this.#extensionUiController.initHooksAndCustomTools();
+		// The controller's startup resources_discover pass may have
+		// contributed a new skill directory (session.skills), but the
+		// subscribeCommandMetadataChanged listener that keeps skillCommands
+		// in sync is registered later, in init() — sync once here so a skill
+		// discovered at startup is immediately recognized by `/skill:<name>`
+		// and offered in autocomplete instead of waiting for a later reload.
+		await this.#syncSkillSlashCommands();
 	}
 
 	getToolUIContext(): ExtensionUIContext | undefined {

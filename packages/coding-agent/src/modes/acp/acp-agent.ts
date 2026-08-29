@@ -62,6 +62,7 @@ import type { MCPServerConfig } from "../../mcp/types";
 import { loadAllExtensions } from "../../modes/components/extensions/state-manager";
 import { theme } from "../../modes/theme/theme";
 import { normalizePlanTitle, type PlanApprovalDetails, resolveApprovedPlan } from "../../plan-mode/approved-plan";
+import { MAIN_AGENT_ID } from "../../registry/agent-registry";
 import type { AgentSession, AgentSessionEvent } from "../../session/agent-session";
 import { BlobStore, resolveImageDataSync } from "../../session/blob-store";
 import { isSilentAbort, SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/messages";
@@ -72,6 +73,7 @@ import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins
 import { buildAvailableSlashCommands, toAcpAvailableCommands } from "../../slash-commands/available-commands";
 import { DEFAULT_STT_MODEL_KEY, STT_MODEL_OPTIONS } from "../../stt/models";
 import { refreshAgentDiscovery } from "../../task";
+import { createPersistedSubagentReviverFactory } from "../../task/persisted-revive";
 import { AUTO_THINKING, parseConfiguredThinkingLevel } from "../../thinking";
 import { OTHER_OPTION } from "../../tools/ask";
 import { normalizeLocalScheme } from "../../tools/path-utils";
@@ -83,6 +85,7 @@ import {
 	TTS_LOCAL_VOICE_OPTIONS,
 } from "../../tts/models";
 import { canonicalizeMessage } from "../../utils/thinking-display";
+import { createExtensionAgentActions } from "../runtime-init";
 import { createAcpClientBridge } from "./acp-client-bridge";
 import {
 	extractAssistantMessageText,
@@ -2535,20 +2538,61 @@ export class AcpAgent implements Agent {
 			record.extensionsConfigured = true;
 			return;
 		}
+		// resources_discover and session_start handlers share this action context, so
+		// a handler calling sendMessage/sendUserMessage starts an async session send
+		// that the action itself does not expose a promise for. Track every such
+		// send here so they can be drained before returning — mirrors
+		// `initializeExtensions`'s equivalent queue (runtime-init.ts,
+		// `pendingExtensionSends`), which print/RPC mode use instead of this
+		// direct-wiring path.
+		const pendingExtensionSends: Promise<unknown>[] = [];
+		const drainPendingExtensionSends = async (): Promise<void> => {
+			while (pendingExtensionSends.length > 0) {
+				await Promise.all(pendingExtensionSends.splice(0));
+			}
+		};
+
+		// ACP hosts several concurrent top-level sessions in one process, so it
+		// never installs one process-global persisted-subagent reviver factory
+		// (see main.ts's non-ACP bootstrap comment) — a single factory bound to
+		// one session's auth/model/settings would clobber every other session's
+		// cold revives. Build a reviver scoped to just this session instead, and
+		// require the agents actions to resolve through this session's own
+		// registry family so one ACP connection's sessions can never inspect,
+		// revive, or message another's agent.
+		const scopeAgentId = record.session.getAgentId() ?? MAIN_AGENT_ID;
+		const reviverFactory = createPersistedSubagentReviverFactory({
+			session: record.session,
+			authStorage: record.session.modelRegistry.authStorage,
+			modelRegistry: record.session.modelRegistry,
+			settings: record.session.settings,
+			enableLsp: record.session.settings.get("task.enableLsp") !== false,
+		});
+		const agentIdleTtlMs = Math.trunc(Number(record.session.settings.get("task.agentIdleTtlMs") ?? 420_000) || 0);
 
 		extensionRunner.initialize(
 			{
 				sendMessage: (message, options) => {
-					record.session.sendCustomMessage(message, options).catch((error: unknown) => {
-						logger.warn("ACP extension sendMessage failed", { error });
-					});
+					pendingExtensionSends.push(
+						record.session.sendCustomMessage(message, options).catch((error: unknown) => {
+							logger.warn("ACP extension sendMessage failed", { error });
+						}),
+					);
 				},
 				sendUserMessage: (content, options) => {
-					this.#trackExtensionUserMessage(record, record.session.sendUserMessage(content, options));
+					const sendTask = record.session.sendUserMessage(content, options);
+					this.#trackExtensionUserMessage(record, sendTask);
+					pendingExtensionSends.push(sendTask.catch(() => {}));
 				},
 				appendEntry: (customType, data) => {
 					record.session.sessionManager.appendCustomEntry(customType, data);
 				},
+				...createExtensionAgentActions({
+					scopeAgentId,
+					getScopeSessionFile: () => record.session.sessionManager?.getSessionFile?.() ?? null,
+					reviverFactory,
+					idleTtlMs: agentIdleTtlMs,
+				}),
 				setLabel: (targetId, label) => {
 					record.session.sessionManager.appendLabelChange(targetId, label);
 				},
@@ -2616,6 +2660,22 @@ export class AcpAgent implements Agent {
 			"rpc",
 		);
 		await extensionRunner.emit({ type: "session_start" });
+		// A session_start handler can call sendMessage/sendUserMessage (e.g. to
+		// announce startup state) from the same shared action context as any
+		// other handler; drain those before resources_discover so they land in
+		// order.
+		await drainPendingExtensionSends();
+		// resources_discover fires after `session_start` (extensibility/extensions/types.ts) —
+		// only now are runtime actions wired, so extension-contributed skill directories
+		// are folded into the session's skill snapshot before the first prompt.
+		await record.session.discoverStartupSkillPaths();
+		// A resources_discover handler can likewise call sendMessage/sendUserMessage
+		// (e.g. to announce a discovered directory); the action starts the send but
+		// never exposes its promise, so without this an immediate `session/prompt`
+		// could observe the session as still streaming and race the startup turn.
+		// Drain before returning so every extension-triggered send is settled —
+		// mirrors `initializeExtensions`'s post-discovery drain (runtime-init.ts).
+		await drainPendingExtensionSends();
 		record.extensionsConfigured = true;
 	}
 

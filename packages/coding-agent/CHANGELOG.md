@@ -4,7 +4,21 @@
 
 ### Added
 
+- Added support for declaring skill directories in plugin manifests (`omp.skills` / `pi.skills`), including entries pointing directly at a single skill directory.
+- Added the `initializeExtensions` SDK export so direct-embed sessions can opt into `session_start`/`resources_discover` extension lifecycle events.
+- Extension API: `api.agents` — list/get/ensureLive/prompt for named registry agents.
 - Added `lazy: true` for MCP servers in `mcp.json`: the server is not spawned at session startup — its tools are served from the tool cache and the first invocation (or `/mcp reconnect`) connects on demand. Useful for servers whose launch has side effects, such as credential prompts or approval flows.
+
+### Fixed
+
+- Fixed skill discovery not finding skills nested one namespace level deep (e.g. `skills/<namespace>/<skill>/SKILL.md`).
+- Extension-contributed skill paths (`resources_discover`) are now honored at session start — including in `/skill:` autocomplete — and on `/reload-plugins`.
+- Fixed freshly created task subagents missing extension-contributed skills that print, RPC, and TUI sessions already receive at startup.
+- Fixed `/reload-plugins` skipping the `resources_discover` event entirely for sessions with a fixed skill snapshot; it now fires (matching startup) and only skips the skill rescan.
+- Fixed task subagent startup dropping extension messages sent from a `resources_discover` handler by draining them before the first prompt.
+- Fixed task/eval/vibe subagents silently dropping skills their own `resources_discover` handlers discovered at startup; those directories now merge into the inherited snapshot instead of being scanned and thrown away.
+- Fixed print mode, RPC mode, and revived task subagents potentially throwing `AgentBusyError` or reordering the initial turn when a `session_start`/`resources_discover` extension handler sent a message during startup, by draining those sends the same way the task executor already does.
+- Fixed the status line pinning multiple CPU cores in worktrees created by `jj workspace add`. Their git index carries no file stat data, so every status call re-read and re-hashed the whole worktree (measured 2.2s and 47s of CPU per call on a 94k-file checkout) and leaked a `git-lfs filter-process` per call; the refreshed stat data is now written back, so the first call repairs the index and later calls are ~80x cheaper. Status refreshes also back off to five times the last call's duration, and a status call slower than a second is logged with its repository.
 
 ## [18.1.7] - 2026-09-03
 
