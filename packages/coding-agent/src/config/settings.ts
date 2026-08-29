@@ -32,6 +32,7 @@ import {
 } from "@oh-my-pi/pi-utils";
 import { withFileLock } from "@oh-my-pi/pi-utils/file-lock";
 import { setShimmerMode } from "@oh-my-pi/pi-tui/theme/shimmer";
+import { setReduceMotionLevel } from "@oh-my-pi/pi-tui/reduce-motion";
 import { setChatTranscriptDisplayPreferences } from "@oh-my-pi/pi-tui/chat/display-preferences";
 import { setEditorGapComposerShape } from "@oh-my-pi/pi-tui/prompt/editor-top-gap";
 import { setEmojiAutocompleteEnabled } from "@oh-my-pi/pi-tui/prompt/prompt-action-autocomplete";
@@ -800,6 +801,9 @@ export class Settings {
 		}
 		if (path === "statusLine.sessionAccent") {
 			statusLineSessionAccentSignal.fire();
+		}
+		if (path === "display.reduceMotion") {
+			reduceMotionSignal.fire();
 		}
 		if (path === "modelRoles") {
 			modelRolesSignal.fire();
@@ -3453,6 +3457,9 @@ const SETTING_HOOKS: Partial<Record<SettingPath, SettingHook<any>>> = {
 	"display.shimmer": value => {
 		if (value === "classic" || value === "kitt" || value === "disabled") setShimmerMode(value);
 	},
+	"display.reduceMotion": value => {
+		if (value === "off" || value === "on" || value === "strict") setReduceMotionLevel(value);
+	},
 	"composer.shape": value => {
 		if (typeof value === "string") setEditorGapComposerShape(value);
 	},
@@ -3537,6 +3544,10 @@ export const onExtendedContextChanged = (cb: () => void) => extendedContextSigna
 
 /** Fires when `statusLine.sessionAccent` changes at runtime. */
 const statusLineSessionAccentSignal = new SettingSignal("statusLine.sessionAccent");
+
+const reduceMotionSignal = new SettingSignal("display.reduceMotion");
+
+export const onReduceMotionChanged: (cb: () => void) => () => void = reduceMotionSignal.on.bind(reduceMotionSignal);
 
 /**
  * Subscribe to session-accent setting changes.
@@ -3645,6 +3656,7 @@ export function resetSettingsForTest(): void {
 	globalInstance = null;
 	globalInstancePromise = null;
 	clearBoundSettingsMethods();
+	setReduceMotionLevel("off");
 	configureProviderMaxInFlightRequests(undefined);
 	configureCredentialRedaction(false);
 }

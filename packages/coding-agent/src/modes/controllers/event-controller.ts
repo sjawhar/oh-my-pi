@@ -2,6 +2,7 @@ import type { AssistantMessage, ImageContent } from "@oh-my-pi/pi-ai";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import { getStreamingPartialJson } from "@oh-my-pi/pi-ai/utils/block-symbols";
 import { type Component, Loader, TERMINAL } from "@oh-my-pi/pi-tui";
+import { isReduceMotion } from "@oh-my-pi/pi-tui/reduce-motion";
 import { formatDuration, logger, prompt, sanitizeText } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import { extractTextContent } from "../../commit/utils";
@@ -240,13 +241,13 @@ export class EventController {
 				: null,
 		);
 		this.#streamingReveal = new StreamingRevealController({
-			getSmoothStreaming: () => this.ctx.settings.get("display.smoothStreaming"),
+			getSmoothStreaming: () => this.ctx.settings.get("display.smoothStreaming") && !isReduceMotion(),
 			getHideThinkingBlock: () => this.ctx.effectiveHideThinkingBlock,
 			getProseOnlyThinking: () => this.ctx.proseOnlyThinking,
 			requestRender: component => this.ctx.ui.requestComponentRender(component),
 		});
 		this.#toolArgsReveal = new ToolArgsRevealController({
-			getSmoothStreaming: () => this.ctx.settings.get("display.smoothStreaming"),
+			getSmoothStreaming: () => this.ctx.settings.get("display.smoothStreaming") && !isReduceMotion(),
 			requestRender: component => this.ctx.ui.requestComponentRender(component),
 		});
 		this.#handlers = {
