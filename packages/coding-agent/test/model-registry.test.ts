@@ -1899,7 +1899,7 @@ describe("ModelRegistry", () => {
 		// keeps every assertion read-only.
 		let oauthAuth: AuthStorage;
 		let explicitOAuth: ModelRegistry;
-		let defaultOAuth: ModelRegistry;
+		let defaultApiKey: ModelRegistry;
 		let apiKeyOptOut: ModelRegistry;
 		let nonAnthropic: ModelRegistry;
 		const proxyAnthropicModels = [
@@ -1933,7 +1933,7 @@ describe("ModelRegistry", () => {
 					},
 				},
 			});
-			defaultOAuth = await build({
+			defaultApiKey = await build({
 				providers: {
 					"proxy-anthropic": {
 						baseUrl: "https://proxy.example.com",
@@ -1983,10 +1983,10 @@ describe("ModelRegistry", () => {
 			expect(model?.isOAuth).toBe(true);
 		});
 
-		test("anthropic-messages providers default to isOAuth=true even without explicit auth", () => {
-			const model = defaultOAuth.find("proxy-anthropic", "claude-sonnet-4-5");
+		test("custom Anthropic-compatible API-key providers leave isOAuth unset without explicit auth: oauth", () => {
+			const model = defaultApiKey.find("proxy-anthropic", "claude-sonnet-4-5");
 			expect(model).toBeDefined();
-			expect(model?.isOAuth).toBe(true);
+			expect(model?.isOAuth).toBeUndefined();
 		});
 
 		test("auth: apiKey opts out of the anthropic-messages default", () => {

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed custom Anthropic-compatible API-key providers being forced into OAuth request shaping.
+
 ## [18.0.10] - 2026-08-28
 
 ### Added

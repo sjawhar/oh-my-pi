@@ -55,10 +55,8 @@ export function mergeAuthHeaderSources(
  *   the cloaked request shape regardless of how the proxy itself is authenticated.
  * - Otherwise → unset.
  */
-function resolveCustomModelIsOAuth(api: Api, providerAuth: ProviderAuthMode | undefined): boolean | undefined {
+function resolveCustomModelIsOAuth(providerAuth: ProviderAuthMode | undefined): boolean | undefined {
 	if (providerAuth === "oauth") return true;
-	if (providerAuth !== undefined) return undefined;
-	if (api === "anthropic-messages") return true;
 	return undefined;
 }
 
@@ -99,7 +97,7 @@ export function buildCustomModelOverlay(
 		compactionModel: modelDef.compactionModel,
 		remoteCompaction: mergeRemoteCompactionConfig(providerRemoteCompaction, modelDef.remoteCompaction),
 		premiumMultiplier: modelDef.premiumMultiplier,
-		isOAuth: resolveCustomModelIsOAuth(api, providerAuth),
+		isOAuth: resolveCustomModelIsOAuth(providerAuth),
 	};
 }
 

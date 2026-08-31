@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed custom Anthropic-compatible endpoints omitting `X-Api-Key` for API-key credentials.
+
 ## [18.0.9] - 2026-08-28
 
 ### Fixed

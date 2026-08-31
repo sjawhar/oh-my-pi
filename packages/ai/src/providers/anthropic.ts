@@ -336,7 +336,11 @@ export function buildAnthropicHeaders(options: AnthropicHeaderOptions): Record<s
 			...sharedHeaders,
 			...(incomingUserAgent ? { "User-Agent": incomingUserAgent } : {}),
 			...(betaHeader ? { "anthropic-beta": betaHeader } : {}),
-			...(incomingApiKey ? { "X-Api-Key": incomingApiKey } : {}),
+			...(incomingApiKey
+				? { "X-Api-Key": incomingApiKey }
+				: incomingAuthorization
+					? {}
+					: { "X-Api-Key": options.apiKey }),
 		};
 	} else {
 		return {
@@ -3087,11 +3091,10 @@ export function buildAnthropicClientOptions(args: AnthropicClientOptionsArgs): A
 	}
 
 	// Suppress the client-level `X-Api-Key` whenever an `Authorization` header
-	// already sits in `defaultHeaders` for a non-official, non-OAuth endpoint —
-	// either our auto-built `Bearer <apiKey>` or a caller-supplied custom auth
-	// scheme via `model.headers` (#3391). Adding a bonus `X-Api-Key` would force
-	// the proxy to deal with two competing credentials when the user explicitly
-	// asked for one.
+	// already sits in `defaultHeaders` for a non-official, non-OAuth endpoint.
+	// Header construction adds the API key beside its auto-built Bearer value,
+	// but a caller-supplied Authorization value remains the only credential
+	// unless it also explicitly supplies X-Api-Key (#3391).
 	const authorizationHeader = getHeaderCaseInsensitive(defaultHeaders, "Authorization");
 	const shouldSuppressClientApiKey =
 		!oauthToken && !model.compat.officialEndpoint && typeof authorizationHeader === "string";

@@ -789,7 +789,7 @@ describe("Anthropic request fingerprint alignment", () => {
 		]);
 	});
 
-	it("uses Bearer auth for non-Anthropic API bases with api-key credentials", () => {
+	it("sends X-Api-Key alongside Bearer auth for non-Anthropic API bases with api-key credentials", () => {
 		const headers = buildAnthropicHeaders({
 			apiKey: "sk-ant-api-test",
 			baseUrl: "https://proxy.example.com",
@@ -797,7 +797,7 @@ describe("Anthropic request fingerprint alignment", () => {
 		});
 
 		expect(headers.Authorization).toBe("Bearer sk-ant-api-test");
-		expect(headers["X-Api-Key"]).toBeUndefined();
+		expect(headers["X-Api-Key"]).toBe("sk-ant-api-test");
 	});
 
 	it("honors caller-supplied Authorization on non-official Anthropic endpoints (#3391)", () => {
@@ -2100,7 +2100,7 @@ describe("Anthropic request fingerprint alignment", () => {
 
 				expect(options.baseURL).toBe("https://foundry.example.com/anthropic");
 				expect(options.defaultHeaders.Authorization).toBe("Bearer foundry-token");
-				expect(options.defaultHeaders["X-Api-Key"]).toBeUndefined();
+				expect(options.defaultHeaders["X-Api-Key"]).toBe("foundry-token");
 				expect(options.defaultHeaders["user-id"]).toBe("alice");
 				expect(options.defaultHeaders["x-route"]).toBe("engineering");
 				expect(options.defaultHeaders["anthropic-beta"] ?? "").not.toContain(
