@@ -190,11 +190,15 @@ impl GitRepo {
 		let repo = self.gix()?;
 		let platform = status_with_fresh_index(&repo, "git status")?
 			.untracked_files(gix::status::UntrackedFiles::Collapsed);
-		let iter = platform
+		let mut iter = platform
 			.into_iter(options.pathspecs.iter().map(|path| path.as_bytes().into()))
 			.map_err(|err| Error::backend("git status", err))?;
 		use gix::status::{Item, index_worktree, plumbing::index_as_worktree::EntryStatus};
-		for item in iter {
+		// Borrowed so the outcome survives the loop. An early `return` below
+		// abandons the collected stat refresh, which is the right trade: the
+		// answer is already known, and only the clean case — the one that must
+		// scan every entry — pays the full cost worth caching.
+		for item in &mut iter {
 			let item = item.map_err(|err| Error::backend("git status", err))?;
 			match item {
 				Item::TreeIndex(_) | Item::IndexWorktree(index_worktree::Item::Rewrite { .. }) => {
@@ -220,6 +224,7 @@ impl GitRepo {
 				_ => {},
 			}
 		}
+		persist_stat_refresh(iter.into_outcome());
 		Ok(false)
 	}
 
@@ -249,7 +254,7 @@ impl GitRepo {
 			args.push("--".to_owned());
 			args.extend(options.pathspecs.iter().cloned());
 		}
-		match cli_text_owned(self.root(), &args, super::cli::COMMAND_TIMEOUT) {
+		match cli_text_owned_refreshing(self.root(), &args, super::cli::COMMAND_TIMEOUT) {
 			Err(err) if !self.is_reftable() && super::cli::is_spawn_failure(&err) => {
 				self.status_porcelain_gix(options)
 			},
@@ -268,7 +273,7 @@ impl GitRepo {
 			UntrackedMode::All => gix::status::UntrackedFiles::Files,
 		};
 		let platform = status_with_fresh_index(&repo, "git status")?.untracked_files(untracked);
-		let iter = platform
+		let mut iter = platform
 			.into_iter(options.pathspecs.iter().map(|path| path.as_bytes().into()))
 			.map_err(|err| Error::backend("git status", err))?;
 		let mut states: BTreeMap<String, (char, char, Option<String>)> = BTreeMap::new();
@@ -276,7 +281,7 @@ impl GitRepo {
 		// sorted by path — not one merged sort.
 		let mut untracked_paths: std::collections::BTreeSet<String> =
 			std::collections::BTreeSet::new();
-		for item in iter {
+		for item in &mut iter {
 			let item = item.map_err(|err| Error::backend("git status", err))?;
 			use gix::status::{Item, index_worktree};
 			match item {
@@ -353,6 +358,7 @@ impl GitRepo {
 				},
 			}
 		}
+		persist_stat_refresh(iter.into_outcome());
 		let separator = if options.nul_terminated { '\0' } else { '\n' };
 		let mut out = String::new();
 		for (path, (x, y, old)) in states.into_iter().chain(
@@ -757,7 +763,7 @@ impl GitRepo {
 				opts.emit_ignored(Some(gix::dir::walk::EmissionMode::Matching))
 			});
 		}
-		let iter = platform
+		let mut iter = platform
 			.into_index_worktree_iter(
 				paths
 					.iter()
@@ -765,7 +771,7 @@ impl GitRepo {
 			)
 			.map_err(|e| Error::backend("git ls-files", e))?;
 		let mut out = Vec::new();
-		for item in iter {
+		for item in &mut iter {
 			if let gix::status::index_worktree::Item::DirectoryContents { entry, .. } =
 				item.map_err(|e| Error::backend("git ls-files", e))?
 			{
@@ -777,6 +783,7 @@ impl GitRepo {
 				}
 			}
 		}
+		persist_stat_refresh(iter.into_outcome());
 		out.sort();
 		Ok(out)
 	}
@@ -1044,6 +1051,18 @@ fn cli_text_owned(cwd: &Path, args: &[String], timeout: std::time::Duration) -> 
 		.into_checked(args)?
 		.stdout)
 }
+/// Whole-worktree status: lets git persist the stat refresh it just did, so
+/// the next call takes the cheap stat path. See
+/// [`run_sync_refreshing`](super::cli::run_sync_refreshing).
+fn cli_text_owned_refreshing(
+	cwd: &Path,
+	args: &[String],
+	timeout: std::time::Duration,
+) -> Result<String> {
+	Ok(super::cli::run_sync_refreshing(cwd, args, timeout)?
+		.into_checked(args)?
+		.stdout)
+}
 fn cli_lines(cwd: &Path, args: &[&str]) -> Result<Vec<String>> {
 	Ok(cli_text(cwd, args)?
 		.lines()
@@ -1220,6 +1239,40 @@ fn cap_bytes(mut bytes: Vec<u8>, max: Option<usize>) -> ShowResult {
 		bytes.truncate(cap);
 	}
 	ShowResult { bytes, truncated }
+}
+
+/// Persist the stat refresh a completed status iteration collected.
+///
+/// gitoxide compares an index entry's cached stat data (ctime/mtime/size/ino)
+/// against the worktree before reading content. When that data is absent or
+/// stale it hashes the file, and an unchanged hash yields
+/// `EntryStatus::NeedsUpdate(new_stat)`, which `gix::status::Iter` records
+/// internally (`maybe_keep_index_change`) rather than surfacing to the
+/// consumer. Nothing writes it back, so an index carrying no stat data
+/// re-hashes the entire worktree on *every* status call — measured at 2.2s
+/// wall and 47s of CPU per call on a 94k-entry, 9GB checkout, forever, because
+/// the cheap size comparison can never short-circuit. Every workspace
+/// `jj workspace add` creates starts in exactly that state, and `git status`
+/// was the only thing that repaired it.
+///
+/// Writing the refresh back makes the first call self-healing: it pays the full
+/// hash once and every later call takes the stat fast path, which is what the
+/// git CLI has always done. It also removes nearly all `git-lfs
+/// filter-process` spawns, since `FastEq` only streams content (invoking
+/// filters) for entries whose stat comparison fails.
+///
+/// Best-effort by design. `gix_index::File::write` acquires `index.lock`
+/// non-blocking, so a concurrent writer (git, jj, another gix) fails it
+/// immediately; the status answer already computed stays correct and the next
+/// call retries the refresh. Losing the write costs speed, never correctness,
+/// so it must not fail the read that triggered it.
+fn persist_stat_refresh(outcome: Option<gix::status::Outcome>) {
+	// Populated only for a fully drained iteration; an early exit or a worker
+	// error leaves nothing to persist.
+	let Some(mut outcome) = outcome else { return };
+	if outcome.has_changes() {
+		let _ = outcome.write_changes();
+	}
 }
 
 #[cfg(test)]
@@ -1457,6 +1510,118 @@ mod tests {
 		assert_eq!(worktrees[0].path, dir.path());
 		assert_eq!(worktrees[1].path, linked.canonicalize()?);
 		assert_eq!(worktrees[1].branch.as_deref(), Some("refs/heads/linked-branch"));
+		Ok(())
+	}
+
+	/// Zero every entry's cached stat data, exactly as the index a fresh
+	/// `jj workspace add` writes looks on disk.
+	fn clear_index_stat(root: &Path) -> TestResult {
+		let repo = gix::open(root)?;
+		let mut index = repo.open_index()?;
+		for entry in index.entries_mut() {
+			entry.stat = gix::index::entry::Stat::default();
+		}
+		index.write(gix::index::write::Options::default())?;
+		Ok(())
+	}
+
+	fn entries_missing_stat(root: &Path) -> std::result::Result<usize, Box<dyn std::error::Error>> {
+		let repo = gix::open(root)?;
+		let index = repo.open_index()?;
+		let zero = gix::index::entry::Stat::default();
+		Ok(index.entries().iter().filter(|e| e.stat == zero).count())
+	}
+
+	#[test]
+	fn gix_status_persists_index_stat_refresh() -> TestResult {
+		let (dir, repo) = repo()?;
+		let root = dir.path();
+		for name in ["a", "b", "c"] {
+			fs::write(root.join(name), format!("{name}\n"))?;
+		}
+		git(root, &["add", "-A"])?;
+		git(root, &["commit", "-m", "seed"])?;
+
+		// A stat-less index cannot answer "unchanged" from stat alone, so every
+		// entry gets re-hashed. Without write-back that repeats on every call
+		// forever: the pathology that burned 47s of CPU per status call on a
+		// 94k-entry checkout.
+		clear_index_stat(root)?;
+		assert_eq!(entries_missing_stat(root)?, 3, "fixture must start stat-less");
+
+		// A clean worktree drains the whole iteration, so the refresh is
+		// collected and must be persisted.
+		assert!(!repo.is_dirty()?);
+		assert_eq!(
+			entries_missing_stat(root)?,
+			0,
+			"is_dirty must write the refreshed stat cache back to .git/index",
+		);
+
+		// The refresh must not fabricate changes: the repo is still clean.
+		assert!(!repo.is_dirty()?);
+		assert_eq!(repo.status_porcelain(&StatusOptions::default())?, "");
+
+		// A real modification still reports dirty against the refreshed cache —
+		// a stale-stat write-back would mask it as unchanged.
+		fs::write(root.join("a"), "modified\n")?;
+		assert!(repo.is_dirty()?);
+		Ok(())
+	}
+
+	#[test]
+	fn gix_ls_files_others_persists_index_stat_refresh() -> TestResult {
+		let (dir, repo) = repo()?;
+		let root = dir.path();
+		for name in ["tracked-one", "tracked-two"] {
+			fs::write(root.join(name), format!("{name}\n"))?;
+		}
+		git(root, &["add", "-A"])?;
+		git(root, &["commit", "-m", "seed"])?;
+		fs::write(root.join("untracked"), "untracked\n")?;
+
+		clear_index_stat(root)?;
+		assert_eq!(entries_missing_stat(root)?, 2, "fixture must start stat-less");
+
+		// ls_files(others) runs the same index-vs-worktree walk and is pure
+		// gitoxide on every host, with no CLI path to repair the index.
+		assert_eq!(repo.ls_files(true, true)?, vec!["untracked".to_owned()]);
+		assert_eq!(
+			entries_missing_stat(root)?,
+			0,
+			"ls_files must write the refreshed stat cache back to .git/index",
+		);
+		assert_eq!(repo.ls_files(true, true)?, vec!["untracked".to_owned()]);
+		Ok(())
+	}
+
+	#[test]
+	fn cli_status_porcelain_persists_index_stat_refresh() -> TestResult {
+		let (dir, repo) = repo()?;
+		let root = dir.path();
+		for name in ["one", "two", "three"] {
+			fs::write(root.join(name), format!("{name}\n"))?;
+		}
+		git(root, &["add", "-A"])?;
+		git(root, &["commit", "-m", "seed"])?;
+
+		clear_index_stat(root)?;
+		assert_eq!(entries_missing_stat(root)?, 3, "fixture must start stat-less");
+
+		// status_porcelain prefers the git CLI. Blanket read-only hardening
+		// passes `--no-optional-locks`, which forbids the stat write-back and
+		// makes every later status re-hash the whole tree; the status path opts
+		// back into that one write.
+		assert_eq!(repo.status_porcelain(&StatusOptions::default())?, "");
+		assert_eq!(
+			entries_missing_stat(root)?,
+			0,
+			"status_porcelain must let git persist the refreshed stat cache",
+		);
+
+		// The refresh must not swallow real changes.
+		fs::write(root.join("one"), "changed\n")?;
+		assert_eq!(repo.status_porcelain(&StatusOptions::default())?, " M one\n");
 		Ok(())
 	}
 }
