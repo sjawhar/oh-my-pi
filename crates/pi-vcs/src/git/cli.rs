@@ -215,8 +215,17 @@ pub(crate) fn is_spawn_failure(err: &Error) -> bool {
 /// [`SYNC_TIMEOUT`] so a stalled git cannot freeze the UI. Stdout/stderr are
 /// drained concurrently with capped retention, so output larger than the OS
 /// pipe buffer can never stall the child into a spurious timeout.
-pub(crate) fn run_sync(cwd: &Path, args: &[String], timeout: Duration) -> Result<CliOutput> {
-	let argv = hardened_args(args, true);
+///
+/// `allow_index_refresh` permits the one opportunistic write git performs on a
+/// read: persisting the index stat cache it just refreshed. Every other
+/// optional lock stays disabled. See [`run_sync_refreshing`].
+pub(crate) fn run_sync_with(
+	cwd: &Path,
+	args: &[String],
+	timeout: Duration,
+	allow_index_refresh: bool,
+) -> Result<CliOutput> {
+	let argv = hardened_args(args, !allow_index_refresh);
 	let mut cmd = std::process::Command::new("git");
 	cmd.args(&argv)
 		.current_dir(cwd)
@@ -237,7 +246,13 @@ pub(crate) fn run_sync(cwd: &Path, args: &[String], timeout: Duration) -> Result
 		cmd.env_remove(stripped);
 	}
 	cmd.env("LC_MESSAGES", "C");
-	cmd.env("GIT_OPTIONAL_LOCKS", "0");
+	if allow_index_refresh {
+		// `--no-optional-locks` and `GIT_OPTIONAL_LOCKS=0` are the same switch;
+		// pinning the env var would re-disable what the argv opted into.
+		cmd.env_remove("GIT_OPTIONAL_LOCKS");
+	} else {
+		cmd.env("GIT_OPTIONAL_LOCKS", "0");
+	}
 	cmd.env("GIT_TERMINAL_PROMPT", "0");
 	let mut child = cmd.spawn().map_err(|err| spawn_error(cwd, err))?;
 	let stdout = spawn_sync_reader("git-cli-stdout", child.stdout.take());
@@ -263,6 +278,35 @@ pub(crate) fn run_sync(cwd: &Path, args: &[String], timeout: Duration) -> Result
 		return Err(Error::CliTimeout { command: format!("git {}", argv.join(" ")) });
 	};
 	Ok(CliOutput { exit_code: status.code().unwrap_or(-1), stdout, stderr })
+}
+
+/// Read runner that keeps every optional lock disabled.
+pub(crate) fn run_sync(cwd: &Path, args: &[String], timeout: Duration) -> Result<CliOutput> {
+	run_sync_with(cwd, args, timeout, false)
+}
+
+/// Read runner that lets git persist the index stat cache it refreshed.
+///
+/// Deviates from the blanket read-only hardening for whole-worktree status
+/// only, and deliberately. `git status` re-stats every entry; without the
+/// write-back that work is discarded and repeated on the next call. An index
+/// with no stat data — which is how every worktree `jj workspace add` creates
+/// starts — therefore re-reads and re-hashes the whole tree on every single
+/// status, measured here at 42s wall on a 94k-entry checkout, with
+/// `--no-optional-locks` turning a one-time cost into a permanent one.
+///
+/// Safe under concurrency by construction: the lock is *optional*, so git
+/// skips the write when another process holds `index.lock` rather than
+/// waiting or failing. The fsmonitor and untracked-cache pins in
+/// [`hardened_args`] still apply, so the transient-subprocess state mutation
+/// that hardening targets remains blocked — only the stat refresh is allowed
+/// through.
+pub(crate) fn run_sync_refreshing(
+	cwd: &Path,
+	args: &[String],
+	timeout: Duration,
+) -> Result<CliOutput> {
+	run_sync_with(cwd, args, timeout, true)
 }
 
 /// Drain a child stream on a helper thread, mirroring [`read_capped`].
