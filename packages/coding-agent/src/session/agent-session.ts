@@ -2093,6 +2093,7 @@ export class AgentSession implements SettingsScope {
 			skillWarnings: config.skillWarnings,
 			skillsSettings: config.skillsSettings,
 			skillsReloadable: config.skillsReloadable,
+			mergeDiscoveredSkillPaths: config.mergeDiscoveredSkillPaths,
 		});
 		this.#disconnectOwnedMcpManager = config.disconnectOwnedMcpManager;
 		const ttsrHost: TtsrCoordinatorHost = {
@@ -6367,7 +6368,7 @@ export class AgentSession implements SettingsScope {
 		return this.#tools.getSelectedMCPToolNames();
 	}
 
-	/** Rediscovers reloadable skills and refreshes prompt metadata. */
+	/** Rediscovers reloadable skills and refreshes prompt metadata. Used by `/reload-plugins`. */
 	refreshSkills(): Promise<void> {
 		return this.#tools.refreshSkills();
 	}
@@ -6392,6 +6393,14 @@ export class AgentSession implements SettingsScope {
 			});
 		this.#skillsAndCommandsRefresh = refresh;
 		return refresh;
+	}
+
+	/**
+	 * One-time post-`session_start` `resources_discover` emission. Called by
+	 * every mode's extension-lifecycle init right after `session_start` fires.
+	 */
+	discoverStartupSkillPaths(): Promise<void> {
+		return this.#tools.discoverStartupSkillPaths();
 	}
 
 	/**
