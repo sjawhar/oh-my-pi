@@ -124,6 +124,7 @@ function createRevivedSession(activeToolNames: string[][], extensionRunner?: unk
 		},
 		subscribeRunState: () => () => {},
 		getLastAssistantMessage: () => lastAssistant,
+		discoverStartupSkillPaths: async () => {},
 		extensionRunner,
 	} as unknown as AgentSession;
 	return {
@@ -1268,6 +1269,7 @@ describe("cold revival replays the system prompt the last request sent", () => {
 				initialize: () => {},
 				onError: () => () => {},
 				hasHandlers: () => false,
+				emitResourcesDiscover: async () => ({ skillPaths: [], promptPaths: [], themePaths: [] }),
 				emit: async (event: { type: string }) => {
 					if (event.type === "session_start") hooks.sessionStart?.();
 				},

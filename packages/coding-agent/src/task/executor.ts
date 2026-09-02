@@ -550,7 +550,29 @@ export interface ExecutorOptions {
 	 * transition explicitly.
 	 */
 	parentTelemetry?: AgentTelemetryConfig;
-	/** Skills to autoload via sendCustomMessage before the first prompt */
+	/**
+	 * Skill names to autoload via sendCustomMessage before the first prompt.
+	 * Names, not resolved `Skill` objects: the child's `resources_discover`
+	 * (post-`session_start`) can replace a same-named inherited skill or
+	 * contribute one the parent never had, so resolution must happen against
+	 * `session.skills` *after* startup discovery, not in the spawner.
+	 */
+	autoloadSkillNames?: string[];
+	/**
+	 * Merge the child session's own `resources_discover` skill contributions
+	 * into a supplied `skills` snapshot. Internal spawners forwarding a parent
+	 * snapshot for perf set this true; direct SDK callers default to false so
+	 * a deliberately curated snapshot stays fixed (released semantics).
+	 */
+	mergeDiscoveredSkillPaths?: boolean;
+	/**
+	 * Skills to autoload via sendCustomMessage before the first prompt.
+	 * Released SDK surface (predates {@link autoloadSkillNames}); each entry
+	 * is re-resolved by name against `session.skills` after startup
+	 * `resources_discover`, falling back to the provided object when the
+	 * session has no skill of that name — so SDK callers can still inject
+	 * skills the session never discovered.
+	 */
 	autoloadSkills?: Skill[];
 	/**
 	 * Registry id of the spawning agent, recorded as this subagent's parent.
@@ -4304,6 +4326,13 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					requireYieldTool: true,
 					contextFiles: options.contextFiles,
 					skills: options.skills,
+					// Internal spawners (task/eval/vibe) forward the parent snapshot
+					// for perf and set this true so discoverStartupSkillPaths still
+					// merges the child's own resources_discover contributions
+					// (session-tools.ts). Direct SDK callers of the exported
+					// runSubprocess keep the released fixed-snapshot semantics:
+					// default false, matching createAgentSession's own opt-in.
+					mergeDiscoveredSkillPaths: options.mergeDiscoveredSkillPaths === true,
 					promptTemplates: options.promptTemplates,
 					workspaceTree: options.workspaceTree,
 					rules: options.rules,
@@ -4533,9 +4562,29 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			unsubscribe = monitor.attach(session);
 
 			checkAbort();
-			// Autoload skills via sendCustomMessage (same mechanic as /skill:<name>)
-			if (options.autoloadSkills?.length) {
-				for (const skill of options.autoloadSkills) {
+			// Autoload skills via sendCustomMessage (same mechanic as /skill:<name>).
+			// Resolved against `session.skills` only now — after the startup
+			// `resources_discover` above — so a skill the child's extensions
+			// replaced (merge precedence, session-tools.ts) or contributed anew
+			// injects the child's file, not the parent's stale snapshot object.
+			if (options.autoloadSkillNames?.length || options.autoloadSkills?.length) {
+				const skillsByName = new Map(session.skills.map(skill => [skill.name, skill]));
+				const toAutoload = new Map<string, Skill>();
+				for (const name of options.autoloadSkillNames ?? []) {
+					const skill = skillsByName.get(name);
+					if (!skill) {
+						logger.warn("Autoload skill not found in subagent session", { name });
+						continue;
+					}
+					toAutoload.set(skill.name, skill);
+				}
+				// Released SDK option: session resolution wins (the child may have
+				// replaced the skill), the caller's object is the fallback.
+				for (const provided of options.autoloadSkills ?? []) {
+					if (toAutoload.has(provided.name)) continue;
+					toAutoload.set(provided.name, skillsByName.get(provided.name) ?? provided);
+				}
+				for (const skill of toAutoload.values()) {
 					const { message } = await buildSkillPromptMessage(skill, { args: "" }, "autoload");
 					await session.sendCustomMessage(
 						{
