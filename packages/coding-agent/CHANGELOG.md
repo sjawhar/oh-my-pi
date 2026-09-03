@@ -14,7 +14,7 @@
 - Fixed Enter on an unknown slash command such as `/not-a-command` running a command whose description happened to match it (e.g. `/loop`, which then resent every later prompt after each turn); Enter now sends what you typed, including as the deny-and-steer message for a pending tool approval, unless you select a suggestion first ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
 - Fixed `read` of web pages dropping collapsed sections such as accordion and expander panels (e.g. a product page's "Item details" table); content in `<template>`, `<noscript>` and scripts stays out ([#16246](https://github.com/can1357/oh-my-pi/issues/16246))
 - Fixed skill discovery not finding skills nested one namespace level deep (e.g. `skills/<namespace>/<skill>/SKILL.md`).
-- Extension-contributed skill paths (`resources_discover`) are now honored at session start and `/reload-plugins`.
+- Extension-contributed skill paths (`resources_discover`) are now honored at session start — including in `/skill:` autocomplete — and on `/reload-plugins`.
 - Fixed freshly created task subagents missing extension-contributed skills that print, RPC, and TUI sessions already receive at startup.
 - Fixed `/reload-plugins` skipping the `resources_discover` event entirely for sessions with a fixed skill snapshot; it now fires (matching startup) and only skips the skill rescan.
 - Fixed task subagent startup dropping extension messages sent from a `resources_discover` handler by draining them before the first prompt.
