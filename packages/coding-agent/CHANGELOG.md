@@ -12,7 +12,7 @@
 - MCP HTTP reconnects now release obsolete tool generations instead of growing session memory on every reconnect ([#11784](https://github.com/can1357/oh-my-pi/issues/11784)).
 - `/debug` memory reports now keep large heap snapshots out of JavaScript strings and reject empty snapshots instead of saving zero-byte files ([#11785](https://github.com/can1357/oh-my-pi/issues/11785)).
 - Fixed skill discovery not finding skills nested one namespace level deep (e.g. `skills/<namespace>/<skill>/SKILL.md`).
-- Extension-contributed skill paths (`resources_discover`) are now honored at session start and `/reload-plugins`.
+- Extension-contributed skill paths (`resources_discover`) are now honored at session start — including in `/skill:` autocomplete — and on `/reload-plugins`.
 - Fixed freshly created task subagents missing extension-contributed skills that print, RPC, and TUI sessions already receive at startup.
 - Fixed `/reload-plugins` skipping the `resources_discover` event entirely for sessions with a fixed skill snapshot; it now fires (matching startup) and only skips the skill rescan.
 - Fixed task subagent startup dropping extension messages sent from a `resources_discover` handler by draining them before the first prompt.
