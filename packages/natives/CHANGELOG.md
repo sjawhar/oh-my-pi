@@ -22,6 +22,7 @@
 - Fixed Kotlin, Swift, Elixir and Sass code being highlighted with the Java, Objective-C, Ruby and Haml grammars
 - Fixed code inside string interpolations (Python f-strings, Julia `$(…)`, Elixir `#{…}`) being colored as part of the string
 - Fixed `supportsLanguage` returning `true` for languages `highlightCode` leaves unhighlighted
+- Fixed a `git status` that exceeded its deadline leaving a stale `.git/index.lock` behind, which made every later git or jj write in that worktree fail until the lock was deleted by hand.
 
 ## [18.8.8] - 2026-10-10
 
