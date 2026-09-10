@@ -83,6 +83,7 @@
 - Fixed `grep` showing only the first 512 bytes of a long matching line, so a match further in never appeared; it now shows the part around the match, with `...` on cut sides and the match's `[col N]` ([#15278](https://github.com/can1357/oh-my-pi/pull/15278) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed snapcompact archives being sized from the context window, which could leave the context over a low compaction trigger right after compacting; archives now take half the room left under the trigger ([#14345](https://github.com/can1357/oh-my-pi/pull/14345) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed a usage-limited session with an account pool (such as a task agent under `task.agentAccountPools`) spending a saved reset to restore an account outside its pool, which it cannot use; resets about to expire are still salvaged on every account ([#15135](https://github.com/can1357/oh-my-pi/pull/15135) by [@will-bogusz](https://github.com/will-bogusz))
+- The status line no longer wipes other workspaces' recorded Git HEADs when it opens a Jujutsu repository over divergent operation heads; jj-lib is now 0.45, which knows the per-workspace `git_heads` view field the installed `jj` 0.45 writes. Agents in a shared jj store no longer see describes and bookmarks vanish after another session's turn.
 
 ## [18.8.9] - 2026-10-10
 
