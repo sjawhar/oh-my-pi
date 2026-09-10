@@ -8,6 +8,7 @@
 - Fixed an edit after a restart replacing a line that `read` or `grep` had shown cut at the column cap and silently dropping the rest of that line; such edits now ask for a full `:raw` read of the line first, while edits to lines within the cap still apply ([#16171](https://github.com/can1357/oh-my-pi/issues/16171))
 - Fixed Enter on an unknown slash command such as `/not-a-command` running a command whose description happened to match it (e.g. `/loop`, which then resent every later prompt after each turn); Enter now sends what you typed, including as the deny-and-steer message for a pending tool approval, unless you select a suggestion first ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
 - Fixed `read` of web pages dropping collapsed sections such as accordion and expander panels (e.g. a product page's "Item details" table); content in `<template>`, `<noscript>` and scripts stays out ([#16246](https://github.com/can1357/oh-my-pi/issues/16246))
+- The status line no longer wipes other workspaces' recorded Git HEADs when it opens a Jujutsu repository over divergent operation heads; jj-lib is now 0.45, which knows the per-workspace `git_heads` view field the installed `jj` 0.45 writes. Agents in a shared jj store no longer see describes and bookmarks vanish after another session's turn.
 
 ## [18.12.2] - 2026-10-18
 
