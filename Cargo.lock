@@ -6357,6 +6357,7 @@ dependencies = [
 name = "pi-vcs"
 version = "18.2.9"
 dependencies = [
+ "futures",
  "gix",
  "gix-utils",
  "jj-lib",
