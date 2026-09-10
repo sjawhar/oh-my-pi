@@ -6,6 +6,10 @@
 
 - Added `tui.titleSpinner` (`braille` | `dots` | `line`, default `braille`) to pick the terminal-title working-state spinner glyphs alongside the existing `tui.titleState` on/off toggle.
 
+### Fixed
+
+- The status line no longer wipes other workspaces' recorded Git HEADs when it opens a Jujutsu repository over divergent operation heads; jj-lib is now 0.45, which knows the per-workspace `git_heads` view field the installed `jj` 0.45 writes. Agents in a shared jj store no longer see describes and bookmarks vanish after another session's turn.
+
 ## [18.2.1] - 2026-09-15
 
 ### Breaking Changes
