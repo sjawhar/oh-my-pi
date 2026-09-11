@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- An extension-originated message that starts no agent turn (e.g. an idle steer superseded by a concurrent turn) no longer crashes a headless `--mode rpc` session with an unhandled rejection.
+
 ## [18.1.22] - 2026-09-14
 
 ### Breaking Changes
