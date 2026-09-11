@@ -113,6 +113,29 @@ const RECONNECT_BURST_WINDOW_MS = 30_000;
 const RECONNECT_BURST_LIMIT = 5;
 
 /**
+ * How {@link MCPManager.reconnectServer} paces its attempts after a transport
+ * is lost. The `ladderMs` delays run first; a remote (`http`/`sse`) server
+ * that is still unreachable when the ladder ends is then retried every
+ * `persistentIntervalMs` until `persistentWindowMs` has passed since the
+ * reconnect began. A remote server that is merely restarting — a phone app
+ * being updated, a container rolling — comes back on its own schedule, and a
+ * client that gave up after the ladder kept stale resource subscriptions and
+ * heard no notification until its next tool call (dojo#77). Stdio servers stop
+ * at the ladder: a command that fails to start is not fixed by waiting.
+ */
+export interface MCPReconnectPolicy {
+	readonly ladderMs: readonly number[];
+	readonly persistentIntervalMs: number;
+	readonly persistentWindowMs: number;
+}
+
+export const DEFAULT_RECONNECT_POLICY: MCPReconnectPolicy = {
+	ladderMs: [500, 1000, 2000, 4000],
+	persistentIntervalMs: 15_000,
+	persistentWindowMs: 10 * 60_000,
+};
+
+/**
  * Bounded buffer for notifications received before any listener attaches.
  * Mirrors {@link IrcBus}'s `MAILBOX_CAP` — drop-oldest on overflow. Drained
  * into the first {@link MCPManager.addNotificationListener} subscriber, then
@@ -251,10 +274,14 @@ export class MCPManager {
 	/** Monotonic epoch incremented on disconnectAll to invalidate stale reconnections. */
 	#epoch = 0;
 
+	/** Wakes a reconnect loop sleeping between persistent attempts (manual `/mcp reconnect`, disconnect). */
+	#reconnectWake = new Map<string, () => void>();
+
 	constructor(
 		private cwd: string,
 		private toolCache: MCPToolCache | null = null,
 		private loadConfigs: MCPConfigLoader = loadAllMCPConfigs,
+		private reconnectPolicy: MCPReconnectPolicy = DEFAULT_RECONNECT_POLICY,
 	) {}
 
 	/**
@@ -1049,6 +1076,7 @@ export class MCPManager {
 		this.#serverConfigs.delete(name);
 		this.#pendingResourceRefresh.delete(name);
 		this.#reconnectHistory.delete(name);
+		this.#reconnectWake.get(name)?.();
 
 		const connection = this.#connections.get(name);
 
@@ -1090,6 +1118,7 @@ export class MCPManager {
 		this.#tools = [];
 		this.#subscribedResources.clear();
 		this.#reconnectHistory.clear();
+		for (const wake of this.#reconnectWake.values()) wake();
 	}
 
 	/**
@@ -1114,7 +1143,11 @@ export class MCPManager {
 		}
 
 		const pending = this.#pendingReconnections.get(name);
-		if (pending) return pending;
+		if (pending) {
+			// A user-driven retry must not wait out the persistent interval.
+			if (options?.manual) this.#reconnectWake.get(name)?.();
+			return pending;
+		}
 
 		if (this.#tripReconnectBreaker(name)) {
 			return null;
@@ -1210,9 +1243,15 @@ export class MCPManager {
 		this.#pendingConnections.delete(name);
 		this.#pendingToolLoads.delete(name);
 
-		// Retry with backoff — the server may still be starting up.
-		const delays = [500, 1000, 2000, 4000];
-		for (let attempt = 0; attempt <= delays.length; attempt++) {
+		// Retry with backoff — the server may still be starting up. A remote
+		// server that is still down when the ladder ends keeps being retried at
+		// the persistent interval for the rest of the window (see
+		// MCPReconnectPolicy); the failed status is still emitted at the end of
+		// the ladder so the UI shows the outage while the loop waits.
+		const { ladderMs, persistentIntervalMs, persistentWindowMs } = this.reconnectPolicy;
+		const persistent = config.type === "http" || config.type === "sse";
+		const deadline = Date.now() + persistentWindowMs;
+		for (let attempt = 0; ; attempt++) {
 			if (this.#epoch !== reconnectEpoch || this.#serverConfigs.get(name) !== config) {
 				logger.debug("MCP reconnect aborted before attempt after configuration changed", {
 					path: `mcp:${name}`,
@@ -1223,7 +1262,7 @@ export class MCPManager {
 			}
 			try {
 				const connection = await this.#connectAndWireServer(name, config, source, reconnectEpoch);
-				logger.debug("MCP reconnected", { path: `mcp:${name}`, tools: connection.tools?.length ?? 0 });
+				logger.debug("MCP reconnected", { path: `mcp:${name}`, tools: connection.tools?.length ?? 0, attempt });
 				this.#emitConnectionStatus({ type: "connected", serverName: name });
 				return connection;
 			} catch (error) {
@@ -1237,24 +1276,56 @@ export class MCPManager {
 				}
 
 				const msg = error instanceof Error ? error.message : String(error);
-				if (attempt < delays.length) {
+				if (attempt < ladderMs.length) {
 					logger.debug("MCP reconnect attempt failed, retrying", {
 						path: `mcp:${name}`,
 						attempt: attempt + 1,
 						error: msg,
 					});
-					await Bun.sleep(delays[attempt]);
-				} else {
-					logger.error("MCP reconnect failed after retries", { path: `mcp:${name}`, error: msg });
+					await Bun.sleep(ladderMs[attempt] ?? 0);
+					continue;
+				}
+				if (attempt === ladderMs.length) {
+					logger.error("MCP reconnect failed after retries", { path: `mcp:${name}`, error: msg, persistent });
 					this.#emitConnectionStatus({ type: "failed", serverName: name, error: msg });
 					// Don't remove stale tools — keep them in the registry so they
 					// remain selected. Calls will fail with MCP errors, which
 					// triggers the tool-level reconnect, or the user can run
 					// /mcp reconnect <name> manually.
+					if (!persistent) return null;
 				}
+				if (Date.now() >= deadline) {
+					logger.error("MCP reconnect gave up: remote server did not come back within the window", {
+						path: `mcp:${name}`,
+						windowMs: persistentWindowMs,
+						error: msg,
+					});
+					return null;
+				}
+				logger.debug("MCP reconnect waiting for the remote server to come back", {
+					path: `mcp:${name}`,
+					attempt: attempt + 1,
+					intervalMs: persistentIntervalMs,
+					error: msg,
+				});
+				await this.#sleepUntilWoken(name, persistentIntervalMs);
 			}
 		}
-		return null;
+	}
+
+	/** Sleep between persistent reconnect attempts; a manual reconnect or a disconnect ends the sleep early. */
+	async #sleepUntilWoken(name: string, ms: number): Promise<void> {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		const timer = setTimeout(resolve, ms);
+		this.#reconnectWake.set(name, () => {
+			clearTimeout(timer);
+			resolve();
+		});
+		try {
+			await promise;
+		} finally {
+			this.#reconnectWake.delete(name);
+		}
 	}
 
 	/** Establish a new connection to a server, wire handlers, load tools. */
