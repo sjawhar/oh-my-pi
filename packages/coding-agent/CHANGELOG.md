@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Extensions can ask an isolated `/btw`-compatible side question with `pi.askEphemeral`, receiving its answer without interrupting or recording it in the primary session.
+
 ## [18.1.22] - 2026-09-14
 
 ### Breaking Changes
