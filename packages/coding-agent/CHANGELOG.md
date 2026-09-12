@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Extension handlers now receive `ctx.agent` (`{ id, isSubagent }`), the agent their session runs as. MCP notification frames fan out to every subagent's runner, so a bridge that turns them into steers can now act from the top-level session only ([#11895](https://github.com/can1357/oh-my-pi/pull/11895) by [@sjawhar](https://github.com/sjawhar)).
+
 ### Fixed
 
 - MCP HTTP reconnects now release obsolete tool generations instead of growing session memory on every reconnect ([#11784](https://github.com/can1357/oh-my-pi/issues/11784)).
