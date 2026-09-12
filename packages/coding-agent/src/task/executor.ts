@@ -30,6 +30,7 @@ import { Settings } from "../config/settings";
 import { SETTINGS_SCHEMA, type SettingPath } from "../config/settings-schema";
 import type { ToolPathWithSource } from "../extensibility/custom-tools";
 import type { CustomTool } from "../extensibility/custom-tools/types";
+import { createAskEphemeralHandler } from "../extensibility/extensions/ask-ephemeral";
 import { runExtensionCompact, runExtensionSetModel } from "../extensibility/extensions/compact-handler";
 import { getSessionSlashCommands } from "../extensibility/extensions/get-commands-handler";
 import type { PreparedExtension } from "../extensibility/extensions/types";
@@ -3687,6 +3688,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 							});
 							pendingExtensionMessages.push(sendPromise);
 						},
+						askEphemeral: createAskEphemeralHandler(session),
 						appendEntry: (customType, data) => {
 							session.sessionManager.appendCustomEntry(customType, data);
 						},
