@@ -1448,6 +1448,12 @@ export interface ExtensionAPI {
 		options?: { deliverAs?: "steer" | "followUp" | "aside" },
 	): void;
 
+	/**
+	 * Ask an isolated /btw-compatible side question without modifying or interrupting
+	 * the primary session turn.
+	 */
+	askEphemeral(options: { prompt: string; signal?: AbortSignal }): Promise<{ replyText: string }>;
+
 	/** Append a custom entry to the session for state persistence (not sent to LLM). */
 	appendEntry<T = unknown>(customType: string, data?: T): void;
 
@@ -1670,6 +1676,9 @@ export type SendUserMessageHandler = (
 	options?: { deliverAs?: "steer" | "followUp" | "aside" },
 ) => void;
 
+/** Runs an isolated /btw-compatible side question without modifying the primary session. */
+export type AskEphemeralHandler = (options: { prompt: string; signal?: AbortSignal }) => Promise<{ replyText: string }>;
+
 export type AppendEntryHandler = <T = unknown>(customType: string, data?: T) => void;
 
 export type GetActiveToolsHandler = () => string[];
@@ -1705,6 +1714,7 @@ export interface ExtensionRuntimeState {
 export interface ExtensionActions {
 	sendMessage: SendMessageHandler;
 	sendUserMessage: SendUserMessageHandler;
+	askEphemeral?: AskEphemeralHandler;
 	appendEntry: AppendEntryHandler;
 	setLabel: (targetId: string, label: string | undefined) => void;
 	getActiveTools: GetActiveToolsHandler;
@@ -1749,6 +1759,7 @@ export interface ExtensionCommandContextActions {
 
 /** Full runtime = state + actions, including host-compatible service-tier fallbacks. */
 export interface ExtensionRuntime extends ExtensionRuntimeState, ExtensionActions {
+	askEphemeral: AskEphemeralHandler;
 	getServiceTiers: GetServiceTiersHandler;
 	setServiceTier: SetServiceTierHandler;
 }
