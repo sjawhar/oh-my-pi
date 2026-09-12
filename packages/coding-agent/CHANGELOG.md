@@ -5,6 +5,7 @@
 ### Added
 
 - Added `tui.titleSpinner` (`braille` | `dots` | `line`, default `braille`) to pick the terminal-title working-state spinner glyphs alongside the existing `tui.titleState` on/off toggle.
+- Extensions can ask an isolated `/btw`-compatible side question with `pi.askEphemeral`, receiving its answer without interrupting or recording it in the primary session.
 
 ## [18.2.1] - 2026-09-15
 
