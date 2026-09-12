@@ -52,6 +52,7 @@ import {
 	type ExtensionUIDialogOptions,
 	getExtensionUISelectOptionLabel,
 } from "../../extensibility/extensions";
+import { createAskEphemeralHandler } from "../../extensibility/extensions/ask-ephemeral";
 import { runExtensionCompact } from "../../extensibility/extensions/compact-handler";
 import { getSessionSlashCommands } from "../../extensibility/extensions/get-commands-handler";
 import { buildSkillPromptMessage, parseSkillInvocation } from "../../extensibility/skills";
@@ -2568,6 +2569,7 @@ export class AcpAgent implements Agent {
 				sendUserMessage: (content, options) => {
 					this.#trackExtensionUserMessage(record, record.session.sendUserMessage(content, options));
 				},
+				askEphemeral: createAskEphemeralHandler(record.session),
 				appendEntry: (customType, data) => {
 					record.session.sessionManager.appendCustomEntry(customType, data);
 				},

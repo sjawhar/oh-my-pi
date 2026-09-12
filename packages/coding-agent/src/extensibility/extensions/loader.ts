@@ -93,6 +93,10 @@ export class ExtensionRuntime implements IExtensionRuntime {
 		throw new ExtensionRuntimeNotInitializedError();
 	}
 
+	askEphemeral(_options: { prompt: string; signal?: AbortSignal }): Promise<{ replyText: string }> {
+		throw new ExtensionRuntimeNotInitializedError();
+	}
+
 	appendEntry(): void {
 		throw new ExtensionRuntimeNotInitializedError();
 	}
@@ -268,6 +272,10 @@ class ConcreteExtensionAPI implements ExtensionAPI, IExtensionRuntime {
 		options?: { deliverAs?: "steer" | "followUp" | "aside" },
 	): void {
 		this.runtime.sendUserMessage(content, options);
+	}
+
+	askEphemeral(options: { prompt: string; signal?: AbortSignal }): Promise<{ replyText: string }> {
+		return this.runtime.askEphemeral(options);
 	}
 
 	appendEntry(customType: string, data?: unknown): void {

@@ -8890,6 +8890,9 @@ export class AgentSession {
 		signal?: AbortSignal;
 		dedupeReply?: boolean;
 	}): Promise<{ replyText: string; assistantMessage: AssistantMessage }> {
+		if (this.#isDisposed) {
+			throw new Error("Session disposed");
+		}
 		const model = this.model;
 		if (!model) {
 			throw new Error("No active model on session");
