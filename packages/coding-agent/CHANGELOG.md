@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Mnemopi's `per-project`/`per-project-tagged` memory banks now derive from the repository's primary checkout root, so every linked git worktree and Jujutsu workspace of one repository shares the same bank instead of each getting its own isolated one ([#9424](https://github.com/can1357/oh-my-pi/pull/9424) by [@sjawhar](https://github.com/sjawhar)).
 - MCP HTTP reconnects now release obsolete tool generations instead of growing session memory on every reconnect ([#11784](https://github.com/can1357/oh-my-pi/issues/11784)).
 - `/debug` memory reports now keep large heap snapshots out of JavaScript strings and reject empty snapshots instead of saving zero-byte files ([#11785](https://github.com/can1357/oh-my-pi/issues/11785)).
 
