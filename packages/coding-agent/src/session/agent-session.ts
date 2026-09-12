@@ -9810,6 +9810,9 @@ export class AgentSession implements SettingsScope {
 	 * rather than missing context.
 	 */
 	async runEphemeralTurn(args: EphemeralTurnOptions): Promise<EphemeralTurnResult> {
+		if (this.#isDisposed) {
+			throw new Error("Session disposed");
+		}
 		const model = this.model;
 		if (!model) {
 			throw new Error("No active model on session");
