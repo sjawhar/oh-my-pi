@@ -22,6 +22,7 @@ import type {
 	SendUserMessageHandler,
 	TerminalInputHandler,
 } from "../../extensibility/extensions";
+import { createAskEphemeralHandler } from "../../extensibility/extensions/ask-ephemeral";
 import { getSessionSlashCommands } from "../../extensibility/extensions/get-commands-handler";
 import { AskDialogComponent, boundPromptTitle, normalizeDialogQuestions } from "@oh-my-pi/pi-tui/overlays/ask-dialog";
 import { installExtensionComposerShape } from "@oh-my-pi/pi-tui/overlays/composer-shape-registry";
@@ -185,6 +186,7 @@ export class ExtensionUiController {
 					});
 			},
 			sendUserMessage: this.#sendExtensionUserMessage,
+			askEphemeral: createAskEphemeralHandler(this.ctx.session),
 			appendEntry: (customType, data) => {
 				this.ctx.sessionManager.appendCustomEntry(customType, data);
 			},
@@ -416,6 +418,7 @@ export class ExtensionUiController {
 					});
 			},
 			sendUserMessage: this.#sendExtensionUserMessage,
+			askEphemeral: createAskEphemeralHandler(this.ctx.session),
 			appendEntry: (customType, data) => {
 				this.ctx.sessionManager.appendCustomEntry(customType, data);
 			},
