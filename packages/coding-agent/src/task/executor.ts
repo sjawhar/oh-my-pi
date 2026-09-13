@@ -4559,6 +4559,38 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				await awaitAbortable(Promise.all(pendingExtensionMessages.splice(0)));
 			}
 
+			// Persist the subagent's revival contract only after startup skill
+			// discovery has had a chance to run: `discoverStartupSkillPaths()`
+			// (inside `initializeExtensions` above) rebuilds `session.agent.state.systemPrompt` when a
+			// `resources_discover` handler contributed a directory, and a
+			// cold-revived session (persisted-revive.ts) replays these exact
+			// blocks verbatim — capturing them before discovery ran would freeze
+			// every future revival on the pre-discovery prompt (PR #9379 review).
+			session.sessionManager.appendSessionInit({
+				// Blocks as sent; the session appends a newer session_init whenever a model call's base changes.
+				systemPrompt: session.agent.state.systemPrompt,
+				task,
+				tools: persistedSubagentTools,
+				agent: agent.name,
+				modelRole: modelRole ?? resolveExplicitModelRole(modelOverride ?? agent.model, subagentSettings),
+				resolvedModel: progress.resolvedModel,
+				// Deferred model resolution installs this role inside createAgentSession,
+				// so read it back from the settings both install paths write.
+				retryFallback: getRetryFallbackRole(subagentSettings, subagentRetryFallbackRole(id)),
+				readOnly: isReadOnlyAgent(agent),
+				spawns: spawnsEnv,
+				readSummarize: agent.readSummarize,
+				advisor: advisorSelection ? (advisorSelection.model ?? "on") : undefined,
+				compactionThreshold: options.compactionThresholdOverride,
+				outputSchema,
+				outputSchemaMode: options.outputSchemaMode,
+				restrictToolNames: restrictToolNames || undefined,
+				// Isolated runs are never revivable (worktree merged + cleaned):
+				// stamp the contract so cold revival leaves them transcript-only
+				// even when the workspace was retained for recovery.
+				isolated: worktree !== undefined || undefined,
+			});
+
 			unsubscribe = monitor.attach(session);
 
 			checkAbort();
