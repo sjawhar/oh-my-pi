@@ -4,8 +4,8 @@
 
 ### Added
 
-- Added support for declaring skill directories in plugin manifests (`omp.skills` / `pi.skills`), including entries pointing directly at a single skill directory.
-- Added the `initializeExtensions` SDK export so direct-embed sessions can opt into `session_start`/`resources_discover` extension lifecycle events.
+- Added support for declaring skill directories in plugin manifests (`omp.skills` / `pi.skills`), including entries pointing directly at a single skill directory ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Added the `initializeExtensions` SDK export so direct-embed sessions can opt into `session_start`/`resources_discover` extension lifecycle events ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
 
 ### Fixed
 
@@ -13,13 +13,13 @@
 - Fixed an edit after a restart replacing a line that `read` or `grep` had shown cut at the column cap and silently dropping the rest of that line; such edits now ask for a full `:raw` read of the line first, while edits to lines within the cap still apply ([#16171](https://github.com/can1357/oh-my-pi/issues/16171))
 - Fixed Enter on an unknown slash command such as `/not-a-command` running a command whose description happened to match it (e.g. `/loop`, which then resent every later prompt after each turn); Enter now sends what you typed, including as the deny-and-steer message for a pending tool approval, unless you select a suggestion first ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
 - Fixed `read` of web pages dropping collapsed sections such as accordion and expander panels (e.g. a product page's "Item details" table); content in `<template>`, `<noscript>` and scripts stays out ([#16246](https://github.com/can1357/oh-my-pi/issues/16246))
-- Fixed skill discovery not finding skills nested one namespace level deep (e.g. `skills/<namespace>/<skill>/SKILL.md`).
-- Extension-contributed skill paths (`resources_discover`) are now honored at session start — including in `/skill:` autocomplete — and on `/reload-plugins`.
-- Fixed freshly created task subagents missing extension-contributed skills that print, RPC, and TUI sessions already receive at startup.
-- Fixed `/reload-plugins` skipping the `resources_discover` event entirely for sessions with a fixed skill snapshot; it now fires (matching startup) and only skips the skill rescan.
-- Fixed task subagent startup dropping extension messages sent from a `resources_discover` handler by draining them before the first prompt.
-- Fixed task/eval/vibe subagents silently dropping skills their own `resources_discover` handlers discovered at startup; those directories now merge into the inherited snapshot instead of being scanned and thrown away.
-- Fixed print mode, RPC mode, and revived task subagents potentially throwing `AgentBusyError` or reordering the initial turn when a `session_start`/`resources_discover` extension handler sent a message during startup, by draining those sends the same way the task executor already does.
+- Fixed skill discovery not finding skills nested one namespace level deep (e.g. `skills/<namespace>/<skill>/SKILL.md`) ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Extension-contributed skill paths (`resources_discover`) are now honored at session start — including in `/skill:` autocomplete — and on `/reload-plugins` ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed freshly created task subagents missing extension-contributed skills that print, RPC, and TUI sessions already receive at startup ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed `/reload-plugins` skipping the `resources_discover` event entirely for sessions with a fixed skill snapshot; it now fires (matching startup) and only skips the skill rescan ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed task subagent startup dropping extension messages sent from a `resources_discover` handler by draining them before the first prompt ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed task/eval/vibe subagents silently dropping skills their own `resources_discover` handlers discovered at startup; those directories now merge into the inherited snapshot instead of being scanned and thrown away ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed print mode, RPC mode, and revived task subagents potentially throwing `AgentBusyError` or reordering the initial turn when a `session_start`/`resources_discover` extension handler sent a message during startup, by draining those sends the same way the task executor already does ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.12.2] - 2026-10-18
 
