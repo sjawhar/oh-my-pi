@@ -17,8 +17,8 @@
 - On macOS the `computer` tool keeps the display awake while the agent acts, and says when the screen is locked or the display asleep: in `capabilities()`, on screenshots, on errors and at the top of the run result, instead of passing off lock-screen or failed captures ([#15188](https://github.com/can1357/oh-my-pi/pull/15188) by [@will-bogusz](https://github.com/will-bogusz))
 - Inside Tern, `browser.open({ app: { target } })` drives a browser block the user already has open (matched by block id or URL/title substring; no match lists the window's blocks) instead of opening a picture-in-picture; closing the tab hands the block back without closing it
 - Inside Tern, the browser open result says when the page is not on screen (the user hid pictures in picture, or an older Tern shows them only in omp's tab), so the agent can tell the user where to look
-- Added support for declaring skill directories in plugin manifests (`omp.skills` / `pi.skills`), including entries pointing directly at a single skill directory.
-- Added the `initializeExtensions` SDK export so direct-embed sessions can opt into `session_start`/`resources_discover` extension lifecycle events.
+- Added support for declaring skill directories in plugin manifests (`omp.skills` / `pi.skills`), including entries pointing directly at a single skill directory ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Added the `initializeExtensions` SDK export so direct-embed sessions can opt into `session_start`/`resources_discover` extension lifecycle events ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
 
 ### Changed
 
@@ -85,13 +85,13 @@
 - Fixed `grep` showing only the first 512 bytes of a long matching line, so a match further in never appeared; it now shows the part around the match, with `...` on cut sides and the match's `[col N]` ([#15278](https://github.com/can1357/oh-my-pi/pull/15278) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed snapcompact archives being sized from the context window, which could leave the context over a low compaction trigger right after compacting; archives now take half the room left under the trigger ([#14345](https://github.com/can1357/oh-my-pi/pull/14345) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed a usage-limited session with an account pool (such as a task agent under `task.agentAccountPools`) spending a saved reset to restore an account outside its pool, which it cannot use; resets about to expire are still salvaged on every account ([#15135](https://github.com/can1357/oh-my-pi/pull/15135) by [@will-bogusz](https://github.com/will-bogusz))
-- Fixed skill discovery not finding skills nested one namespace level deep (e.g. `skills/<namespace>/<skill>/SKILL.md`).
-- Extension-contributed skill paths (`resources_discover`) are now honored at session start — including in `/skill:` autocomplete — and on `/reload-plugins`.
-- Fixed freshly created task subagents missing extension-contributed skills that print, RPC, and TUI sessions already receive at startup.
-- Fixed `/reload-plugins` skipping the `resources_discover` event entirely for sessions with a fixed skill snapshot; it now fires (matching startup) and only skips the skill rescan.
-- Fixed task subagent startup dropping extension messages sent from a `resources_discover` handler by draining them before the first prompt.
-- Fixed task/eval/vibe subagents silently dropping skills their own `resources_discover` handlers discovered at startup; those directories now merge into the inherited snapshot instead of being scanned and thrown away.
-- Fixed print mode, RPC mode, and revived task subagents potentially throwing `AgentBusyError` or reordering the initial turn when a `session_start`/`resources_discover` extension handler sent a message during startup, by draining those sends the same way the task executor already does.
+- Fixed skill discovery not finding skills nested one namespace level deep (e.g. `skills/<namespace>/<skill>/SKILL.md`) ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Extension-contributed skill paths (`resources_discover`) are now honored at session start — including in `/skill:` autocomplete — and on `/reload-plugins` ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed freshly created task subagents missing extension-contributed skills that print, RPC, and TUI sessions already receive at startup ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed `/reload-plugins` skipping the `resources_discover` event entirely for sessions with a fixed skill snapshot; it now fires (matching startup) and only skips the skill rescan ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed task subagent startup dropping extension messages sent from a `resources_discover` handler by draining them before the first prompt ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed task/eval/vibe subagents silently dropping skills their own `resources_discover` handlers discovered at startup; those directories now merge into the inherited snapshot instead of being scanned and thrown away ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed print mode, RPC mode, and revived task subagents potentially throwing `AgentBusyError` or reordering the initial turn when a `session_start`/`resources_discover` extension handler sent a message during startup, by draining those sends the same way the task executor already does ([#9379](https://github.com/can1357/oh-my-pi/pull/9379) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.8.9] - 2026-10-10
 
