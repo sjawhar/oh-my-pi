@@ -488,6 +488,15 @@ export const SETTINGS_SCHEMA = {
 	"auth.broker.url": { type: "string", default: undefined },
 	"auth.broker.token": { type: "string", default: undefined, credential: true },
 
+	// Session storage — where session transcripts persist. `file` is the JSONL
+	// tree under the sessions directory; `sql` stores each session as a row in a
+	// PostgreSQL, MySQL, or SQLite table through `SqlSessionStorage`, connecting
+	// with the connection string read from the file `session.sql.dsnFile` names.
+	// Hidden from the UI; populate via env vars or hand-edited config.yml. Env
+	// (`OMP_SESSION_STORAGE` / `OMP_SESSION_SQL_DSN_FILE`) takes precedence.
+	"session.storage": { type: "enum", values: ["file", "sql"] as const, default: "file" },
+	"session.sql.dsnFile": { type: "string", default: undefined },
+
 	autoResume: {
 		type: "boolean",
 		default: false,
