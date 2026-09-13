@@ -117,6 +117,8 @@ import type { ForeignSessionInfo, ForeignSessionSource, ForeignSessionStore } fr
 import { loadRuntimeIdentity } from "./session/runtime-identity";
 import { resolveResumableSession, type SessionInfo } from "./session/session-listing";
 import { ForkSourceNotFoundError, SessionManager, SessionMoveRefusedError } from "./session/session-manager";
+import { setDefaultSessionStorage } from "./session/session-storage";
+import { resolveSessionStorage, SessionStorageConfigError } from "./session/session-storage-config";
 import { forkIfMovedAway } from "./session/session-transfer";
 import { shouldShowStartupSplash } from "./startup-splash";
 import {
@@ -201,14 +203,15 @@ type SessionPicker = (
 
 /** Resume/import-only graph boundary; ordinary launches never construct a picker. */
 async function loadSessionPicker(): Promise<SessionPicker> {
-	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds }, { FileSessionStorage }] = await Promise.all([
-		import("@oh-my-pi/pi-tui/apps/session-picker"),
-		import("./session/history-storage"),
-		import("./session/session-pins"),
-		import("./session/session-storage"),
-	]);
+	const [{ selectSession }, { HistoryStorage }, { loadPinnedSessionIds }, { defaultSessionStorage }] =
+		await Promise.all([
+			import("@oh-my-pi/pi-tui/apps/session-picker"),
+			import("./session/history-storage"),
+			import("./session/session-pins"),
+			import("./session/session-storage"),
+		]);
 	return (sessions, options) => {
-		const storage = new FileSessionStorage();
+		const storage = defaultSessionStorage();
 		return selectSession(sessions, options, {
 			loadPinnedIds: loadPinnedSessionIds,
 			loadHistoryMatcher: () => {
@@ -861,9 +864,9 @@ export class SessionResolutionError extends Error {
 	}
 }
 
-function exitForSessionResolutionError(error: SessionResolutionError): never {
+function exitForSessionResolutionError(error: SessionResolutionError | SessionStorageConfigError): never {
 	process.stderr.write(`${chalk.red(`Error: ${error.message}`)}\n`);
-	if (error.hint) {
+	if (error instanceof SessionResolutionError && error.hint) {
 		process.stderr.write(`${chalk.dim(error.hint)}\n`);
 	}
 	process.exit(1);
@@ -2048,11 +2051,18 @@ export async function runRootCommand(
 		normalizeContinueSessionArgs(parsedArgs, rawArgs);
 		await runtimeIdentityLoad;
 
-		// Resolve native resume/fork flags or import one foreign transcript into a
-		// fresh persisted OMP session before constructing the AgentSession.
+		// Install the configured session storage before any SessionManager exists,
+		// then resolve native resume/fork flags or import one foreign transcript
+		// into a fresh persisted OMP session before constructing the AgentSession.
 		let sessionManager: SessionManager | undefined;
 		let foreignSource: ForeignSessionSource | undefined;
 		try {
+			setDefaultSessionStorage(
+				await logger.time("resolveSessionStorage", resolveSessionStorage, {
+					settings: settingsInstance,
+					env: process.env,
+				}),
+			);
 			foreignSource = resolveForeignSessionSource(parsedArgs);
 			if (foreignSource) {
 				if (isProtocolMode) {
@@ -2123,7 +2133,7 @@ export async function runRootCommand(
 				);
 			}
 		} catch (error: unknown) {
-			if (error instanceof SessionResolutionError) {
+			if (error instanceof SessionResolutionError || error instanceof SessionStorageConfigError) {
 				exitForSessionResolutionError(error);
 			}
 			throw error;
