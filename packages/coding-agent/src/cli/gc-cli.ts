@@ -29,7 +29,7 @@ import { BLOB_HASH_RE, BLOB_STAGING_RE, blobStagingPath } from "../session/blob-
 import { listSessionsReadOnly, type SessionInfo, type SessionStatus } from "../session/session-listing";
 import { parseTerminalBreadcrumb } from "../session/session-paths";
 import { readSessionHeaderId } from "../session/session-loader";
-import { FileSessionStorage, tryAcquireSessionLease } from "../session/session-storage";
+import { defaultSessionStorage, tryAcquireSessionLease } from "../session/session-storage";
 import {
 	cfgGcArchive,
 	cfgGcBlobs,
@@ -781,7 +781,7 @@ async function listActiveSessions(sessionsRoot: string): Promise<SessionInfo[]> 
 		throw error;
 	}
 
-	const storage = new FileSessionStorage();
+	const storage = defaultSessionStorage();
 	const sessions: SessionInfo[] = [];
 	for (const entry of entries) {
 		if (!entry.isDirectory()) continue;
@@ -794,7 +794,7 @@ async function listActiveSessions(sessionsRoot: string): Promise<SessionInfo[]> 
 async function listNestedSessionsReadOnly(artifactsRoot: string): Promise<SessionInfo[]> {
 	const files = await collectJsonlFiles(artifactsRoot);
 	const dirs = [...new Set(files.map(file => path.dirname(file)))].sort();
-	const storage = new FileSessionStorage();
+	const storage = defaultSessionStorage();
 	const sessions: SessionInfo[] = [];
 	for (const dir of dirs) sessions.push(...(await listSessionsReadOnly(dir, storage)));
 	sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
