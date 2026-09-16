@@ -45,6 +45,7 @@ import { replaceFileAtomically } from "../utils/atomic-file";
 import { type EditMode, normalizeEditMode } from "../utils/edit-mode";
 import { isSearchProviderId, SEARCH_PROVIDER_ORDER } from "../web/search/types";
 import { stringifyYamlConfig } from "./config-file";
+import { type ReduceMotionLevel, setReduceMotionLevel } from "./reduce-motion";
 import { validateAgentServiceTierOverrides } from "./service-tier";
 import {
 	type BashInterceptorRule,
@@ -622,6 +623,7 @@ export class Settings {
 		return promise.then(
 			instance => {
 				globalInstance = instance;
+				setReduceMotionLevel(instance.get("display.reduceMotion"));
 				clearBoundSettingsMethods();
 				globalInstancePromise = Promise.resolve(instance);
 				return instance;
@@ -788,6 +790,7 @@ export class Settings {
 			statusLineSessionAccentSignal.fire();
 		}
 		if (path === "display.reduceMotion") {
+			if (this === globalInstance) setReduceMotionLevel(value as ReduceMotionLevel);
 			reduceMotionSignal.fire();
 		}
 		if (path === "modelRoles") {
@@ -3427,6 +3430,7 @@ export function resetSettingsForTest(): void {
 	globalInstance = null;
 	globalInstancePromise = null;
 	clearBoundSettingsMethods();
+	setReduceMotionLevel("off");
 	configureProviderMaxInFlightRequests(undefined);
 	configureCredentialRedaction(false);
 }
