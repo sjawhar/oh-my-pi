@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `envRemove` to `Shell` options, `executeShell` options, and `PtySession.start`/`startArgv`: inherited process env vars to drop from the child, while explicit `sessionEnv`/`env` values for a listed key still win.
+
 ## [18.2.1] - 2026-09-15
 
 ### Added

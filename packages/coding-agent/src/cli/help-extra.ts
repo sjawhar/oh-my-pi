@@ -65,6 +65,7 @@ export function getExtraHelpText(): string {
   PI_SLOW_MODEL              - Override slow/reasoning model (see --slow)
   PI_PLAN_MODEL              - Override planning model (see --plan)
   PI_NO_PTY                  - Disable PTY-based interactive bash execution
+  PI_KEEP_PROVIDER_KEYS      - Pass provider API keys/tokens through to tool subprocesses (scrubbed by default)
   For complete environment variable reference, see:
   ${chalk.dim("docs/environment-variables.md")}
 ${chalk.bold("Available Tools (default-enabled unless noted):")}

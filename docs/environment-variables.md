@@ -538,12 +538,15 @@ These affect where coding-agent stores data and which process-local settings ove
 | `CLAUDE_BASH_NO_LOGIN`     | Legacy alias fallback for `PI_BASH_NO_LOGIN`                                   |
 | `PI_SHELL_PREFIX`          | Optional command prefix wrapper                                                |
 | `CLAUDE_CODE_SHELL_PREFIX` | Legacy alias fallback for `PI_SHELL_PREFIX`                                    |
+| `PI_KEEP_PROVIDER_KEYS`    | Non-empty except `0`/`false` passes the harness's provider credential env vars (API keys, OAuth tokens) through to tool subprocesses; by default they are scrubbed from bash/PTY children, hub-managed daemons, and eval workers. `shell.env.PI_KEEP_PROVIDER_KEYS` wins for shell children |
 | `VISUAL`                   | Preferred external editor command                                              |
 | `EDITOR`                   | Fallback external editor command                                               |
 
 Current implementation: `PI_BASH_NO_LOGIN`/`CLAUDE_BASH_NO_LOGIN` are active; when either is set, `getShellArgs()` returns `['-c']`.
 
 `PI_BASH_NO_CI`, `PI_BASH_NO_LOGIN`, and `PI_SHELL_PREFIX` use their `CLAUDE_*` aliases only when the canonical variable is unset.
+
+By default, tool subprocesses (the bash tool's shell and PTY, `!` user-shell commands, hub-managed daemons, and the JS/Python eval workers) do not inherit the env vars the harness itself reads as provider credentials — every catalog provider `env` var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, …) plus hook-resolved credentials such as `ANTHROPIC_OAUTH_TOKEN` and `GOOGLE_API_KEY`. An explicit value — `shell.env` in settings, a bash-tool `env` argument, or a hub launch `env` — still reaches the child, and `PI_KEEP_PROVIDER_KEYS` restores full passthrough.
 
 ---
 

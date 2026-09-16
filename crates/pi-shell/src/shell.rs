@@ -86,6 +86,7 @@ fn set_shell_working_dir_if_changed(shell: &mut BrushShell, cwd: &str) -> Result
 #[derive(Clone)]
 struct ShellConfig {
 	session_env:   Option<HashMap<String, String>>,
+	env_remove:    Option<Vec<String>>,
 	snapshot_path: Option<String>,
 	minimizer:     Option<minimizer::MinimizerConfig>,
 }
@@ -93,6 +94,10 @@ struct ShellConfig {
 #[derive(Debug, Clone, Default)]
 pub struct ShellOptions {
 	pub session_env:   Option<HashMap<String, String>>,
+	/// Inherited host environment variables to drop when the session env is
+	/// copied in. Explicit `session_env`/per-run `env` values are applied
+	/// afterwards, so a caller-supplied value for a listed key still wins.
+	pub env_remove:    Option<Vec<String>>,
 	pub snapshot_path: Option<String>,
 	pub minimizer:     Option<minimizer::MinimizerOptions>,
 }
@@ -135,6 +140,9 @@ pub struct ShellExecuteOptions {
 	pub command:       String,
 	pub cwd:           Option<String>,
 	pub env:           Option<HashMap<String, String>>,
+	/// Inherited host environment variables to drop when the session env is
+	/// copied in; see [`ShellOptions::env_remove`].
+	pub env_remove:    Option<Vec<String>>,
 	pub session_env:   Option<HashMap<String, String>>,
 	pub timeout_ms:    Option<u32>,
 	pub snapshot_path: Option<String>,
@@ -153,7 +161,12 @@ impl Shell {
 	#[must_use]
 	pub fn new(options: Option<ShellOptions>) -> Self {
 		let config = match options {
-			None => ShellConfig { session_env: None, snapshot_path: None, minimizer: None },
+			None => ShellConfig {
+				session_env:   None,
+				env_remove:    None,
+				snapshot_path: None,
+				minimizer:     None,
+			},
 			Some(opt) => {
 				let minimizer = opt
 					.minimizer
@@ -161,6 +174,7 @@ impl Shell {
 					.map(minimizer::MinimizerConfig::from_options);
 				ShellConfig {
 					session_env: opt.session_env,
+					env_remove: opt.env_remove,
 					snapshot_path: opt.snapshot_path,
 					minimizer,
 				}
@@ -241,6 +255,7 @@ pub async fn execute_shell(
 		.map(minimizer::MinimizerConfig::from_options);
 	let config = ShellConfig {
 		session_env:   options.session_env,
+		env_remove:    options.env_remove,
 		snapshot_path: options.snapshot_path,
 		minimizer:     minimizer.clone(),
 	};
@@ -273,6 +288,7 @@ pub async fn execute_shell_streams(
 ) -> Result<ShellExecuteResult> {
 	let config = ShellConfig {
 		session_env:   options.session_env,
+		env_remove:    options.env_remove,
 		snapshot_path: options.snapshot_path,
 		minimizer:     None,
 	};
@@ -588,8 +604,24 @@ async fn create_session(config: &ShellConfig) -> Result<ShellSessionCore> {
 	create_session_for_run(config, None, None).await
 }
 
+/// Whether `key` names an entry of `remove` — the caller-supplied inherited
+/// env drop list. Windows environment lookups are case-insensitive, so the
+/// comparison follows suit there; POSIX names are case-sensitive.
+fn is_removed_env_var(key: &str, remove: Option<&[String]>) -> bool {
+	let Some(remove) = remove else {
+		return false;
+	};
+	if cfg!(windows) {
+		remove.iter().any(|name| key.eq_ignore_ascii_case(name))
+	} else {
+		remove.iter().any(|name| key == name)
+	}
+}
+
 /// Copies the host environment into `shell`, merging duplicate `PATH` values
-/// and registering the merged `PATH` last.
+/// and registering the merged `PATH` last. Keys named by `env_remove` are
+/// dropped; explicit session/per-run env entries are applied after this copy,
+/// so a caller-supplied value for a dropped key still wins.
 ///
 /// Entries whose key or value is not valid Unicode are skipped: a corrupt
 /// entry carries no usable meaning, and `std::env::vars()` — the naive way to
@@ -599,6 +631,7 @@ async fn create_session(config: &ShellConfig) -> Result<ShellSessionCore> {
 fn copy_env_into_shell(
 	shell: &mut BrushShell,
 	env: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+	env_remove: Option<&[String]>,
 ) -> Result<()> {
 	let mut merged_path: Option<String> = None;
 	for (key, value) in env {
@@ -608,7 +641,10 @@ fn copy_env_into_shell(
 			continue;
 		};
 		let normalized_key = normalize_env_key(key);
-		if should_skip_env_var(normalized_key) || is_git_repo_location_var(normalized_key) {
+		if should_skip_env_var(normalized_key)
+			|| is_git_repo_location_var(normalized_key)
+			|| is_removed_env_var(normalized_key, env_remove)
+		{
 			continue;
 		}
 		if normalized_key == "PATH" {
@@ -702,7 +738,7 @@ async fn create_session_for_run(
 		}
 	}
 
-	copy_env_into_shell(&mut shell, std::env::vars_os())?;
+	copy_env_into_shell(&mut shell, std::env::vars_os(), config.env_remove.as_deref())?;
 
 	if let Some(env) = config.session_env.as_ref() {
 		for (key, value) in env {
@@ -1908,7 +1944,12 @@ mod tests {
 
 	#[cfg(unix)]
 	async fn kill_test_context() -> (ShellSessionCore, ExecutionParameters) {
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let session = create_session(&config).await.expect("create_session");
 		let mut params = session.shell.default_exec_params();
 		params.set_fd(OpenFiles::STDIN_FD, null_file().expect("null stdin"));
@@ -2000,7 +2041,7 @@ mod tests {
 			),
 			(std::ffi::OsString::from("PATH"), std::ffi::OsString::from("/opt/bin")),
 		];
-		copy_env_into_shell(&mut shell, entries.into_iter()).expect("copy host env");
+		copy_env_into_shell(&mut shell, entries.into_iter(), None).expect("copy host env");
 
 		let value = |name: &str| {
 			shell
@@ -2049,7 +2090,7 @@ mod tests {
 			),
 			(std::ffi::OsString::from("GIT_EDITOR"), std::ffi::OsString::from("true")),
 		];
-		copy_env_into_shell(&mut shell, entries.into_iter()).expect("copy host env");
+		copy_env_into_shell(&mut shell, entries.into_iter(), None).expect("copy host env");
 
 		let value = |name: &str| {
 			shell
@@ -2066,6 +2107,74 @@ mod tests {
 		assert_eq!(value("GIT_EDITOR").as_deref(), Some("true"), "unrelated git vars are kept");
 	}
 
+	/// `env_remove` drops the named keys from the inherited host environment
+	/// (the tool-child credential scrub) while every other key is copied.
+	#[tokio::test(flavor = "multi_thread")]
+	async fn copy_env_drops_env_remove_keys() {
+		let mut shell = BrushShell::builder()
+			.do_not_inherit_env(true)
+			.profile(ProfileLoadBehavior::Skip)
+			.rc(RcLoadBehavior::Skip)
+			.builtins(default_builtins(BuiltinSet::BashMode))
+			.build()
+			.await
+			.expect("build shell");
+
+		let entries = vec![
+			(std::ffi::OsString::from("ANTHROPIC_API_KEY"), std::ffi::OsString::from("sk-secret")),
+			(std::ffi::OsString::from("HOME"), std::ffi::OsString::from("/home/tester")),
+		];
+		let remove = vec!["ANTHROPIC_API_KEY".to_string()];
+		copy_env_into_shell(&mut shell, entries.into_iter(), Some(&remove)).expect("copy host env");
+
+		let value = |name: &str| {
+			shell
+				.env()
+				.get(name)
+				.and_then(|(_, var)| match var.value() {
+					ShellValue::String(value) => Some(value.clone()),
+					_ => None,
+				})
+		};
+		assert!(value("ANTHROPIC_API_KEY").is_none(), "removed key must not reach the session");
+		assert_eq!(value("HOME").as_deref(), Some("/home/tester"), "unlisted keys are copied");
+	}
+
+	/// `env_remove` scopes to the inherited copy only: an explicit
+	/// `session_env` value for a removed key is still exported, so a caller
+	/// that deliberately hands a credential to one session keeps it.
+	#[tokio::test(flavor = "multi_thread")]
+	async fn session_env_wins_over_env_remove() {
+		let dir = tempfile::tempdir().expect("probe directory");
+		let out = dir.path().join("probe");
+		let mut env = HashMap::new();
+		env.insert("OMP_ENV_REMOVE_PROBE".to_string(), "kept".to_string());
+		let config = ShellConfig {
+			session_env:   Some(env),
+			env_remove:    Some(vec!["OMP_ENV_REMOVE_PROBE".to_string()]),
+			snapshot_path: None,
+			minimizer:     None,
+		};
+		let mut session = create_session(&config).await.expect("create_session");
+
+		let mut params = session.shell.default_exec_params();
+		params.set_fd(OpenFiles::STDIN_FD, null_file().expect("null stdin"));
+		params.set_fd(OpenFiles::STDOUT_FD, null_file().expect("null stdout"));
+		params.set_fd(OpenFiles::STDERR_FD, null_file().expect("null stderr"));
+
+		let command = format!(
+			"printf '%s' \"${{OMP_ENV_REMOVE_PROBE-unset}}\" > {}",
+			quote_arg(out.to_str().expect("utf8 probe path"))
+		);
+		session
+			.shell
+			.run_string(command, &SourceInfo::from("pi-natives:test"), &params)
+			.await
+			.expect("run_string");
+
+		assert_eq!(fs::read_to_string(&out).expect("probe output"), "kept");
+	}
+
 	/// The per-session env overlay is built from the same host environment, so
 	/// it must not reintroduce the repo-location overrides.
 	#[tokio::test(flavor = "multi_thread")]
@@ -2075,8 +2184,12 @@ mod tests {
 		let mut env = HashMap::new();
 		env.insert("GIT_DIR".to_string(), "/primary/.git".to_string());
 		env.insert("OMP_GIT_ENV_PROBE".to_string(), "kept".to_string());
-		let config =
-			ShellConfig { session_env: Some(env), snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   Some(env),
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 
 		let mut params = session.shell.default_exec_params();
@@ -3124,7 +3237,12 @@ mod tests {
 		std::fs::write(root.join("b"), b"same").expect("write b");
 		std::fs::write(root.join("c"), b"different").expect("write c");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session
 			.shell
@@ -3160,7 +3278,12 @@ mod tests {
 		let dir = tempfile::tempdir().expect("temp dir");
 		let root = std::fs::canonicalize(dir.path()).expect("canonical temp dir");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session
 			.shell
@@ -3236,7 +3359,12 @@ mod tests {
 		}
 		std::fs::write(tmp.join("in.txt"), &input).expect("write input");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session
 			.shell
@@ -3299,7 +3427,12 @@ mod tests {
 		std::fs::create_dir_all(&tmp).expect("temp dir");
 		let tmp_str = tmp.to_str().expect("utf8 temp path");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("set cwd");
 
@@ -3342,7 +3475,12 @@ mod tests {
 		std::fs::create_dir_all(&tmp).expect("temp dir");
 		let tmp_str = tmp.to_str().expect("utf8 temp path");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("set cwd");
 
@@ -3397,7 +3535,12 @@ mod tests {
 		let _ = std::fs::remove_dir_all(&tmp);
 		std::fs::create_dir_all(&tmp).expect("temp dir");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session
 			.shell
@@ -3524,7 +3667,12 @@ mod tests {
 		let _ = std::fs::remove_dir_all(&tmp);
 		std::fs::create_dir_all(&tmp).expect("temp dir");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session
 			.shell
@@ -3597,8 +3745,12 @@ mod tests {
 
 		let mut env = HashMap::new();
 		env.insert("HOME".to_string(), home.to_string_lossy().to_string());
-		let config =
-			ShellConfig { session_env: Some(env), snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   Some(env),
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(cwd_str).expect("set cwd");
 
@@ -3637,7 +3789,12 @@ mod tests {
 		std::fs::create_dir_all(&tmp).expect("temp dir");
 		let tmp_str = tmp.to_str().expect("utf8 temp path");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("set cwd");
 
@@ -3680,7 +3837,12 @@ mod tests {
 		std::fs::write(tmp.join("data.txt"), "l1\nl2\nl3\nl4\nl5\n").expect("write data");
 		let tmp_str = tmp.to_str().expect("utf8 temp path");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("set cwd");
 
@@ -3731,7 +3893,12 @@ mod tests {
 		std::fs::create_dir_all(&tmp).expect("temp dir");
 		let tmp_str = tmp.to_str().expect("utf8 temp path");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("set cwd");
 
@@ -3773,7 +3940,12 @@ mod tests {
 		std::fs::write(tmp.join("sub/nested.txt"), "deep\n").expect("nested");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -3874,7 +4046,12 @@ mod tests {
 		std::fs::write(tmp.join("binary.bin"), b"needle\0hidden\n").expect("binary");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -3947,7 +4124,12 @@ mod tests {
 		std::fs::write(tmp.join(".fdignore"), "fdignored-needle.tmp\n").expect("fdignore");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -4054,7 +4236,12 @@ mod tests {
 		std::fs::write(tmp.join("data.txt"), "from-cwd\nfrom-pattern\n").expect("data");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -4108,7 +4295,12 @@ mod tests {
 		std::fs::write(tmp.join("data.txt"), "foo\nbar\nbaz\n").expect("data");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -4167,7 +4359,12 @@ mod tests {
 		std::fs::write(tmp.join("tree/inner/leaf.txt"), "x").expect("leaf");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -4211,7 +4408,12 @@ mod tests {
 		std::fs::create_dir_all(&tmp).expect("temp dir");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -4246,7 +4448,12 @@ mod tests {
 		std::fs::write(tmp.join("sub/drop.tmp"), "d").expect("drop");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -4333,7 +4540,12 @@ mod tests {
 		std::fs::write(tmp.join("conf.txt"), "x=1\n").expect("conf");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -4373,7 +4585,12 @@ mod tests {
 		std::fs::create_dir_all(&tmp).expect("temp dir");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -4423,7 +4640,12 @@ mod tests {
 		std::fs::write(tmp.join("in.json"), "{\"name\":\"pi\"}\n").expect("in.json");
 		let tmp_str = tmp.to_str().expect("utf8");
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.set_working_dir(tmp_str).expect("cwd");
 		let mut params = session.shell.default_exec_params();
@@ -4465,7 +4687,12 @@ mod tests {
 	#[cfg(unix)]
 	#[tokio::test(flavor = "multi_thread")]
 	async fn uutils_head_stdin_read_is_cancellable() {
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 
 		// Hold the pipe's write end open with no data so `head` blocks reading.
@@ -4514,11 +4741,17 @@ mod tests {
 				.iter()
 				.map(|(k, v)| ((*k).to_string(), (*v).to_string()))
 				.collect();
-			ShellConfig { session_env: Some(map), snapshot_path: None, minimizer: None }
+			ShellConfig {
+				session_env:   Some(map),
+				env_remove:    None,
+				snapshot_path: None,
+				minimizer:     None,
+			}
 		};
 
 		let mut default = create_session(&ShellConfig {
 			session_env:   None,
+			env_remove:    None,
 			snapshot_path: None,
 			minimizer:     None,
 		})
@@ -5045,7 +5278,12 @@ replace = [{ pattern = "^.+$", replacement = "PWD" }]
 		assert!(host_sid >= 0, "getsid(0) failed: {}", std::io::Error::last_os_error());
 
 		// Build the same kind of session pi-natives uses in production.
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 
 		// Output pipe shared between the brush child and a concurrent reader. The
@@ -5358,7 +5596,12 @@ replace = [{ pattern = "^.+$", replacement = "PWD" }]
 		let host_sid = unsafe { libc::getsid(0) };
 		assert!(host_sid >= 0, "getsid(0) failed: {}", std::io::Error::last_os_error());
 
-		let config = ShellConfig { session_env: None, snapshot_path: None, minimizer: None };
+		let config = ShellConfig {
+			session_env:   None,
+			env_remove:    None,
+			snapshot_path: None,
+			minimizer:     None,
+		};
 		let mut session = create_session(&config).await.expect("create_session");
 
 		let (mut reader, writer) = pipe_to_files("e2e-pipe").expect("pipe");

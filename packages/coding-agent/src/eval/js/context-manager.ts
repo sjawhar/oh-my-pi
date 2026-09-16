@@ -1,4 +1,5 @@
 import { logger, Snowflake, workerHostEntry } from "@oh-my-pi/pi-utils";
+import { scrubToolChildEnv } from "../../exec/tool-child-env";
 import {
 	createWorkerHandle,
 	createWorkerSubprocess,
@@ -954,7 +955,9 @@ function spawnBunWorker(): JsEvalWorkerHandle {
 function spawnJsProcess(): JsEvalWorkerHandle {
 	const spawned = createWorkerSubprocess<WorkerOutbound>({
 		spawnCommand: resolveWorkerSpawnCmd(JS_EVAL_PROCESS_ARG),
-		env: workerEnvFromParent(),
+		// The subprocess evaluates model-authored JS: drop the harness's own
+		// provider credentials from its env (PI_KEEP_PROVIDER_KEYS opts out).
+		env: scrubToolChildEnv(workerEnvFromParent()),
 		exitLabel: "JS eval worker",
 		detached: shouldDetachKernel(process.platform),
 		reportCleanExit: true,

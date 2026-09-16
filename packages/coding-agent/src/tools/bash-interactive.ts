@@ -14,6 +14,7 @@ import {
 import type * as XtermModule from "@oh-my-pi/pi-utils/vterm";
 import type { Terminal as XtermTerminalType } from "@oh-my-pi/pi-utils/vterm";
 import { Settings } from "../config/settings";
+import { toolChildEnvRemove } from "../exec/tool-child-env";
 import type { Theme } from "../modes/theme/theme";
 import { OutputSink, type OutputSummary } from "../session/streaming-output";
 import { TerminalGraphicsDecoder } from "../utils/terminal-graphics";
@@ -331,7 +332,7 @@ export async function runInteractiveBashPty(
 	const settings = await Settings.init();
 	// Load the xterm Terminal ctor here (async boundary) — the ui.custom factory below is sync.
 	const XtermTerminal = await loadXtermTerminal();
-	const { shell: resolvedShell } = settings.getShellConfig();
+	const { shell: resolvedShell, env: shellEnv } = settings.getShellConfig();
 	const graphics = new TerminalGraphicsDecoder();
 	const sink = new OutputSink({
 		artifactPath: options.artifactPath,
@@ -403,11 +404,13 @@ export async function runInteractiveBashPty(
 							timeoutMs: options.timeoutMs,
 							// Interactive PTY: inherit the user's environment (the Rust side
 							// applies these as overrides), with a real TERM so editors,
-							// pagers, and TUIs behave like a normal terminal.
+							// pagers, and TUIs behave like a normal terminal — minus the
+							// harness's own provider credentials; an explicit env wins.
 							env: {
 								TERM: "xterm-256color",
 								...options.env,
 							},
+							envRemove: toolChildEnvRemove(shellEnv),
 							signal: options.signal,
 							cols,
 							rows,

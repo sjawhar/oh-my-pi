@@ -6,6 +6,10 @@
 
 - Added `tui.titleSpinner` (`braille` | `dots` | `line`, default `braille`) to pick the terminal-title working-state spinner glyphs alongside the existing `tui.titleState` on/off toggle.
 
+### Changed
+
+- Tool subprocesses (bash tool shells and PTYs, `!` user-shell commands, hub-managed daemons, and the JS eval worker) no longer inherit the harness's provider credential env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, OAuth tokens, and every other catalog provider credential). An explicit `env` value (bash tool `env` argument, `shell.env` setting, hub launch `env`) still reaches the child, and `PI_KEEP_PROVIDER_KEYS=1` restores full passthrough.
+
 ## [18.2.1] - 2026-09-15
 
 ### Breaking Changes

@@ -6,6 +6,7 @@ import { FileLock, Process, type PtyRunResult, PtySession } from "@oh-my-pi/pi-n
 import { isEnoent, logger, postmortem, procmgr, sanitizeText, setProcessName } from "@oh-my-pi/pi-utils";
 import { TerminalQueryResponder } from "@oh-my-pi/pi-utils/vterm";
 import { hostHasInheritableConsole } from "../eval/py/spawn-options";
+import { scrubToolChildEnv, toolChildEnvRemove } from "../exec/tool-child-env";
 import { truncateHead, truncateHeadBytes, truncateTail, truncateTailBytes } from "../session/streaming-output";
 import { workerEnvFromParent } from "../subprocess/worker-client";
 import { daemonBrokerEndpoint, writeDaemonScopeMeta } from "./paths";
@@ -764,9 +765,13 @@ class DaemonBroker {
 	async #launchPty(record: ManagedDaemon, generation: number): Promise<void> {
 		const session = new PtySession();
 		record.pty = session;
+		// Hub daemons run user-selected executables: scrub the harness's own
+		// provider credentials from the inherited snapshot and the PTY's base
+		// env. A key the caller set in `spec.env` still wins.
 		const options = {
 			cwd: record.spec.cwd,
-			env: workerEnvFromParent({ TERM: "xterm-256color", ...record.spec.env }),
+			env: scrubToolChildEnv(workerEnvFromParent(), { TERM: "xterm-256color", ...record.spec.env }),
+			envRemove: toolChildEnvRemove(),
 			cols: DAEMON_PTY_COLUMNS,
 			rows: DAEMON_PTY_ROWS,
 		};
@@ -835,7 +840,7 @@ class DaemonBroker {
 	#launchPipe(record: ManagedDaemon, generation: number): void {
 		const process = Bun.spawn([record.spec.application, ...record.spec.args], {
 			cwd: record.spec.cwd,
-			env: workerEnvFromParent(record.spec.env),
+			env: scrubToolChildEnv(workerEnvFromParent(), record.spec.env),
 			stdin: "pipe",
 			stdout: "pipe",
 			stderr: "pipe",
@@ -860,7 +865,7 @@ class DaemonBroker {
 		try {
 			const process = Bun.spawn([record.spec.application, ...record.spec.args], {
 				cwd: record.spec.cwd,
-				env: workerEnvFromParent(record.spec.env),
+				env: scrubToolChildEnv(workerEnvFromParent(), record.spec.env),
 				stdio: ["ignore", output.fd, output.fd],
 				...DAEMON_SPAWN_OPTIONS,
 			});

@@ -754,6 +754,44 @@ describe("pi-natives", () => {
 			expect(JSON.parse(payload)).toEqual(expected);
 		});
 
+		it("drops envRemove keys from the inherited environment while an explicit env value wins", async () => {
+			// The PTY child starts from this process's environment; `envRemove`
+			// must strip a listed inherited key (the tool-child credential scrub)
+			// without suppressing an explicit `env` value for another listed key.
+			const inheritedKey = process.platform === "win32" ? "USERPROFILE" : "HOME";
+			const scriptPath = path.join(testDir, "pty-env-remove.ts");
+			await Bun.write(
+				scriptPath,
+				`process.stdout.write(JSON.stringify([process.env[${JSON.stringify(inheritedKey)}] ?? null, process.env.OMP_PTY_ENV_EXPLICIT ?? null]) + "\\n");\n`,
+			);
+			const session = new PtySession();
+			let output = "";
+			let callbackError: Error | null = null;
+			const result = await session.startArgv(
+				{
+					application: process.execPath,
+					args: [scriptPath],
+					cwd: testDir,
+					env: { OMP_PTY_ENV_EXPLICIT: "explicit" },
+					envRemove: [inheritedKey, "OMP_PTY_ENV_EXPLICIT"],
+					timeoutMs: 5_000,
+					cols: 80,
+					rows: 24,
+				},
+				(error, chunk) => {
+					callbackError = error;
+					output += chunk;
+				},
+			);
+
+			expect(callbackError).toBeNull();
+			expect(result.exitCode).toBe(0);
+			const payload = output
+				.replace(/\u001b\][^\u0007]*?(?:\u0007|\u001b\\)|\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+				.trim();
+			expect(JSON.parse(payload)).toEqual([null, "explicit"]);
+		});
+
 		it("reports the child PID as soon as the PTY process starts", async () => {
 			const session = new PtySession();
 			const started = Promise.withResolvers<{ error: Error | null; pid: number }>();

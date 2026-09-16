@@ -2368,6 +2368,11 @@ export interface PtyArgvStartOptions {
   cwd?: string
   /** Environment variables for this command. */
   env?: Record<string, string>
+  /**
+   * Inherited process environment variables to drop before `env` is
+   * applied; an explicit `env` value for a listed key still wins.
+   */
+  envRemove?: Array<string>
   /** Timeout in milliseconds before cancelling. */
   timeoutMs?: number
   /** Abort signal for cancelling the operation. */
@@ -2396,6 +2401,11 @@ export interface PtyStartOptions {
   cwd?: string
   /** Environment variables for this command. */
   env?: Record<string, string>
+  /**
+   * Inherited process environment variables to drop before `env` is
+   * applied; an explicit `env` value for a listed key still wins.
+   */
+  envRemove?: Array<string>
   /** Timeout in milliseconds before cancelling. */
   timeoutMs?: number
   /** Abort signal for cancelling the operation. */
@@ -2514,6 +2524,11 @@ export interface ShellExecuteOptions {
   cwd?: string
   /** Environment variables to apply for this command only. */
   env?: Record<string, string>
+  /**
+   * Inherited process environment variables to drop from the session.
+   * Explicit `sessionEnv`/`env` values for a listed key still win.
+   */
+  envRemove?: Array<string>
   /** Environment variables to apply once per session. */
   sessionEnv?: Record<string, string>
   /** Timeout in milliseconds before cancelling the command. */
@@ -2530,6 +2545,11 @@ export interface ShellExecuteOptions {
 export interface ShellOptions {
   /** Environment variables to apply once per session. */
   sessionEnv?: Record<string, string>
+  /**
+   * Inherited process environment variables to drop from the session.
+   * Explicit `sessionEnv`/per-run `env` values for a listed key still win.
+   */
+  envRemove?: Array<string>
   /** Optional snapshot file to source on session creation. */
   snapshotPath?: string
   /** Optional per-command output minimizer configuration. */

@@ -15,6 +15,7 @@ import { getOrCreateSnapshot } from "../utils/shell-snapshot";
 import { TerminalGraphicsDecoder } from "../utils/terminal-graphics";
 import { loadDirenvEnv } from "./direnv";
 import { buildNonInteractiveEnv } from "./non-interactive-env";
+import { scrubToolChildEnv, toolChildEnvRemove } from "./tool-child-env";
 
 export interface BashExecutorOptions {
 	cwd?: string;
@@ -406,6 +407,7 @@ async function executeUserShellPty(run: {
 	command: string;
 	cwd: string | undefined;
 	env: Record<string, string>;
+	envRemove: string[] | undefined;
 	pty: BashPtyOptions;
 	timeoutMs: number | undefined;
 	signal: AbortSignal | undefined;
@@ -420,6 +422,7 @@ async function executeUserShellPty(run: {
 			args: [...ensureInteractiveShellArgs(run.shell, run.args), run.command],
 			cwd: run.cwd,
 			env: run.env,
+			envRemove: run.envRemove,
 			timeoutMs: run.timeoutMs,
 			signal: run.signal,
 			cols: run.pty.cols,
@@ -549,6 +552,16 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 		};
 	}
 
+	// Tool children must not inherit the harness's own provider credentials.
+	// Two layers carry them here: the shell-config env (a filtered snapshot of
+	// this process's env, applied as session env) and the native session's own
+	// copy of the inherited process env — scrub the snapshot and pass the
+	// denylist through as `envRemove` for the native copy. A deliberate
+	// per-command `env` (and the repo's direnv env) still wins, and
+	// PI_KEEP_PROVIDER_KEYS restores full passthrough.
+	const envRemove = toolChildEnvRemove(shellEnv);
+	const sessionShellEnv = envRemove ? scrubToolChildEnv(shellEnv) : shellEnv;
+
 	if (usePty && ptyRequest) {
 		const requestedMs = options?.timeout;
 		try {
@@ -557,7 +570,8 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 				args,
 				command: preflight.command,
 				cwd: commandCwd,
-				env: buildUserShellPtyEnv(shellEnv, commandEnv),
+				env: buildUserShellPtyEnv(sessionShellEnv, commandEnv),
+				envRemove,
 				pty: ptyRequest,
 				timeoutMs: requestedMs === 0 ? undefined : Math.max(1_000, requestedMs ?? 300_000),
 				signal: options?.signal,
@@ -571,11 +585,20 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 	}
 
 	const shellOptions = {
-		sessionEnv: shellEnv,
+		sessionEnv: sessionShellEnv,
+		envRemove,
 		snapshotPath: snapshotPath ?? undefined,
 		minimizer,
 	};
-	const sessionKey = buildSessionKey(shell, prefix, snapshotPath, shellEnv, options?.sessionKey, minimizer);
+	const sessionKey = buildSessionKey(
+		shell,
+		prefix,
+		snapshotPath,
+		sessionShellEnv,
+		options?.sessionKey,
+		minimizer,
+		envRemove,
+	);
 	const persistentSessionBroken = brokenShellSessions.has(sessionKey);
 	if (persistentSessionBroken) {
 		shellSessions.delete(sessionKey);
@@ -801,12 +824,22 @@ function buildSessionKey(
 	env: Record<string, string>,
 	agentSessionKey?: string,
 	minimizer?: MinimizerOptions,
+	envRemove?: string[],
 ): string {
 	const entries = Object.entries(env);
 	entries.sort(([a], [b]) => a.localeCompare(b));
 	const envSerialized = entries.map(([key, value]) => `${key}=${value}`).join("\n");
 	const minimizerSerialized = minimizer ? JSON.stringify(minimizer) : "";
-	return [agentSessionKey ?? "", shell, prefix ?? "", snapshotPath ?? "", envSerialized, minimizerSerialized].join(
-		"\n",
-	);
+	// A session's inherited env is fixed at creation, so a hatch flip must not
+	// reuse a session built under the other policy.
+	const envRemoveSerialized = envRemove ? "scrub" : "keep";
+	return [
+		agentSessionKey ?? "",
+		shell,
+		prefix ?? "",
+		snapshotPath ?? "",
+		envSerialized,
+		minimizerSerialized,
+		envRemoveSerialized,
+	].join("\n");
 }

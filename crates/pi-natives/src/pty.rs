@@ -35,6 +35,9 @@ pub struct PtyStartOptions<'env> {
 	pub cwd:        Option<String>,
 	/// Environment variables for this command.
 	pub env:        Option<HashMap<String, String>>,
+	/// Inherited process environment variables to drop before `env` is
+	/// applied; an explicit `env` value for a listed key still wins.
+	pub env_remove: Option<Vec<String>>,
 	/// Timeout in milliseconds before cancelling.
 	pub timeout_ms: Option<u32>,
 	/// Abort signal for cancelling the operation.
@@ -59,6 +62,9 @@ pub struct PtyArgvStartOptions<'env> {
 	pub cwd:         Option<String>,
 	/// Environment variables for this command.
 	pub env:         Option<HashMap<String, String>>,
+	/// Inherited process environment variables to drop before `env` is
+	/// applied; an explicit `env` value for a listed key still wins.
+	pub env_remove:  Option<Vec<String>>,
 	/// Timeout in milliseconds before cancelling.
 	pub timeout_ms:  Option<u32>,
 	/// Abort signal for cancelling the operation.
@@ -88,11 +94,12 @@ enum PtyCommand {
 
 #[derive(Clone)]
 struct PtyRunConfig {
-	command: PtyCommand,
-	cwd:     Option<String>,
-	env:     Option<HashMap<String, String>>,
-	cols:    u16,
-	rows:    u16,
+	command:    PtyCommand,
+	cwd:        Option<String>,
+	env:        Option<HashMap<String, String>>,
+	env_remove: Option<Vec<String>>,
+	cols:       u16,
+	rows:       u16,
 }
 
 enum ReaderEvent {
@@ -163,11 +170,12 @@ impl PtySession {
 		on_start: Option<ThreadsafeFunction<u32>>,
 	) -> Result<PromiseRaw<'env, PtyRunResult>> {
 		let run_config = PtyRunConfig {
-			command: PtyCommand::Shell { command: options.command, shell: options.shell },
-			cwd:     options.cwd,
-			env:     options.env,
-			cols:    options.cols.unwrap_or(120).clamp(20, 400),
-			rows:    options.rows.unwrap_or(40).clamp(5, 200),
+			command:    PtyCommand::Shell { command: options.command, shell: options.shell },
+			cwd:        options.cwd,
+			env:        options.env,
+			env_remove: options.env_remove,
+			cols:       options.cols.unwrap_or(120).clamp(20, 400),
+			rows:       options.rows.unwrap_or(40).clamp(5, 200),
 		};
 		self.start_config(env, run_config, options.timeout_ms, options.signal, on_chunk, on_start)
 	}
@@ -185,11 +193,15 @@ impl PtySession {
 		on_start: Option<ThreadsafeFunction<u32>>,
 	) -> Result<PromiseRaw<'env, PtyRunResult>> {
 		let run_config = PtyRunConfig {
-			command: PtyCommand::Argv { application: options.application, args: options.args },
-			cwd:     options.cwd,
-			env:     options.env,
-			cols:    options.cols.unwrap_or(120).clamp(20, 400),
-			rows:    options.rows.unwrap_or(40).clamp(5, 200),
+			command:    PtyCommand::Argv {
+				application: options.application,
+				args:        options.args,
+			},
+			cwd:        options.cwd,
+			env:        options.env,
+			env_remove: options.env_remove,
+			cols:       options.cols.unwrap_or(120).clamp(20, 400),
+			rows:       options.rows.unwrap_or(40).clamp(5, 200),
 		};
 		self.start_config(env, run_config, options.timeout_ms, options.signal, on_chunk, on_start)
 	}
@@ -363,6 +375,14 @@ fn run_pty_sync(
 	// caller-supplied value still wins.
 	for name in pi_shell::shell::GIT_REPO_LOCATION_ENV_VARS {
 		cmd.env_remove(name);
+	}
+	// Caller-selected inherited env drops (e.g. the tool-child provider
+	// credential scrub) follow the same rule: dropped from the inherited
+	// environment, while an explicit `env` value below still wins.
+	if let Some(remove) = config.env_remove.as_ref() {
+		for name in remove {
+			cmd.env_remove(name);
+		}
 	}
 	if let Some(env) = config.env.as_ref() {
 		for (key, value) in env {
@@ -1084,14 +1104,15 @@ mod zombie_repro_tests {
 			let (_tx, rx) = flume::unbounded();
 			let ct = task::CancelToken::new(Some(1), None);
 			let config = PtyRunConfig {
-				command: PtyCommand::Argv {
+				command:    PtyCommand::Argv {
 					application: STORM_CHILD_COMM.to_string(),
 					args:        vec!["5".to_string()],
 				},
-				cwd:     None,
-				env:     None,
-				cols:    80,
-				rows:    24,
+				cwd:        None,
+				env:        None,
+				env_remove: None,
+				cols:       80,
+				rows:       24,
 			};
 			// Pre-spawn heartbeats bail with `Err`, so `Ok` means this iteration
 			// reached the post-spawn cancellation path.
