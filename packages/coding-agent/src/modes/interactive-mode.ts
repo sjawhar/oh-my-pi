@@ -62,8 +62,8 @@ import type { CollabGuestLink } from "../collab/guest";
 import { CollabController } from "../collab/controller";
 import type { CollabHost } from "../collab/host";
 import { formatKeyHint, KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
+import { reduceMotionLevel } from "@oh-my-pi/pi-tui/reduce-motion";
 import { formatModelString, type ResolvedModelRoleValue } from "../config/model-resolver";
-import { reduceMotionLevel } from "../config/reduce-motion";
 import {
 	isSettingsInitialized,
 	onModelRolesChanged,
