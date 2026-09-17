@@ -3625,7 +3625,8 @@ const streamAnthropicOnce = (
 						firstTokenTime === undefined &&
 						!streamedReplayUnsafeContent &&
 						!isThinkingPrefixBindingError(streamFailureMessage) &&
-						isInvalidThinkingSignatureError(streamFailureMessage)
+						(isInvalidThinkingSignatureError(streamFailureMessage) ||
+							AIError.isImmutableLatestThinkingText(streamFailureMessage))
 					) {
 						// The unsigned-demotion retry only rewrites UNSIGNED blocks;
 						// when every replayed block carries a signature the signer no
@@ -5766,11 +5767,11 @@ function collapseFallbackSegments(content: AssistantMessage["content"]): Assista
  * Serialize omp {@link Message}s to Anthropic wire messages.
  *
  * `opts.serverSideFallbackEnabled` — when the CURRENT request itself
- * opts into the server-side-fallback beta chain. Only then, and only on the
- * official endpoint, may a persisted `fallback` content block from a prior
- * turn be replayed on the wire; otherwise the block is dropped to avoid a 400
- * on requests that don't send the beta, and its turn keeps one model's
- * reasoning (see {@link collapseFallbackSegments}).
+ * opts into the server-side-fallback beta chain. Only then may a persisted
+ * `fallback` content block from a prior turn be replayed on the wire (to
+ * api.anthropic.com or a gateway in front of it); otherwise the block is
+ * dropped to avoid a 400 on requests that don't send the beta, and its turn
+ * keeps one model's reasoning (see {@link collapseFallbackSegments}).
  *
  * `opts.replayCompaction` — replay a user-role compaction summary that
  * carries an {@link AnthropicCompactionPayload} from this provider as a
@@ -5945,13 +5946,13 @@ export function convertAnthropicMessages(
 			params.push(param);
 		} else if (msg.role === "assistant") {
 			const blocks: ContentBlockParam[] = [];
-			// The fallback boundary replays ONLY when both sides are aligned: the
-			// current request opted into the beta chain, and the target is
-			// official Anthropic (the only endpoint that accepts the block).
-			const content =
-				opts?.serverSideFallbackEnabled && model.compat.officialEndpoint
-					? msg.content
-					: collapseFallbackSegments(msg.content);
+			// The fallback boundary replays exactly when the current request opts
+			// into the beta chain: an endpoint that accepts `fallbacks` accepts the
+			// marker it minted, whether it is api.anthropic.com or a transparent
+			// gateway in front of it; an endpoint that does not speak the beta
+			// rejects the `fallbacks` field before the marker matters. Otherwise the
+			// marker is dropped and the turn keeps one model's reasoning.
+			const content = opts?.serverSideFallbackEnabled ? msg.content : collapseFallbackSegments(msg.content);
 			const hasSignedThinking = content.some(
 				block =>
 					block.type === "thinking" && !!block.thinkingSignature && block.thinkingSignature.trim().length > 0,
