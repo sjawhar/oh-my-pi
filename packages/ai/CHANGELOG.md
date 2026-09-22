@@ -135,6 +135,7 @@
 - Fixed Factory Droid Gemini requests failing with 400 "For schema with items, schema type should be ARRAY" when a tool parameter accepts a string or a list, as the default `task` tool's `model` field does ([#16249](https://github.com/can1357/oh-my-pi/pull/16249) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed `PI_REQ_DEBUG=1` request dumps writing your API key, bearer token and response cookies to disk in plain text: credential headers now read `[redacted]`, as in rejected-request dumps ([#16293](https://github.com/can1357/oh-my-pi/pull/16293) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed finalized signed reasoning disappearing from displayed thinking when no deltas streamed ([#16227](https://github.com/can1357/oh-my-pi/issues/16227))
+- For a tool with `lenientArgValidation` (the flag now lives on the base `Tool` type), `validateToolArguments` keeps every argument repair but puts back any unrecognized key it deleted to reach success, so a tool that owns its refusal sees every key the model wrote instead of a silently narrowed "valid" subset (a key the null-is-absent repair drops, such as a null optional field or an unknown null-valued key inside a closed nested object, stays dropped) ([#12871](https://github.com/can1357/oh-my-pi/pull/12871) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.12.2] - 2026-10-18
 
