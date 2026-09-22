@@ -39,6 +39,7 @@
 - Fixed side requests on GPT-6 Responses and Codex models missing the conversation's prompt cache after a reasoning-effort change: they now keep its request-level effort and replay its `configuration_update` items
 - Fixed Codex side requests never reading the conversation's prompt cache: they now send its session headers, which the backend routes cache affinity by, while keeping their own request identity
 - Fixed GPT-6 models in `pro` reasoning mode receiving `configuration_update` items, which that mode rejects; their effort changes stay on the request-level effort
+- For a tool with `lenientArgValidation` (the flag now lives on the base `Tool` type), `validateToolArguments` keeps every argument repair but puts back any unrecognized key it deleted to reach success, so a tool that owns its refusal sees every key the model wrote instead of a silently narrowed "valid" subset (a key the null-is-absent repair drops, such as a null optional field or an unknown null-valued key inside a closed nested object, stays dropped) ([#12871](https://github.com/can1357/oh-my-pi/pull/12871) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.8.9] - 2026-10-10
 
