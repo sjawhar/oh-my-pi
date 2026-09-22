@@ -628,6 +628,109 @@ function deleteValueAtPointer(root: unknown, pointer: string): unknown {
 	return deleteAtSegment(root, segments, 0);
 }
 
+/** An unrecognized key the coercion pass deleted, kept so it can be restored. */
+interface DeletedKey {
+	pointer: string;
+	value: unknown;
+}
+
+/**
+ * Collects the unrecognized keys deleted while repairing a lenient tool's
+ * arguments. `prefix` is the JSON pointer, relative to the call's root
+ * arguments, of the value being repaired — nested repairs (a union branch
+ * repaired during normalization) record root-relative pointers through it.
+ * `rootOnly` narrows the record to unknown keys of the call's own root object,
+ * which is all {@link ValidateToolArgumentsOptions.keepUnknownRootKeys}
+ * promises a caller that did not mark the tool `lenientArgValidation`.
+ */
+interface DeletionRecorder {
+	readonly keys: DeletedKey[];
+	readonly prefix: string;
+	readonly rootOnly: boolean;
+}
+
+function childRecorder(recorder: DeletionRecorder | undefined, segment: PropertyKey): DeletionRecorder | undefined {
+	return (
+		recorder && {
+			keys: recorder.keys,
+			prefix: recorder.prefix + pathToPointer([segment]),
+			rootOnly: recorder.rootOnly,
+		}
+	);
+}
+
+/**
+ * A union candidate's deletions are provisional: a candidate that is not
+ * adopted must not leave records behind, or a later branch that legitimately
+ * repaired the same key would have its repair overwritten on restore.
+ */
+function candidateRecorder(recorder: DeletionRecorder | undefined): DeletionRecorder | undefined {
+	return recorder && { keys: [], prefix: recorder.prefix, rootOnly: recorder.rootOnly };
+}
+
+function adoptCandidate(recorder: DeletionRecorder | undefined, candidate: DeletionRecorder | undefined): void {
+	if (recorder && candidate) recorder.keys.push(...candidate.keys);
+}
+
+/** A `rootOnly` recorder records only unknown keys of the call's own root object. */
+function shouldRecordDeletion(recorder: DeletionRecorder, instancePath: string): boolean {
+	if (!recorder.rootOnly) return true;
+	return recorder.prefix === "" && decodeJsonPointer(instancePath).length === 1;
+}
+
+/**
+ * Returns a new structure with `value` set at `pointer`, shallow-cloning only
+ * the containers along the path — the input is never mutated (the coercion
+ * pass shares sibling subtrees with the caller's original arguments). Returns
+ * the input unchanged when a container along the path is missing.
+ */
+function insertValueAtPointer(root: unknown, pointer: string, value: unknown): unknown {
+	const segments = decodeJsonPointer(pointer);
+	if (segments.length === 0) return root;
+	return insertAtSegment(root, segments, 0, value);
+}
+
+function insertAtSegment(node: unknown, segments: string[], depth: number, value: unknown): unknown {
+	const segment = segments[depth];
+	const isLeaf = depth === segments.length - 1;
+	if (Array.isArray(node)) {
+		const index = Number(segment);
+		if (isLeaf || !Number.isInteger(index) || index < 0 || index >= node.length) return node;
+		const next = node.slice();
+		next[index] = insertAtSegment(node[index], segments, depth + 1, value);
+		return next;
+	}
+	if (node === null || typeof node !== "object") return node;
+	const record = node as Record<string, unknown>;
+	if (isLeaf) {
+		const next: Record<string, unknown> = { ...record };
+		// Define rather than assign: `constructor`/`__proto__` must come back as
+		// plain own fields, never as a prototype swap.
+		Object.defineProperty(next, segment, { value, enumerable: true, writable: true, configurable: true });
+		return next;
+	}
+	if (!Object.hasOwn(record, segment)) return node;
+	return { ...record, [segment]: insertAtSegment(record[segment], segments, depth + 1, value) };
+}
+
+/**
+ * Put back the unrecognized keys deleted on the way to a successful
+ * validation, undoing the log newest-first: a parent deleted after its child
+ * was recorded without that child, so it must be restored before the child
+ * is re-inserted into it; and a key deleted twice (once as written, again
+ * after a later repair reintroduced it) must end with the value the model
+ * wrote.
+ */
+function restoreDeletedKeys(value: unknown, deletedKeys: DeletedKey[] | undefined): unknown {
+	if (deletedKeys === undefined || deletedKeys.length === 0) return value;
+	let restored = value;
+	for (let index = deletedKeys.length - 1; index >= 0; index -= 1) {
+		const key = deletedKeys[index];
+		restored = insertValueAtPointer(restored, key.pointer, key.value);
+	}
+	return restored;
+}
+
 function deleteAtSegment(node: unknown, segments: string[], depth: number): unknown {
 	const segment = segments[depth];
 	const isLeaf = depth === segments.length - 1;
@@ -679,6 +782,7 @@ function normalizeOptionalNullsForSchema(
 	root: unknown = schema,
 	insideContent = false,
 	speculativeUnion = false,
+	recorder?: DeletionRecorder,
 ): { value: unknown; changed: boolean } {
 	if (value === null || value === undefined) return { value, changed: false };
 	if (schema === null || typeof schema !== "object") return { value, changed: false };
@@ -695,6 +799,7 @@ function normalizeOptionalNullsForSchema(
 		// still requires that data.
 		for (const branch of branches) {
 			if (!branchMatchesSchema(branch, value, root)) continue;
+			const candidate = candidateRecorder(recorder);
 			const normalized = normalizeOptionalNullsForSchema(
 				branch,
 				value,
@@ -702,11 +807,13 @@ function normalizeOptionalNullsForSchema(
 				root,
 				insideContent,
 				speculativeUnion,
+				candidate,
 			);
 			if (
 				branchMatchesSchema(branch, normalized.value, root) &&
 				branchMatchesSchema(schemaObject, normalized.value, root)
 			) {
+				adoptCandidate(recorder, candidate);
 				return normalized;
 			}
 		}
@@ -715,6 +822,7 @@ function normalizeOptionalNullsForSchema(
 		for (const branch of branches) {
 			// Only unresolved ancestors restrict descendants. A failed branch
 			// with a unique discriminator is still authoritative.
+			const candidate = candidateRecorder(recorder);
 			const normalized = normalizeOptionalNullsForSchema(
 				branch,
 				value,
@@ -722,6 +830,7 @@ function normalizeOptionalNullsForSchema(
 				root,
 				insideContent,
 				speculativeUnion || selectedBranch !== branch,
+				candidate,
 			);
 			if (!normalized.changed) continue;
 
@@ -734,13 +843,17 @@ function normalizeOptionalNullsForSchema(
 				speculativeUnion,
 			};
 			const result = validateContext(branchContext, normalized.value);
-			if (result.success && branchMatchesSchema(branch, normalized.value, root)) return normalized;
+			if (result.success && branchMatchesSchema(branch, normalized.value, root)) {
+				adoptCandidate(recorder, candidate);
+				return normalized;
+			}
 
 			// Diagnose against the enclosing union to retain authoritative vs.
 			// speculative issue provenance, but normalize only this candidate's
 			// branch. Failed candidates never escape to a sibling.
-			const repaired = runCoercionPasses(branchContext, normalized.value, result, isRoot, insideContent);
+			const repaired = runCoercionPasses(branchContext, normalized.value, result, isRoot, insideContent, candidate);
 			if (repaired.result.success && branchMatchesSchema(branch, repaired.args, root)) {
+				adoptCandidate(recorder, candidate);
 				return { value: repaired.args, changed: true };
 			}
 		}
@@ -766,6 +879,7 @@ function normalizeOptionalNullsForSchema(
 				root,
 				insideContent,
 				speculativeUnion,
+				recorder,
 			);
 			if (!normalized.changed) continue;
 			nextValue = normalized.value;
@@ -790,6 +904,7 @@ function normalizeOptionalNullsForSchema(
 				root,
 				insideContent,
 				speculativeUnion,
+				childRecorder(recorder, i),
 			);
 			if (!normalized.changed) continue;
 			if (!changed) {
@@ -863,6 +978,7 @@ function normalizeOptionalNullsForSchema(
 			root,
 			insideContent || CONTENT_CARRYING_KEYS.has(key),
 			speculativeUnion,
+			childRecorder(recorder, key),
 		);
 		if (!normalized.changed) continue;
 
@@ -1647,7 +1763,7 @@ interface FlatIssue {
  *  - **unrecognized**: when a closed object received an extra key
  *    (`additionalProperties: false`), drop that key so re-validation succeeds.
  *    This effectively coerces object schemas to loose semantics recursively.
- *    Dropped root keys are recorded in `droppedRootKeys` when one is supplied.
+ *    A deleted key is recorded on `recorder` when one is supplied.
  *
  * The function is safe and conservative:
  *   - Only processes "type" and "unrecognized" issues
@@ -1658,7 +1774,7 @@ interface FlatIssue {
 function coerceArgsFromIssues(
 	args: unknown,
 	issues: FlatIssue[],
-	droppedRootKeys?: Map<string, unknown>,
+	recorder: DeletionRecorder | undefined,
 ): { value: unknown; changed: boolean } {
 	if (issues.length === 0) return { value: args, changed: false };
 
@@ -1674,14 +1790,18 @@ function coerceArgsFromIssues(
 		// Container-to-string conversion remains enabled for string branches.
 		if (issue.keyword === "unrecognized") {
 			if (issue.unionBranch) continue;
-			if (droppedRootKeys) {
-				const segments = decodeJsonPointer(issue.instancePath);
-				const dropped = segments.length === 1 ? getValueAtPointer(nextArgs, issue.instancePath) : undefined;
-				if (dropped !== undefined) droppedRootKeys.set(segments[0]!, dropped);
-			}
 			const previous = nextArgs;
 			nextArgs = deleteValueAtPointer(nextArgs, issue.instancePath);
-			if (nextArgs !== previous) changed = true;
+			if (nextArgs !== previous) {
+				changed = true;
+				// The delete is copy-on-write, so `previous` still holds the key.
+				if (recorder && shouldRecordDeletion(recorder, issue.instancePath)) {
+					recorder.keys.push({
+						pointer: recorder.prefix + issue.instancePath,
+						value: getValueAtPointer(previous, issue.instancePath),
+					});
+				}
+			}
 			continue;
 		}
 		if (issue.keyword !== "type") continue;
@@ -1763,19 +1883,6 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 function preserveUnknownRootFields(input: unknown, parsed: unknown): unknown {
 	if (!isPlainRecord(input) || !isPlainRecord(parsed)) return parsed;
 	return { ...input, ...parsed };
-}
-
-/** Put root keys the unrecognized-key repair deleted back onto a validated value, never overwriting a key it kept. */
-function restoreDroppedRootKeys(value: unknown, dropped: ReadonlyMap<string, unknown> | undefined): unknown {
-	if (!dropped || dropped.size === 0 || !isPlainRecord(value)) return value;
-	const out: Record<string, unknown> = { ...value };
-	for (const [key, entry] of dropped) {
-		// Own-property check and define: `constructor`/`__proto__` must restore as plain fields.
-		if (!Object.hasOwn(out, key)) {
-			Object.defineProperty(out, key, { value: entry, enumerable: true, writable: true, configurable: true });
-		}
-	}
-	return out;
 }
 
 function flattenJsonSchemaIssues(
@@ -2026,9 +2133,10 @@ function truncateArgsForError(value: unknown): unknown {
 export interface ValidateToolArgumentsOptions {
 	/**
 	 * Keep unknown root keys on the validated value instead of letting the
-	 * unrecognized-key repair delete them from a closed schema. Set for tools
-	 * that own their refusal (`lenientArgValidation`), so execute() can reject
-	 * fields the model sent rather than run without them.
+	 * unrecognized-key repair delete them from a closed schema, so a caller can
+	 * reject fields the model sent rather than run without them. A tool marked
+	 * `lenientArgValidation` keeps every unrecognized key it deleted, at any
+	 * depth, whether or not this option is set.
 	 */
 	keepUnknownRootKeys?: boolean;
 }
@@ -2054,6 +2162,18 @@ export function validateToolArguments(
 	}
 	const ctx = getValidationContext(tool);
 	const { json } = ctx;
+
+	// A lenient tool owns its refusal, so it must see every key the model wrote.
+	// Unknown keys are still deleted to let validation (and every other repair)
+	// succeed, then put back on the validated value — never silently dropped.
+	// A caller that only passes `keepUnknownRootKeys` keeps the call's own root
+	// extras and nothing deeper.
+	const recorder: DeletionRecorder | undefined =
+		tool.lenientArgValidation === true
+			? { keys: [], prefix: "", rootOnly: false }
+			: options.keepUnknownRootKeys === true
+				? { keys: [], prefix: "", rootOnly: true }
+				: undefined;
 
 	// Always normalize first — strip null/string "null" from optional fields,
 	// strip optional empty strings only when their property schema rejects the
@@ -2083,7 +2203,15 @@ export function validateToolArguments(
 		changed = true;
 	}
 
-	const initialNormalization = normalizeOptionalNullsForSchema(json, normalizedArgs);
+	const initialNormalization = normalizeOptionalNullsForSchema(
+		json,
+		normalizedArgs,
+		true,
+		json,
+		false,
+		false,
+		recorder,
+	);
 	if (initialNormalization.changed) {
 		normalizedArgs = initialNormalization.value;
 		changed = true;
@@ -2131,14 +2259,13 @@ export function validateToolArguments(
 	}
 
 	let result = validateContext(ctx, normalizedArgs);
-	if (result.success) return result.value as ToolCall["arguments"];
+	if (result.success) return restoreDeletedKeys(result.value, recorder?.keys) as ToolCall["arguments"];
 
-	const droppedRootKeys = options.keepUnknownRootKeys ? new Map<string, unknown>() : undefined;
-	const coercionOutcome = runCoercionPasses(ctx, normalizedArgs, result, true, false, droppedRootKeys);
+	const coercionOutcome = runCoercionPasses(ctx, normalizedArgs, result, true, false, recorder);
 	normalizedArgs = coercionOutcome.args;
 	changed ||= coercionOutcome.changed;
 	result = coercionOutcome.result;
-	if (result.success) return restoreDroppedRootKeys(result.value, droppedRootKeys) as ToolCall["arguments"];
+	if (result.success) return restoreDeletedKeys(result.value, recorder?.keys) as ToolCall["arguments"];
 
 	// Last resort: some providers parse in-band tool-call syntax server-side,
 	// and a mistyped/missing `</arg_value>` closer inlines the remaining pairs
@@ -2150,11 +2277,11 @@ export function validateToolArguments(
 		changed = true;
 		result = validateContext(ctx, normalizedArgs);
 		if (!result.success) {
-			const healedOutcome = runCoercionPasses(ctx, normalizedArgs, result, true, false, droppedRootKeys);
+			const healedOutcome = runCoercionPasses(ctx, normalizedArgs, result, true, false, recorder);
 			normalizedArgs = healedOutcome.args;
 			result = healedOutcome.result;
 		}
-		if (result.success) return restoreDroppedRootKeys(result.value, droppedRootKeys) as ToolCall["arguments"];
+		if (result.success) return restoreDeletedKeys(result.value, recorder?.keys) as ToolCall["arguments"];
 	}
 
 	// Format validation errors nicely. The header phrase is asserted by
@@ -2190,7 +2317,7 @@ function runCoercionPasses(
 	initial: ContextValidationResult,
 	isRoot = true,
 	insideContent = false,
-	droppedRootKeys?: Map<string, unknown>,
+	recorder?: DeletionRecorder,
 ): { args: unknown; result: ContextValidationResult; changed: boolean } {
 	const { json } = ctx;
 	const root = ctx.kind === "json" ? (ctx.root ?? json) : json;
@@ -2199,7 +2326,7 @@ function runCoercionPasses(
 	let changed = false;
 	for (let pass = 0; pass < MAX_COERCION_PASSES; pass += 1) {
 		if (result.success) break;
-		const coercion = coerceArgsFromIssues(normalizedArgs, result.flatIssues, droppedRootKeys);
+		const coercion = coerceArgsFromIssues(normalizedArgs, result.flatIssues, recorder);
 		let passChanged = coercion.changed;
 		normalizedArgs = coercion.value;
 
@@ -2224,6 +2351,7 @@ function runCoercionPasses(
 			root,
 			insideContent,
 			speculativeUnion,
+			recorder,
 		);
 		if (nullNormalization.changed) {
 			normalizedArgs = nullNormalization.value;
