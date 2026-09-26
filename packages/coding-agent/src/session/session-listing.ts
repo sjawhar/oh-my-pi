@@ -667,7 +667,12 @@ export async function listAllSessions(
 	sessionsRoot: string = getSessionsDir(),
 ): Promise<SessionInfo[]> {
 	try {
-		const files = await dedupeRealPaths(await scanBucketFiles(sessionsRoot, "*.jsonl"));
+		// File storage scans bucket by bucket so a symlinked bucket is skipped
+		// rather than followed; any other backend lists through the storage.
+		const files =
+			storage instanceof FileSessionStorage
+				? await dedupeRealPaths(await scanBucketFiles(sessionsRoot, "*.jsonl"))
+				: storage.listFilesSync(sessionsRoot, "*/*.jsonl");
 		return await collectSessionsFromFiles(files, storage, true);
 	} catch {
 		return [];
