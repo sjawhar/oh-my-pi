@@ -45,11 +45,12 @@ const expectedFixtureSkillOrder: string[] = [
 ];
 
 /**
- * Disable every named built-in skill source. Used by `loadSkills` option tests
- * that need to isolate a custom directory or assert "no built-in leakage".
+ * Disable every ambient skill source. Used by `loadSkills` option tests that
+ * need to isolate a custom directory or assert "no built-in leakage".
  * Plugin providers (`omp-plugins`, `claude-plugins`, `agent-plugins`) have no
  * toggle; the file-wide isolated home below keeps the developer's real plugin
- * installs out of every assertion.
+ * installs out of every assertion, and `explicit-only` extension roots keep
+ * enabled user OMP plugin packages from contributing manifest-declared skills.
  */
 const DISABLE_ALL_BUILTIN_SKILLS = {
 	enableCodexUser: false,
@@ -59,7 +60,13 @@ const DISABLE_ALL_BUILTIN_SKILLS = {
 	enablePiProject: false,
 	enableAgentsUser: false,
 	enableAgentsProject: false,
-};
+	extensionRoots: {
+		explicit: [],
+		configured: [],
+		configuredLevel: "user",
+		mode: "explicit-only",
+	},
+} as const;
 
 // Every provider resolves user-level roots from `os.homedir()` (HOME on POSIX,
 // USERPROFILE on Windows) and the agent dir; point both at an empty temp home
