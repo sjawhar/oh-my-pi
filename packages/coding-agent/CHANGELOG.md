@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- Fixed a `session.sql.dsnFile` whose contents are not a connection URL surfacing the driver's parse error (which embeds the connection string) instead of a refusal that names only the variable and the path; the welcome screen's recent sessions now follow `session.storage`. ([#13416](https://github.com/can1357/oh-my-pi/pull/13416) by [@sjawhar](https://github.com/sjawhar))
+- Fixed a `session.sql.dsnFile` whose contents are not a connection URL surfacing the driver's parse error (which embeds the connection string) instead of a refusal that names only the variable and the path. ([#13416](https://github.com/can1357/oh-my-pi/pull/13416) by [@sjawhar](https://github.com/sjawhar))
 
 ## [18.7.0] - 2026-10-06
 
