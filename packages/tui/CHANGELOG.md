@@ -16,6 +16,7 @@
 
 - Reduced the time to rebuild a long session's transcript on resume when it contains repeated `wait` polls or todo updates ([#13767](https://github.com/can1357/oh-my-pi/pull/13767) by [@sjawhar](https://github.com/sjawhar))
 - `OutputSink` summaries report the first and last line the column cap cut (`columnTruncatedRange`), and the column-cut notice names the `:raw` line selector of the artifact or file that returns a cut line whole ([#15279](https://github.com/can1357/oh-my-pi/pull/15279) by [@will-bogusz](https://github.com/will-bogusz))
+- The status line's git-status polling interval now widens automatically for a repository whose `git status` stays slow across consecutive calls, instead of holding a fixed 10-second refresh regardless of cost ([#13405](https://github.com/can1357/oh-my-pi/pull/13405) by [@sjawhar](https://github.com/sjawhar)).
 
 ### Fixed
 
