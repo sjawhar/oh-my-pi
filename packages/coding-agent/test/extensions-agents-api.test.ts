@@ -1,10 +1,20 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import * as path from "node:path";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
+import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { ExtensionRuntime, loadExtensionFromFactory } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/loader";
 import { ExtensionRunner } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/runner";
-import type { ExtensionAgentsApi } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
-import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
+import type {
+	ExtensionActions,
+	ExtensionAgentsApi,
+	ExtensionContextActions,
+} from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
+import { MCPManager } from "@oh-my-pi/pi-coding-agent/mcp/manager";
+import {
+	createExtensionAgentActions,
+	type ExtensionAgentActionsScope,
+	initializeExtensions,
+} from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry, MAIN_AGENT_ID } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import * as persistedAgentsModule from "@oh-my-pi/pi-coding-agent/registry/persisted-agents";
@@ -13,10 +23,15 @@ import * as sdkModule from "@oh-my-pi/pi-coding-agent/sdk";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { createPersistedSubagentReviverFactory } from "@oh-my-pi/pi-coding-agent/task/persisted-revive";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import { TempDir } from "@oh-my-pi/pi-utils";
 
-async function loadAgentsApi(cwd: string): Promise<ExtensionAgentsApi> {
+async function loadAgentsApi(
+	cwd: string,
+	agentId: string = MAIN_AGENT_ID,
+	sessionFile?: string,
+): Promise<ExtensionAgentsApi> {
 	let agents: ExtensionAgentsApi | undefined;
 	const runtime = new ExtensionRuntime();
 	const extension = await loadExtensionFromFactory(
@@ -37,7 +52,12 @@ async function loadAgentsApi(cwd: string): Promise<ExtensionAgentsApi> {
 	);
 
 	await initializeExtensions(
-		{ extensionRunner: runner, discoverStartupSkillPaths: async () => {} } as unknown as AgentSession,
+		{
+			extensionRunner: runner,
+			discoverStartupSkillPaths: async () => {},
+			getAgentId: () => agentId,
+			sessionManager: { getSessionFile: () => sessionFile },
+		} as unknown as AgentSession,
 		{
 			reportSendError: (_action, error) => {
 				throw error;
@@ -47,6 +67,64 @@ async function loadAgentsApi(cwd: string): Promise<ExtensionAgentsApi> {
 			},
 		},
 	);
+	if (!agents) throw new Error("Extension factory did not receive api.agents");
+	return agents;
+}
+
+/**
+ * Wires `api.agents` exactly as `acp-agent.ts` does — directly through
+ * `ExtensionRunner.initialize`, not the `initializeExtensions` helper that
+ * only non-ACP hosts use — so a `reviverFactory`/`idleTtlMs` override can be
+ * supplied per session, mirroring an ACP host that cannot install one
+ * process-global persisted-subagent reviver factory.
+ */
+async function loadAgentsApiAcpStyle(cwd: string, scope: ExtensionAgentActionsScope): Promise<ExtensionAgentsApi> {
+	let agents: ExtensionAgentsApi | undefined;
+	const runtime = new ExtensionRuntime();
+	const extension = await loadExtensionFromFactory(
+		api => {
+			agents = api.agents;
+		},
+		cwd,
+		new EventBus(),
+		runtime,
+	);
+	const authStorage = await AuthStorage.create(":memory:");
+	const runner = new ExtensionRunner(
+		[extension],
+		runtime,
+		cwd,
+		SessionManager.inMemory(cwd),
+		new ModelRegistry(authStorage),
+	);
+
+	const actions: ExtensionActions = {
+		sendMessage: () => {},
+		sendUserMessage: () => {},
+		appendEntry: () => {},
+		...createExtensionAgentActions(scope),
+		setLabel: () => {},
+		getActiveTools: () => [],
+		getAllTools: () => [],
+		setActiveTools: async () => {},
+		getCommands: () => [],
+		setModel: async () => false,
+		getThinkingLevel: () => undefined,
+		setThinkingLevel: () => {},
+		getSessionName: () => undefined,
+		setSessionName: async () => {},
+	};
+	const contextActions: ExtensionContextActions = {
+		getModel: () => undefined,
+		isIdle: () => true,
+		abort: () => {},
+		hasPendingMessages: () => false,
+		shutdown: () => {},
+		getContextUsage: () => undefined,
+		compact: async () => {},
+		getSystemPrompt: () => [],
+	};
+	runner.initialize(actions, contextActions);
 	if (!agents) throw new Error("Extension factory did not receive api.agents");
 	return agents;
 }
@@ -83,6 +161,8 @@ describe("ExtensionAPI agents", () => {
 	});
 
 	afterEach(() => {
+		vi.restoreAllMocks();
+		MCPManager.resetForTests();
 		AgentLifecycleManager.resetGlobalForTests();
 		AgentRegistry.resetGlobalForTests();
 	});
@@ -98,6 +178,7 @@ describe("ExtensionAPI agents", () => {
 			id: "Worker1",
 			displayName: "Worker 1",
 			kind: "sub",
+			parentId: MAIN_AGENT_ID,
 			session: null,
 			sessionFile,
 			status: "parked",
@@ -113,8 +194,8 @@ describe("ExtensionAPI agents", () => {
 
 	it("ensureLive rescans a parent transcript when its registry ref is absent", async () => {
 		using tempDir = TempDir.createSync("@omp-extension-agents-");
-		const agents = await loadAgentsApi(tempDir.path());
 		const parentSessionFile = path.join(tempDir.path(), "main.jsonl");
+		const agents = await loadAgentsApi(tempDir.path(), MAIN_AGENT_ID, parentSessionFile);
 		const sessionFile = path.join(tempDir.path(), "main", "Rescanned.jsonl");
 		await Bun.write(parentSessionFile, "");
 		await Bun.write(sessionFile, `${persistedWorkerTranscript()}\n`);
@@ -151,6 +232,7 @@ describe("ExtensionAPI agents", () => {
 			id: "Worker2",
 			displayName: "Worker 2",
 			kind: "sub",
+			parentId: MAIN_AGENT_ID,
 			session: null,
 			sessionFile,
 			status: "parked",
@@ -162,6 +244,7 @@ describe("ExtensionAPI agents", () => {
 		expect(delivered).toEqual({ text: "continue from the saved transcript", deliverAs: "followUp" });
 		expect(registry.get("Worker2")?.status).toBe("idle");
 	});
+
 	it("scopes agents.list/get/ensureLive/prompt to the calling session's own family", async () => {
 		using tempDir = TempDir.createSync("@omp-extension-agents-scope-");
 		const cwd = tempDir.path();
