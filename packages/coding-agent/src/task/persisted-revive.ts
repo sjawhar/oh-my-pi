@@ -47,6 +47,15 @@ export interface PersistedSubagentReviveContext {
 	eventBus?: EventBus;
 	/** Root-scoped observability bus the revived run's frames also publish to. */
 	subagentEventBus?: EventBus;
+	/**
+	 * MCP manager owned by the top-level session, for a host that keeps MCP per
+	 * session instead of in the process-global {@link MCPManager.instance} (ACP:
+	 * servers come from the client, never from workspace `.mcp.json`). Read on
+	 * every revive because the host connects its servers after this factory is
+	 * built. When supplied, revived agents use exactly this manager and never
+	 * discover MCP config themselves, even when it returns `undefined`.
+	 */
+	mcpManager?: () => MCPManager | undefined;
 }
 
 /**
@@ -186,7 +195,7 @@ export function createPersistedSubagentReviverFactory(
 			// A restricted persisted contract must not consult process-global MCP
 			// state: same-name MCP tools are untrusted capability sources.
 			const restrictToolNames = init.restrictToolNames === true;
-			const mcpManager = restrictToolNames ? undefined : MCPManager.instance();
+			const mcpManager = restrictToolNames ? undefined : ctx.mcpManager ? ctx.mcpManager() : MCPManager.instance();
 			// Subscribe before minting proxies so a manager change during startup is replayed on bind.
 			const mcpFollower = mcpManager ? followMCPTools(mcpManager) : undefined;
 			const mcpProxyTools = mcpManager ? createMCPProxyTools(mcpManager) : [];
@@ -258,7 +267,7 @@ export function createPersistedSubagentReviverFactory(
 								preloadedCustomToolPaths: [],
 							}
 						: {
-								enableMCP: !mcpManager,
+								enableMCP: !mcpManager && !ctx.mcpManager,
 								mcpManager,
 								mcpTools: mcpProxyTools.length > 0 ? mcpProxyTools : undefined,
 							}),
