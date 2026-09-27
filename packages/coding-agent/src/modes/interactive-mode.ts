@@ -145,6 +145,7 @@ import { modelMentionDisplayName } from "@oh-my-pi/pi-tui/prompt/model-mention-s
 import { modelMentionChipLabel, shiftImageMarkers } from "@oh-my-pi/pi-tui/prompt/composer-attachments";
 import type { SessionContext } from "../session/session-context";
 import type { SessionManager } from "../session/session-manager";
+import type { RefreshSkillsOptions } from "../session/session-tools";
 import {
 	canAutoCreateWorktree,
 	planWorktreeExit,
@@ -2707,9 +2708,9 @@ export class InteractiveMode implements InteractiveModeContext {
 	}
 
 	/** Reload session skills and the `/skill:<name>` command list. */
-	async refreshSkillState(): Promise<void> {
+	async refreshSkillState(options?: RefreshSkillsOptions): Promise<void> {
 		// The session's command-metadata notification rebuilds the picker.
-		await this.session.refreshSkills();
+		await this.session.refreshSkills(options);
 	}
 
 	/** Reload slash commands and autocomplete for the provided working directory. */
