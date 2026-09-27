@@ -16,11 +16,8 @@ import { MCPManager } from "@oh-my-pi/pi-coding-agent/mcp/manager";
 import { RpcSubagentRegistry } from "@oh-my-pi/pi-coding-agent/modes/rpc/rpc-subagents";
 import type { RpcSubagentFrame } from "@oh-my-pi/pi-coding-agent/modes/rpc/rpc-types";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
-import {
-	AgentRegistry,
-	qualifyPersistedAgentId,
-	type AgentRef,
-} from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
+import type { AgentRef } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
+import { AgentRegistry, qualifyPersistedAgentId } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { registerPersistedSubagents } from "@oh-my-pi/pi-coding-agent/registry/persisted-agents";
 import type { CreateAgentSessionOptions, CreateAgentSessionResult } from "@oh-my-pi/pi-coding-agent/sdk";
 import * as sdkModule from "@oh-my-pi/pi-coding-agent/sdk";
@@ -39,9 +36,9 @@ import {
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
 import { FileSessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
+import { createPersistedSubagentReviverFactory } from "@oh-my-pi/pi-coding-agent/task/persisted-revive";
 import { buildWakeRelayBody } from "@oh-my-pi/pi-coding-agent/task/executor";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
-import { createPersistedSubagentReviverFactory } from "@oh-my-pi/pi-coding-agent/task/persisted-revive";
 import { resolveEffectiveSubagentPolicy } from "@oh-my-pi/pi-coding-agent/task/structured-subagent";
 import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import type { SingleResult } from "@oh-my-pi/pi-tui/tools/task";
@@ -55,6 +52,14 @@ import { createSessionDefaults } from "../helpers/session-defaults";
 import { cfgAdvisorEnabled } from "@oh-my-pi/pi-coding-agent/advisor/settings";
 
 const tempDirs: TempDir[] = [];
+
+/** Matches `DEFAULT_SPAWN_AGENT` — the agent an unqualified `task` spawn resolves to. */
+const TASK_AGENT: AgentDefinition = {
+	name: "task",
+	description: "Default spawn agent",
+	systemPrompt: "Do the assigned work.",
+	source: "bundled",
+};
 
 function makeTempDir(prefix: string): string {
 	const dir = TempDir.createSync(prefix);
@@ -118,6 +123,7 @@ function createRevivedSession(activeToolNames: string[][], extensionRunner?: unk
 	const trackedReplies: Promise<void>[] = [];
 	const session = {
 		...createSessionDefaults(),
+		getAgentId: () => "persisted-restricted",
 		getMountedXdevToolNames: () => [],
 		setActiveToolsByName: async (names: string[]) => {
 			activeToolNames.push(names);
@@ -1682,6 +1688,7 @@ describe("buildWakeRelayBody", () => {
 			expect(await Bun.file(sessionFile).text()).toBe(withoutInit);
 		});
 	});
+
 	it("stops the depth walk at any unregistered family root, not just the literal MAIN_AGENT_ID", async () => {
 		AgentRegistry.resetGlobalForTests();
 		vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({ agents: [TASK_AGENT], projectAgentsDir: null });
