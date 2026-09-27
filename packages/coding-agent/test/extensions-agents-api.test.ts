@@ -926,7 +926,6 @@ describe("ExtensionAPI agents", () => {
 			subscribeRunState: () => () => {},
 			addDisposer: () => {},
 			getLastAssistantMessage: () => undefined,
-			discoverStartupSkillPaths: async () => {},
 			extensionRunner: bExtensionRunner,
 			sessionManager: { getSessionFile: () => bFile },
 		} as unknown as AgentSession;
