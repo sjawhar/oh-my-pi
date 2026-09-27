@@ -715,19 +715,30 @@ function insertAtSegment(node: unknown, segments: string[], depth: number, value
 
 /**
  * Put back the unrecognized keys deleted on the way to a successful
- * validation, undoing the log newest-first: a parent deleted after its child
- * was recorded without that child, so it must be restored before the child
- * is re-inserted into it; and a key deleted twice (once as written, again
- * after a later repair reintroduced it) must end with the value the model
- * wrote.
+ * validation.
+ *
+ * A pointer recorded twice (once as written, again after a later repair
+ * reintroduced it) comes back as the model first wrote it, so only the
+ * earliest record for a pointer is replayed. Shallower pointers are replayed
+ * first: a parent deleted after its child was recorded without that child, so
+ * it must be back before the child is re-inserted into it. Siblings keep the
+ * order they were recorded in, which is the order the model wrote them —
+ * consumers that report the surviving unknown keys (the `yield` tool names
+ * them in its rejection) must name them in the caller's own order.
  */
 function restoreDeletedKeys(value: unknown, deletedKeys: DeletedKey[] | undefined): unknown {
 	if (deletedKeys === undefined || deletedKeys.length === 0) return value;
+	const earliest = new Map<string, unknown>();
+	for (const key of deletedKeys) if (!earliest.has(key.pointer)) earliest.set(key.pointer, key.value);
+	const ordered = [...earliest].map(([pointer, entry]) => ({
+		pointer,
+		entry,
+		depth: decodeJsonPointer(pointer).length,
+	}));
+	// Stable sort: equal-depth pointers stay in their recorded order.
+	ordered.sort((a, b) => a.depth - b.depth);
 	let restored = value;
-	for (let index = deletedKeys.length - 1; index >= 0; index -= 1) {
-		const key = deletedKeys[index];
-		restored = insertValueAtPointer(restored, key.pointer, key.value);
-	}
+	for (const { pointer, entry } of ordered) restored = insertValueAtPointer(restored, pointer, entry);
 	return restored;
 }
 
