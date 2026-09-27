@@ -4269,51 +4269,61 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			// block one shared scope object, so the lifecycle reviver built above would
 			// then pin the parked, disposed session for the life of the process.
 			const pendingExtensionMessages: Array<Promise<unknown>> = [];
-			await awaitAbortable(
-				initializeExtensions(session, {
-					reportSendError: (action, err) => logger.error("Extension send failed", { action, error: err.message }),
-					reportRuntimeError: err =>
-						logger.error("Extension error", { path: err.extensionPath, error: err.error }),
-					trackExtensionSend: task => {
-						pendingExtensionMessages.push(task.catch(() => {}));
-					},
-					filterActiveTools: toolNames => toolNames.filter(name => !isParentOwnedTool(name)),
-				}),
-			);
+			// Persist the subagent's revival contract after startup skill
+			// discovery — `discoverStartupSkillPaths()` rebuilds
+			// `session.agent.state.systemPrompt` when a `resources_discover`
+			// handler contributed a directory, and a cold-revived session
+			// (persisted-revive.ts) replays this exact string verbatim — but
+			// before any held startup send runs: `readPersistedAgentMetadata()`
+			// (registry/persisted-agents.ts) only scans the first records of the
+			// session file, so `session_init` must precede the conversation.
+			// `initializeExtensions` runs it inside its startup hold and passes the
+			// session in, so this closure does not capture `session`.
+			const persistSessionInit = (started: AgentSession): void => {
+				started.sessionManager.appendSessionInit({
+					systemPrompt: started.agent.state.systemPrompt.join("\n\n"),
+					task,
+					tools: persistedSubagentTools,
+					agent: agent.name,
+					modelRole: modelRole ?? resolveExplicitModelRole(modelOverride ?? agent.model, subagentSettings),
+					resolvedModel: progress.resolvedModel,
+					// Deferred model resolution installs this role inside createAgentSession,
+					// so read it back from the settings both install paths write.
+					retryFallback: getRetryFallbackRole(subagentSettings, subagentRetryFallbackRole(id)),
+					readOnly: isReadOnlyAgent(agent),
+					spawns: spawnsEnv,
+					readSummarize: agent.readSummarize,
+					advisor: advisorSelection ? (advisorSelection.model ?? "on") : undefined,
+					compactionThreshold: options.compactionThresholdOverride,
+					outputSchema,
+					outputSchemaMode: options.outputSchemaMode,
+					restrictToolNames: restrictToolNames || undefined,
+					// Isolated runs are never revivable (worktree merged + cleaned):
+					// stamp the contract so cold revival leaves them transcript-only
+					// even when the workspace was retained for recovery.
+					isolated: worktree !== undefined || undefined,
+				});
+			};
+			if (session.extensionRunner) {
+				await awaitAbortable(
+					initializeExtensions(session, {
+						reportSendError: (action, err) =>
+							logger.error("Extension send failed", { action, error: err.message }),
+						reportRuntimeError: err =>
+							logger.error("Extension error", { path: err.extensionPath, error: err.error }),
+						trackExtensionSend: task => {
+							pendingExtensionMessages.push(task.catch(() => {}));
+						},
+						filterActiveTools: toolNames => toolNames.filter(name => !isParentOwnedTool(name)),
+						afterStartupDiscovery: persistSessionInit,
+					}),
+				);
+			} else {
+				persistSessionInit(session);
+			}
 			while (pendingExtensionMessages.length > 0) {
 				await awaitAbortable(Promise.all(pendingExtensionMessages.splice(0)));
 			}
-
-			// Persist the subagent's revival contract only after startup skill
-			// discovery has had a chance to run: `discoverStartupSkillPaths()`
-			// (inside `initializeExtensions` above) rebuilds `session.agent.state.systemPrompt` when a
-			// `resources_discover` handler contributed a directory, and a
-			// cold-revived session (persisted-revive.ts) replays this exact
-			// string verbatim — capturing it before discovery ran would freeze
-			// every future revival on the pre-discovery prompt (PR #9379 review).
-			session.sessionManager.appendSessionInit({
-				systemPrompt: session.agent.state.systemPrompt.join("\n\n"),
-				task,
-				tools: persistedSubagentTools,
-				agent: agent.name,
-				modelRole: modelRole ?? resolveExplicitModelRole(modelOverride ?? agent.model, subagentSettings),
-				resolvedModel: progress.resolvedModel,
-				// Deferred model resolution installs this role inside createAgentSession,
-				// so read it back from the settings both install paths write.
-				retryFallback: getRetryFallbackRole(subagentSettings, subagentRetryFallbackRole(id)),
-				readOnly: isReadOnlyAgent(agent),
-				spawns: spawnsEnv,
-				readSummarize: agent.readSummarize,
-				advisor: advisorSelection ? (advisorSelection.model ?? "on") : undefined,
-				compactionThreshold: options.compactionThresholdOverride,
-				outputSchema,
-				outputSchemaMode: options.outputSchemaMode,
-				restrictToolNames: restrictToolNames || undefined,
-				// Isolated runs are never revivable (worktree merged + cleaned):
-				// stamp the contract so cold revival leaves them transcript-only
-				// even when the workspace was retained for recovery.
-				isolated: worktree !== undefined || undefined,
-			});
 
 			unsubscribe = monitor.attach(session);
 
