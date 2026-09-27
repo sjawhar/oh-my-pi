@@ -4501,30 +4501,39 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					? enabledSubagentTools.filter(name => name !== "write")
 					: enabledSubagentTools;
 
-			session.sessionManager.appendSessionInit({
-				// Blocks as sent; the session appends a newer session_init whenever a model call's base changes.
-				systemPrompt: session.agent.state.systemPrompt,
-				task,
-				tools: persistedSubagentTools,
-				agent: agent.name,
-				modelRole: modelRole ?? resolveExplicitModelRole(modelOverride ?? agent.model, subagentSettings),
-				resolvedModel: progress.resolvedModel,
-				// Deferred model resolution installs this role inside createAgentSession,
-				// so read it back from the settings both install paths write.
-				retryFallback: getRetryFallbackRole(subagentSettings, subagentRetryFallbackRole(id)),
-				readOnly: isReadOnlyAgent(agent),
-				spawns: spawnsEnv,
-				readSummarize: agent.readSummarize,
-				advisor: advisorSelection ? (advisorSelection.model ?? "on") : undefined,
-				compactionThreshold: options.compactionThresholdOverride,
-				outputSchema,
-				outputSchemaMode: options.outputSchemaMode,
-				restrictToolNames: restrictToolNames || undefined,
-				// Isolated runs are never revivable (worktree merged + cleaned):
-				// stamp the contract so cold revival leaves them transcript-only
-				// even when the workspace was retained for recovery.
-				isolated: worktree !== undefined || undefined,
-			});
+			// Persist the subagent's revival contract at spawn, before any extension
+			// runs: `readPersistedAgentMetadata()` (registry/persisted-agents.ts) only
+			// scans the first records of the session file, and a `session_start`
+			// handler can append entries of its own. The session is an argument so
+			// this closure does not capture `session` (see below).
+			const persistSessionInit = (started: AgentSession): void => {
+				started.sessionManager.appendSessionInit({
+					// Blocks as sent; the session appends a newer session_init whenever a model call's base changes.
+					systemPrompt: started.agent.state.systemPrompt,
+					task,
+					tools: persistedSubagentTools,
+					agent: agent.name,
+					modelRole: modelRole ?? resolveExplicitModelRole(modelOverride ?? agent.model, subagentSettings),
+					resolvedModel: progress.resolvedModel,
+					// Deferred model resolution installs this role inside createAgentSession,
+					// so read it back from the settings both install paths write.
+					retryFallback: getRetryFallbackRole(subagentSettings, subagentRetryFallbackRole(id)),
+					readOnly: isReadOnlyAgent(agent),
+					spawns: spawnsEnv,
+					readSummarize: agent.readSummarize,
+					advisor: advisorSelection ? (advisorSelection.model ?? "on") : undefined,
+					compactionThreshold: options.compactionThresholdOverride,
+					outputSchema,
+					outputSchemaMode: options.outputSchemaMode,
+					restrictToolNames: restrictToolNames || undefined,
+					// Isolated runs are never revivable (worktree merged + cleaned):
+					// stamp the contract so cold revival leaves them transcript-only
+					// even when the workspace was retained for recovery.
+					isolated: worktree !== undefined || undefined,
+				});
+			};
+			persistSessionInit(session);
+			const spawnSystemPrompt = [...session.agent.state.systemPrompt];
 
 			abortSignal.addEventListener(
 				"abort",
@@ -4544,6 +4553,12 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			// block one shared scope object, so the lifecycle reviver built above would
 			// then pin the parked, disposed session for the life of the process.
 			const pendingExtensionMessages: Array<Promise<unknown>> = [];
+			// `discoverStartupSkillPaths()` rebuilds `session.agent.state.systemPrompt`
+			// when a `resources_discover` handler contributed a directory, and a
+			// cold-revived session (persisted-revive.ts) replays the latest
+			// `session_init` verbatim: append a newer one when discovery changed the
+			// prompt. `initializeExtensions` runs this inside its startup hold, before
+			// any held startup send dispatches, and passes the session in.
 			await awaitAbortable(
 				initializeExtensions(session, {
 					reportSendError: (action, err) => logger.error("Extension send failed", { action, error: err.message }),
@@ -4553,43 +4568,21 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 						pendingExtensionMessages.push(task.catch(() => {}));
 					},
 					filterActiveTools: toolNames => toolNames.filter(name => !isParentOwnedTool(name)),
+					afterStartupDiscovery: started => {
+						const prompt = started.agent.state.systemPrompt;
+						if (
+							prompt.length === spawnSystemPrompt.length &&
+							prompt.every((block, index) => block === spawnSystemPrompt[index])
+						) {
+							return;
+						}
+						persistSessionInit(started);
+					},
 				}),
 			);
 			while (pendingExtensionMessages.length > 0) {
 				await awaitAbortable(Promise.all(pendingExtensionMessages.splice(0)));
 			}
-
-			// Persist the subagent's revival contract only after startup skill
-			// discovery has had a chance to run: `discoverStartupSkillPaths()`
-			// (inside `initializeExtensions` above) rebuilds `session.agent.state.systemPrompt` when a
-			// `resources_discover` handler contributed a directory, and a
-			// cold-revived session (persisted-revive.ts) replays these exact
-			// blocks verbatim — capturing them before discovery ran would freeze
-			// every future revival on the pre-discovery prompt (PR #9379 review).
-			session.sessionManager.appendSessionInit({
-				// Blocks as sent; the session appends a newer session_init whenever a model call's base changes.
-				systemPrompt: session.agent.state.systemPrompt,
-				task,
-				tools: persistedSubagentTools,
-				agent: agent.name,
-				modelRole: modelRole ?? resolveExplicitModelRole(modelOverride ?? agent.model, subagentSettings),
-				resolvedModel: progress.resolvedModel,
-				// Deferred model resolution installs this role inside createAgentSession,
-				// so read it back from the settings both install paths write.
-				retryFallback: getRetryFallbackRole(subagentSettings, subagentRetryFallbackRole(id)),
-				readOnly: isReadOnlyAgent(agent),
-				spawns: spawnsEnv,
-				readSummarize: agent.readSummarize,
-				advisor: advisorSelection ? (advisorSelection.model ?? "on") : undefined,
-				compactionThreshold: options.compactionThresholdOverride,
-				outputSchema,
-				outputSchemaMode: options.outputSchemaMode,
-				restrictToolNames: restrictToolNames || undefined,
-				// Isolated runs are never revivable (worktree merged + cleaned):
-				// stamp the contract so cold revival leaves them transcript-only
-				// even when the workspace was retained for recovery.
-				isolated: worktree !== undefined || undefined,
-			});
 
 			unsubscribe = monitor.attach(session);
 
