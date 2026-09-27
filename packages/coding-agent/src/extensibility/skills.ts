@@ -560,7 +560,18 @@ export async function loadSkills(options: LoadSkillsOptions = {}): Promise<LoadS
 	for (let i = 0; i < allConfiguredSkills.length; i++) {
 		const { skill, body, frontmatter, namespace } = allConfiguredSkills[i];
 		const resolvedPath = configuredRealPaths[i];
-		if (realPathSet.has(resolvedPath)) continue;
+		const existing = skillMap.get(skill.name);
+		if (realPathSet.has(resolvedPath)) {
+			// The same file is already loaded. When a DEFAULT-path provider loaded
+			// it under this name, the configured alias takes over the entry so its
+			// tier holds: a later extension skill of the same name must not replace
+			// a skill the user configured via skills.customDirectories (PR #9379 review).
+			if (existing && !isConfiguredDirectoryProvider(existing._source?.provider)) {
+				const existingRealPath = await fs.realpath(existing.filePath).catch(() => existing.filePath);
+				if (existingRealPath === resolvedPath) skillMap.set(skill.name, skill);
+			}
+			continue;
+		}
 		if (admit(skill, body, frontmatter, namespace) !== undefined) realPathSet.add(resolvedPath);
 	}
 
