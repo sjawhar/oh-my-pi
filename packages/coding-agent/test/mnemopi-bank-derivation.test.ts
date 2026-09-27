@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -291,15 +291,23 @@ describe("extendRecallWithLegacyBanks known-legacy candidate past the scan cap",
 	// directory entries alone. Pin lexical order: the `aaa-*` fillers then
 	// deterministically exhaust the scan budget before any `teambase-*`/`zz-*`
 	// legacy bank is reached, which is exactly the pre-fix failure mode.
+	// Installed per test and restored after it, so hooks and other tests never
+	// observe the pinned order.
 	let restoreReaddirOrder: (() => void) | undefined;
-	beforeAll(() => {
+	beforeEach(() => {
 		const real = fsSync.readdirSync;
+		// Entries are strings, byte arrays (`encoding: "buffer"`), or Dirents
+		// whose `name` is either, depending on the call's options.
+		const entryName = (entry: string | Uint8Array | fsSync.Dirent<string | Buffer>): string => {
+			const name = typeof entry === "string" || entry instanceof Uint8Array ? entry : entry.name;
+			return typeof name === "string" ? name : new TextDecoder().decode(name);
+		};
 		const spy = spyOn(fsSync, "readdirSync").mockImplementation(((...args: Parameters<typeof real>) => {
 			const out = real(...args);
 			return Array.isArray(out)
 				? [...out].sort((a, b) => {
-						const an = typeof a === "string" ? a : a.name.toString();
-						const bn = typeof b === "string" ? b : b.name.toString();
+						const an = entryName(a);
+						const bn = entryName(b);
 						return an < bn ? -1 : an > bn ? 1 : 0;
 					})
 				: out;
@@ -307,8 +315,9 @@ describe("extendRecallWithLegacyBanks known-legacy candidate past the scan cap",
 		restoreReaddirOrder = () => spy.mockRestore();
 	});
 
-	afterAll(() => {
+	afterEach(() => {
 		restoreReaddirOrder?.();
+		restoreReaddirOrder = undefined;
 	});
 
 	afterAll(async () => {
