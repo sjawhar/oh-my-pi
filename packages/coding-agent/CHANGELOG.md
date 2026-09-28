@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `bash` commands run with `pty: true` missing shell environment variables that the same commands without `pty` already received.
+
 ## [18.4.6] - 2026-10-01
 
 ### Added
