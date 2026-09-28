@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Reduced the time to rebuild a long session's transcript on resume when it contains repeated `wait` polls or todo updates
+
 ## [18.4.5] - 2026-09-30
 
 ### Added
