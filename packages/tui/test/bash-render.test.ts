@@ -1,12 +1,14 @@
-import { afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { afterEach, beforeAll, describe, expect, it, spyOn } from "bun:test";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { RenderResultOptions } from "../src/tools/renderer";
 import { getThemeByName, setThemeInstance, type Theme } from "@oh-my-pi/pi-tui/theme";
+import * as themeModule from "@oh-my-pi/pi-tui/theme/theme";
 import { bashToolRenderer, formatBackgroundNotice } from "@oh-my-pi/pi-tui/tools/bash";
 import { previewWindowRows } from "@oh-my-pi/pi-tui/render/render-utils";
 import { ImageProtocol, TERMINAL } from "@oh-my-pi/pi-tui";
-import { sanitizeText } from "@oh-my-pi/pi-utils";
+import { getProjectDir, sanitizeText, setProjectDir } from "@oh-my-pi/pi-utils";
 
 type MutableTerminalInfo = {
 	imageProtocol: ImageProtocol | null;
@@ -77,6 +79,30 @@ describe("bashToolRenderer", () => {
 		expect(rendered).toContain("~/projects/demo");
 		expect(rendered).not.toContain(os.homedir());
 		expect(rendered).not.toContain("\t");
+	});
+
+	it("keeps the cwd prefix from when the card was built, even if the project dir changes before it paints", async () => {
+		const previous = getProjectDir();
+		const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-bash-project-"));
+		const callDirRaw = fs.mkdtempSync(path.join(os.tmpdir(), "omp-bash-call-"));
+		try {
+			// setProjectDir normalizes the path (for example, stripping /private on macOS),
+			// so take the call dir in that form.
+			setProjectDir(callDirRaw);
+			const callDir = getProjectDir();
+			setProjectDir(projectDir);
+			const component = bashToolRenderer.renderCall(
+				{ command: "ls", cwd: callDir },
+				{ expanded: false, isPartial: false },
+				uiTheme,
+			);
+			setProjectDir(callDir);
+			expect(sanitizeText(component.render(120).join("\n"))).toContain(`cd ${callDir} &&`);
+		} finally {
+			setProjectDir(previous);
+			fs.rmSync(projectDir, { recursive: true, force: true });
+			fs.rmSync(callDirRaw, { recursive: true, force: true });
+		}
 	});
 
 	it("renders the pending call as a bordered block with the command in the body", async () => {
@@ -305,6 +331,51 @@ describe("bashToolRenderer", () => {
 		// styling after the first newline (the bug this fix addresses).
 		for (const idx of [forLine, echoLine, doneLine]) {
 			expect(rendered[idx]).toMatch(/\u001b\[38;(?:2|5);/);
+		}
+	});
+
+	it("highlights a bash command once, when its card first renders", async () => {
+		const highlight = spyOn(themeModule, "highlightCode");
+		try {
+			const call = bashToolRenderer.renderCall(
+				{ command: "echo one" },
+				{ expanded: false, isPartial: false },
+				uiTheme,
+			);
+			const result = bashToolRenderer.renderResult(
+				{ content: [{ type: "text", text: "one" }] },
+				{ expanded: false, isPartial: false },
+				uiTheme,
+				{ command: "echo one" },
+			);
+			expect(highlight).not.toHaveBeenCalled();
+			call.render(120);
+			call.render(120);
+			result.render(120);
+			result.render(120);
+			expect(highlight).toHaveBeenCalledTimes(2);
+		} finally {
+			highlight.mockRestore();
+		}
+	});
+
+	it("highlights a bash command in the theme its card was built under", async () => {
+		const light = await getThemeByName("light");
+		if (!light) throw new Error("Expected light theme");
+		const command = 'for f in a b; do echo "$f"; done';
+		const builtUnder = themeModule.highlightCode(command, "bash", uiTheme)[0]!;
+		const switchedTo = themeModule.highlightCode(command, "bash", light)[0]!;
+		expect(switchedTo).not.toBe(builtUnder);
+		const previous = themeModule.theme;
+		try {
+			setThemeInstance(uiTheme);
+			const component = bashToolRenderer.renderCall({ command }, { expanded: false, isPartial: false }, uiTheme);
+			setThemeInstance(light);
+			const rendered = component.render(120).join("\n");
+			expect(rendered).toContain(builtUnder);
+			expect(rendered).not.toContain(switchedTo);
+		} finally {
+			setThemeInstance(previous ?? uiTheme);
 		}
 	});
 

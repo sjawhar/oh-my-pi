@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Reduced the time to resume or rebuild a long session: its transcript is ready to read and scroll sooner
+
 ## [18.4.2] - 2026-09-28
 
 ### Changed

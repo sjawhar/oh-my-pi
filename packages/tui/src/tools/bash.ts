@@ -1,6 +1,6 @@
 import type { Component } from "../tui";
-import { getProjectDir } from "@oh-my-pi/pi-utils";
-import { highlightCode, type Theme } from "../theme/theme";
+import { getProjectDir, once } from "@oh-my-pi/pi-utils";
+import { highlightCode, type Theme, theme } from "../theme/theme";
 import { renderStatusLine } from "../render/status-line";
 import { framedToolCard, type ToolCardSnapshot } from "../render/tool-card";
 import { formatOutputPaneLines } from "../render/output-pane";
@@ -209,24 +209,38 @@ export function getBashEnvForDisplay(args: BashRenderArgs): Record<string, unkno
 }
 
 /**
- * Returns the bash command formatted for the result body: the dim `$ cd … &&`
- * prefix joined with syntax-highlighted command lines. The prefix is applied
- * only to the first line so multi-line commands display cleanly — terminals
- * reset SGR state at line boundaries, which made the previous single-string
- * `theme.fg("dim", ...)` form render only the first line as dim.
+ * The bash command formatted for the result body, computed lazily. The dim
+ * `$ cd … &&` prefix and the highlight theme are fixed now: the prefix reflects
+ * the project directory when the card is built, and the whole card must paint in
+ * the theme it was built under. Syntax highlighting, the expensive part, runs on
+ * the first call and is then reused. Cards read these lines only from their
+ * render-time builders, so a card that never renders never highlights. In the
+ * alternate-screen transcript viewport, that is most of a resumed session's
+ * history. The prefix is applied only to the first line so multi-line commands
+ * display cleanly: terminals reset SGR state at line boundaries.
  */
-export function formatBashCommandLines(args: BashRenderArgs, uiTheme: Theme): string[] {
+function lazyBashCommandLines(args: BashRenderArgs, uiTheme: Theme): () => string[] {
 	const command = replaceTabs(args.command || "…");
-	const cwd = getProjectDir();
-	const displayWorkdir = formatToolWorkingDirectory(args.cwd, cwd);
+	const displayWorkdir = formatToolWorkingDirectory(args.cwd, getProjectDir());
 	const envAssignments = formatBashEnvAssignments(getBashEnvForDisplay(args));
 	const prefixParts = ["$"];
 	if (displayWorkdir) prefixParts.push(`cd ${displayWorkdir} &&`);
 	if (envAssignments) prefixParts.push(envAssignments);
 	const prefix = uiTheme.fg("dim", `${prefixParts.join(" ")} `);
-	const highlightedLines = highlightCode(command, "bash");
-	if (highlightedLines.length === 0) return [prefix.trimEnd()];
-	return highlightedLines.map((line, i) => (i === 0 ? `${prefix}${line}` : line));
+	const highlightTheme = theme;
+	return once(() => {
+		const highlightedLines = highlightCode(command, "bash", highlightTheme);
+		if (highlightedLines.length === 0) return [prefix.trimEnd()];
+		return highlightedLines.map((line, i) => (i === 0 ? `${prefix}${line}` : line));
+	});
+}
+
+/**
+ * The bash command formatted for the result body: the dim `$ cd … &&` prefix on
+ * the first line, then the syntax-highlighted command lines.
+ */
+export function formatBashCommandLines(args: BashRenderArgs, uiTheme: Theme): string[] {
+	return lazyBashCommandLines(args, uiTheme)();
 }
 
 function toBashRenderArgs<TArgs>(args: TArgs | undefined, config: ShellRendererConfig<TArgs>): BashRenderArgs {
@@ -243,7 +257,7 @@ export function createShellRenderer<TArgs>(config: ShellRendererConfig<TArgs>) {
 	return {
 		renderCall(args: TArgs, options: RenderResultOptions, uiTheme: Theme): Component {
 			const renderArgs = toBashRenderArgs(args, config);
-			const cmdLines = formatBashCommandLines(renderArgs, uiTheme);
+			const cmdLines = lazyBashCommandLines(renderArgs, uiTheme);
 			return framedToolCard(uiTheme, () => {
 				const header =
 					config.showHeader === false
@@ -259,7 +273,7 @@ export function createShellRenderer<TArgs>(config: ShellRendererConfig<TArgs>) {
 				return {
 					header,
 					phase: options.spinnerFrame !== undefined ? "running" : "pending",
-					sections: [{ content: capPreviewLines(cmdLines, uiTheme, { expanded: options.expanded }) }],
+					sections: [{ content: capPreviewLines(cmdLines(), uiTheme, { expanded: options.expanded }) }],
 				};
 			});
 		},
@@ -275,7 +289,7 @@ export function createShellRenderer<TArgs>(config: ShellRendererConfig<TArgs>) {
 			args?: TArgs,
 		): Component {
 			const renderArgs = toBashRenderArgs(args, config);
-			const cmdLines = args ? formatBashCommandLines(renderArgs, uiTheme) : undefined;
+			const cmdLines = args ? lazyBashCommandLines(renderArgs, uiTheme) : undefined;
 			const isError = result.isError === true;
 			const isPartial = options.isPartial === true;
 			const success = !isPartial && !isError;
@@ -438,7 +452,7 @@ export function createShellRenderer<TArgs>(config: ShellRendererConfig<TArgs>) {
 							{
 								// Viewport-sized tail window in every state — streaming and final
 								// render identically; only ctrl+o uncaps.
-								content: capPreviewLines(cmdLines ?? [], uiTheme, { expanded }),
+								content: capPreviewLines(cmdLines?.() ?? [], uiTheme, { expanded }),
 							},
 							{ label: uiTheme.fg("toolTitle", "Output"), content: outputLines },
 						],
