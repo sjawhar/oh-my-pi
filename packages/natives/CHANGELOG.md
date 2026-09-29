@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed stalls when highlighting Markdown tool previews with many inline spans or backslash escapes.
+
 ## [18.8.1] - 2026-10-07
 
 ### Added
