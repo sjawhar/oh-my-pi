@@ -61,6 +61,7 @@ import {
 	logger,
 	postmortem,
 	prompt,
+	queueStderrBehindTerminal,
 	sanitizeText,
 	stableStringifyJson,
 	setProjectDir,
@@ -6799,7 +6800,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		const sessionId = this.#resumableSessionId();
 		if (sessionId) {
 			// Command on its own line so triple-click selects just the command (#11001).
-			process.stderr.write(`\n${chalk.dim("Resume this session with")}\n${chalk.dim(resumeCommand(sessionId))}\n`);
+			const hint = `\n${chalk.dim("Resume this session with")}\n${chalk.dim(resumeCommand(sessionId))}\n`;
+			// A stalled terminal may not have read the restore yet; queue behind it so the hint lands last.
+			if (!queueStderrBehindTerminal(hint)) process.stderr.write(hint);
 		}
 
 		await postmortem.quit(0);
@@ -6848,7 +6851,8 @@ export class InteractiveMode implements InteractiveModeContext {
 			try {
 				execReplace(cmd); // never returns on success
 			} catch (err) {
-				process.stderr.write(`${chalk.red(`Restart exec failed: ${err instanceof Error ? err.message : err}`)}\n`);
+				const message = `${chalk.red(`Restart exec failed: ${err instanceof Error ? err.message : err}`)}\n`;
+				if (!queueStderrBehindTerminal(message)) process.stderr.write(message);
 			}
 		}
 		try {
@@ -6859,7 +6863,8 @@ export class InteractiveMode implements InteractiveModeContext {
 			});
 			await postmortem.quit(await child.exited);
 		} catch (err) {
-			process.stderr.write(`${chalk.red(`Restart spawn failed: ${err instanceof Error ? err.message : err}`)}\n`);
+			const message = `${chalk.red(`Restart spawn failed: ${err instanceof Error ? err.message : err}`)}\n`;
+			if (!queueStderrBehindTerminal(message)) process.stderr.write(message);
 			await postmortem.quit(1);
 		}
 	}
