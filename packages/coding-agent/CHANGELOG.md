@@ -83,6 +83,8 @@
 - Fixed `grep` showing only the first 512 bytes of a long matching line, so a match further in never appeared; it now shows the part around the match, with `...` on cut sides and the match's `[col N]` ([#15278](https://github.com/can1357/oh-my-pi/pull/15278) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed snapcompact archives being sized from the context window, which could leave the context over a low compaction trigger right after compacting; archives now take half the room left under the trigger ([#14345](https://github.com/can1357/oh-my-pi/pull/14345) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed a usage-limited session with an account pool (such as a task agent under `task.agentAccountPools`) spending a saved reset to restore an account outside its pool, which it cannot use; resets about to expire are still salvaged on every account ([#15135](https://github.com/can1357/oh-my-pi/pull/15135) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed quitting a long session leaving the resume hint in the middle of output: it is now the last line, and nothing keeps painting after omp exits ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed quitting after a large write sometimes leaving the terminal or tmux window title set to omp's title instead of restoring the previous one ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.8.9] - 2026-10-10
 

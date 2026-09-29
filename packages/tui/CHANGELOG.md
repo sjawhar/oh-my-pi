@@ -35,6 +35,8 @@
 - Fixed dead keys on Windows Terminal 1.24 and earlier (US-International and similar layouts): `'` or `"` followed by Space now types the quote instead of a space, and a dead key followed by Enter or Tab types the quote instead of submitting or inserting a tab ([#15138](https://github.com/can1357/oh-my-pi/pull/15138) by [@davide-butera](https://github.com/davide-butera))
 - Fixed SIXEL auto-detection on terminals that advertise graphics through DA1 attribute 4 but do not answer XTSMGRAPHICS, including native Windows Terminal; SVG figures and inline images no longer require `PI_FORCE_IMAGE_PROTOCOL=sixel`. Terminals that answer both queries keep consuming the pending graphics reply after DA1 enables SIXEL, preventing probe bytes from reaching application input ([#15226](https://github.com/can1357/oh-my-pi/pull/15226) by [@pgkim42](https://github.com/pgkim42)).
 - Fixed user messages showing as empty blank padding bars and leaving moving OSC 133 prompt markers across terminal rows in the overflow transcript emergency layout ([#13835](https://github.com/can1357/oh-my-pi/issues/13835), [#14910](https://github.com/can1357/oh-my-pi/pull/14910) by [@twotnguyen](https://github.com/twotnguyen))
+- Fixed stopping the TUI after a large write leaving queued output to paint over the shell or editor that takes the terminal next ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed text containing a lone UTF-16 surrogate swallowing the next character on unix terminals; the surrogate now shows as `�` ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.8.9] - 2026-10-10
 
