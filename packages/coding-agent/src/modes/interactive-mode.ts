@@ -29,6 +29,7 @@ import type {
 import {
 	Container,
 	clearRenderCache,
+	EXIT_FLUSH_MAX_ROWS,
 	getComposerStyle,
 	getPaddingX,
 	getWidthConfigEpoch,
@@ -5478,7 +5479,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 
 		try {
-			this.ui.stop();
+			this.ui.stop({ resuming: true });
 			const result = await openInEditor(editorCmd, currentText, {
 				extension: path.extname(resolvedPath) || ".md",
 				trimTrailingNewline: false,
@@ -5504,7 +5505,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 
 		try {
-			this.ui.stop();
+			this.ui.stop({ resuming: true });
 			const result = await openInEditor(editorCmd, draft, { extension: ".md" });
 			if (result !== null) {
 				commit(result);
@@ -6759,7 +6760,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		setCfgApprovalHost(null);
 		this.#hideSessionInfo();
 		if (this.#ownsStartedUi) {
-			this.ui.stop();
+			// Cap the exit flush only when the session file keeps what the cap
+			// skips (the resume hint's condition); otherwise native scrollback is
+			// the transcript's only copy, so it gets the full flush.
+			this.ui.stop(this.#resumableSessionId() === undefined ? undefined : { maxRows: EXIT_FLUSH_MAX_ROWS });
 			this.#ownsStartedUi = false;
 		}
 		this.isInitialized = false;
