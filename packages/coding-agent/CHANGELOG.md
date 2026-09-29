@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed quitting a long session leaving the resume hint in the middle of output: it is now the last line, and nothing keeps painting after omp exits.
+- Fixed quitting after a large write sometimes leaving the terminal or tmux window title set to omp's title instead of restoring the previous one.
+
 ## [18.4.3] - 2026-09-28
 
 ### Added

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed stopping the TUI after a large write leaving queued output to paint over the shell or editor that takes the terminal next.
+- Fixed text containing a lone UTF-16 surrogate swallowing the next character on unix terminals; the surrogate now shows as `�`.
+
 ## [18.4.3] - 2026-09-28
 
 ### Changed

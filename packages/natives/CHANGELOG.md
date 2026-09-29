@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `TtyWriter.discard()`, which drops terminal output that was queued but not yet written; the chunk already being written still finishes.
+
+### Fixed
+
+- Fixed `TtyWriter.flushSync()` and `stop()` sometimes waiting out their whole timeout after the queued output had already been written.
+- Fixed `TtyWriter.stop()` occasionally hanging forever when the queue had already drained.
+
 ## [18.4.3] - 2026-09-28
 
 ### Changed
