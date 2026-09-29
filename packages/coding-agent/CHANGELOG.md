@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Fixed quitting or restarting a long saved session stalling while it rendered the whole un-retired transcript (for example after a fullscreen overlay held the screen); only the newest 2,000 rows are written to scrollback, and `omp --resume` restores the older messages. An unsaved session (`--no-session`, or one not yet written to disk) still writes its whole transcript at quit, but a signal exit, a terminal disconnect, or the forced exit after a failed teardown caps it too ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed quitting or restarting a long saved session stalling while it rendered the whole un-retired transcript (for example after a fullscreen overlay held the screen); only the newest 2,000 rows are written to scrollback, and `omp --resume` restores the older messages. An unsaved session (`--no-session`, or one not yet written to disk) still writes its whole transcript at quit, and after a fatal error or a failed teardown too, but a signal exit or a terminal disconnect caps it ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar)).
 - Fixed opening the external editor from a fullscreen view, such as `/annotate` or plan review, stalling for many seconds on a long session ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.8.3] - 2026-10-07
