@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed long Markdown messages sometimes showing raw display math, a visible HTML comment, or a code block split in two
+
 ## [18.4.8] - 2026-10-01
 
 ### Fixed
