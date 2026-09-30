@@ -5,6 +5,10 @@
 ### Added
 
 - Added `TUI.setExitFlushProvider()`, which decides how an exiting stop (`stop()` without options, or a postmortem restore other than a signal) flushes history ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar))
+- Added `TUI.stop(options)` with `TUIStopOptions`: `{ maxRows }` caps an exiting stop's history flush, and `{ resuming: true }` marks a handoff that resumes with `start()` ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar))
+- Added `HistoryFlushOptions`, the flush shape a frame provider's `beginHistoryFlush()` receives ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar))
+- Added `EXIT_FLUSH_MAX_ROWS` (2,000), the row cap for an exiting stop's history flush ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar))
+- Added `TerminalFrameProvider.endHistoryFlush()`, which ends the stop-time flush so frames after `start()` retire by pressure again ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar))
 
 ### Fixed
 
