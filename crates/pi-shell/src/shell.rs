@@ -3524,6 +3524,38 @@ mod tests {
 		}
 	}
 
+	/// A child that stops before `ChildProcess::wait` begins is still reported
+	/// as stopped. Every pipeline stage is spawned before the first one is
+	/// waited on, so a stage that stops itself at once (the jobspec test above)
+	/// can stop before the wait subscribes to SIGCHLD; that signal is never
+	/// observed, and without a check for already-stopped children the wait
+	/// hangs.
+	#[cfg(unix)]
+	#[tokio::test(flavor = "multi_thread")]
+	async fn child_wait_reports_a_stop_that_precedes_the_wait() {
+		let mut command = Command::new("sh");
+		command.args(["-c", "kill -STOP $$"]).kill_on_drop(true);
+		let child = command.spawn().expect("self-stopping child");
+		let pid = i32::try_from(child.id().expect("child pid")).expect("pid fits i32");
+		time::timeout(Duration::from_secs(20), async {
+			while !pi_builtins::ProcInfo::all()
+				.into_iter()
+				.any(|process| process.pid() == pid && process.state() == 'T')
+			{
+				time::sleep(Duration::from_millis(10)).await;
+			}
+		})
+		.await
+		.expect("child did not stop itself");
+
+		let mut child = brush_core::processes::ChildProcess::new(child, Some(pid), None);
+		let result = time::timeout(Duration::from_secs(20), child.wait(None))
+			.await
+			.expect("wait missed a stop that happened before it began")
+			.expect("child wait");
+		assert!(matches!(result, brush_core::processes::ProcessWaitResult::Stopped));
+	}
+
 	/// A failed target makes `kill` return non-zero without preventing later
 	/// process operands from receiving the selected signal.
 	#[cfg(unix)]
