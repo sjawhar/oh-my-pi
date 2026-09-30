@@ -10,6 +10,7 @@
 
 - Fixed memory saves slowing down and the memory database growing quadratically with the number of stored memories, because any two memories mentioning a date or words like "today" were linked even when unrelated ([#15013](https://github.com/can1357/oh-my-pi/pull/15013) by [@tickernelz](https://github.com/tickernelz)).
 - Loop-watchdog stalls caused by Mnemopi retention, recall, fact write-back, embedding persistence, bank open, stats and consolidation are now logged under a `mnemopi.*` phase instead of `unknown` ([#15001](https://github.com/can1357/oh-my-pi/pull/15001) by [@jaredlyon](https://github.com/jaredlyon)).
+- Fixed `MNEMOPI_STATED_WEIGHT` / `MNEMOPI_INFERRED_WEIGHT` / `MNEMOPI_TOOL_WEIGHT` / `MNEMOPI_IMPORTED_WEIGHT` / `MNEMOPI_UNKNOWN_WEIGHT` and `MNEMOPI_TIER1_WEIGHT` / `MNEMOPI_TIER2_WEIGHT` / `MNEMOPI_TIER3_WEIGHT` having no effect: recall now scores each memory with the configured veracity and degradation-tier weights instead of a fixed table; the defaults are unchanged
 
 ## [18.8.8] - 2026-10-10
 
