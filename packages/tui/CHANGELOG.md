@@ -5,6 +5,8 @@
 ### Added
 
 - `AutocompleteItem.descriptionMatch` marks a slash command matched only through its description; `Editor` Enter no longer applies such a row unless the user moved the selection onto it ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
+- Added optional `Terminal.settleOutput()`, which drains or drops queued output before the terminal is handed over; custom terminals may implement it ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+- Added `writeStderrBehindTerminal()` (`@oh-my-pi/pi-tui/terminal-handoff`), which writes to stderr after the output a stopped terminal has not delivered yet ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
 
 ### Fixed
 
