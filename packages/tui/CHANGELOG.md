@@ -5,14 +5,16 @@
 ### Added
 
 - `AutocompleteItem.descriptionMatch` marks a slash command matched only through its description; `Editor` Enter no longer applies such a row unless the user moved the selection onto it ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
+- Added `TUI.setExitFlushProvider()`, which decides how a postmortem restore other than a signal flushes history ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar))
 
 ### Fixed
 
 - Fixed the composer caret drifting one cell left per pasted image or video chip in terminals that draw the chip icon as a wide emoji (JetBrains terminal); the `unicode` preset now uses `📷`/`🎬` chip icons ([#16270](https://github.com/can1357/oh-my-pi/issues/16270))
 - Fixed Tern hiding user text sent with `/skill:<name>` inside a collapsed skill card; only the loaded skill prompt is hidden ([#16311](https://github.com/can1357/oh-my-pi/issues/16311))
-- Fixed quitting a session with a long un-retired transcript (for example after a fullscreen overlay held the screen) rendering the whole history before exit. `TUI.stop({ maxRows })` writes only the newest whole blocks within `maxRows` rows to scrollback (omp passes `EXIT_FLUSH_MAX_ROWS`, 2,000), as do a terminal disconnect and a signal restore, and a fatal-error restore when `TUI.setExitFlushProvider()` says so; the older rows are not written anywhere, so pass a cap only when another copy survives, such as a saved session ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed quitting a session with a long un-retired transcript (for example after a fullscreen overlay held the screen) rendering the whole history before exit. `TUI.stop({ maxRows })` writes only the newest whole blocks within `maxRows` rows to scrollback (a newest block taller than that is written whole) (omp passes `EXIT_FLUSH_MAX_ROWS`, 2,000), as do a terminal disconnect and a signal restore, and a fatal-error restore when `TUI.setExitFlushProvider()` says so; the older rows are not written anywhere, so pass a cap only when another copy survives, such as a saved session ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar)).
 - Fixed finished messages moving into terminal scrollback immediately, instead of staying live until the screen fills, after returning from a suspend or an external editor ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar)).
 - Fixed opening the external editor or suspending from a fullscreen view, such as `/annotate`, stalling for many seconds on a long session ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar)).
+- Fixed quitting with more inline images than the image budget allows writing the newest ones to scrollback as text instead of the oldest ([#13799](https://github.com/can1357/oh-my-pi/pull/13799) by [@sjawhar](https://github.com/sjawhar))
 
 ## [18.12.2] - 2026-10-18
 
