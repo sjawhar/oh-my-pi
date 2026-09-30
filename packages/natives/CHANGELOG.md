@@ -22,7 +22,7 @@
 - Fixed Kotlin, Swift, Elixir and Sass code being highlighted with the Java, Objective-C, Ruby and Haml grammars
 - Fixed code inside string interpolations (Python f-strings, Julia `$(…)`, Elixir `#{…}`) being colored as part of the string
 - Fixed `supportsLanguage` returning `true` for languages `highlightCode` leaves unhighlighted
-- Fixed stalls when highlighting Markdown tool previews with many inline spans or backslash escapes.
+- Fixed stalls when highlighting Markdown tool previews with many inline spans or backslash escapes ([#13838](https://github.com/can1357/oh-my-pi/pull/13838) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.8.8] - 2026-10-10
 
