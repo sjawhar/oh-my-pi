@@ -94,14 +94,16 @@ Recall multiplies each memory's score by a weight for its stored `veracity` labe
 
 | Variable                  | Default | Applies to                                                                           |
 | ------------------------- | ------- | ------------------------------------------------------------------------------------ |
-| `MNEMOPI_STATED_WEIGHT`   | `1.0`   | `veracity: stated`                                                                   |
-| `MNEMOPI_UNKNOWN_WEIGHT`  | `0.8`   | `veracity: unknown`, which the coding agent's automatic transcript retention writes |
+| `MNEMOPI_STATED_WEIGHT`   | `1.0`   | `veracity: stated`, which the coding agent's explicit memory save (the extension `memory.save` API) writes |
+| `MNEMOPI_UNKNOWN_WEIGHT`  | `0.8`   | `veracity: unknown`, which the coding agent's automatic transcript retention writes, and any write that names no label |
 | `MNEMOPI_INFERRED_WEIGHT` | `0.7`   | `veracity: inferred`                                                                 |
 | `MNEMOPI_IMPORTED_WEIGHT` | `0.6`   | `veracity: imported`                                                                 |
 | `MNEMOPI_TOOL_WEIGHT`     | `0.5`   | `veracity: tool`, which the coding agent's `retain` and `learn` tools write          |
 | `MNEMOPI_TIER1_WEIGHT`    | `1.0`   | episodic memories at degradation tier 1                                              |
 | `MNEMOPI_TIER2_WEIGHT`    | `0.85`  | episodic memories at degradation tier 2                                              |
 | `MNEMOPI_TIER3_WEIGHT`    | `0.7`   | episodic memories at degradation tier 3 or beyond                                    |
+
+Sleep consolidation carries a working memory's label onto the episodic memory it produces.
 
 Memories labelled `true` or `likely_true` always weigh `1.0`, and `false` weighs `0`. With `mnemopi.polyphonicRecall`, these weights order the standard ranking that becomes the fused `hybrid` voice; the vector, graph, fact and temporal voices do not apply them.
 
