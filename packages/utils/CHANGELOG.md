@@ -9,7 +9,6 @@
 ### Added
 
 - Added `withLoopPhase(label, fn)`, which runs `fn` under a loop phase and pops it in `finally`; for an async `fn` only its synchronous prefix is labeled ([#15001](https://github.com/can1357/oh-my-pi/pull/15001) by [@jaredlyon](https://github.com/jaredlyon)).
-- Added `queueStderrBehindTerminal()`, which queues text for stderr behind terminal output a stopped TUI has not delivered yet, and `setTerminalHandoffWriter()`, which the TUI uses to provide that queue ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
 
 ### Changed
 
