@@ -38,7 +38,7 @@ from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_templat
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
-from omp_local import _Usage, _env, _loads
+from omp_local import _exec_with_private_env, _Usage, _env, _loads
 
 _OUTPUT_FILENAME = "pi.txt"
 _MODELS_DST = "/tmp/pi-models.json"
@@ -217,11 +217,7 @@ class PiUpstream(BaseInstalledAgent):
                 f'sed "s|{{{{CWD}}}}|$PWD|" {_SYSTEM_DST} > "$HOME/.pi/agent/SYSTEM.md"; '
             )
         run = prelude + " ".join(parts) + f" < /dev/null > /logs/agent/{_OUTPUT_FILENAME} 2>&1"
-        await self.exec_as_agent(
-            environment,
-            command=self._wrap(run),
-            env=self._forward_env or None,
-        )
+        await _exec_with_private_env(self, environment, self._wrap(run), self._forward_env, self._home)
 
     @override
     def populate_context_post_run(self, context: AgentContext) -> None:

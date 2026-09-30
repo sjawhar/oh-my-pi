@@ -135,7 +135,7 @@ omitted from the benchmark prompt. Override infrastructure with
 | `-i/-x, --include/--exclude <glob>` | — | Task filters (repeatable) |
 | `--timeout-multiplier <x>` | — | Scales task agent/verifier timeouts |
 | `--agent-arg <arg>` | — | Extra arg forwarded verbatim to the in-container omp CLI (repeatable) |
-| `--env <KEY[=VALUE]>` | — | Forward env into the omp container (repeatable); `KEY` alone forwards the host value. `runner-config.json` records only the name |
+| `--env <KEY[=VALUE]>` | — | Forward env into the omp container (repeatable); `KEY` alone forwards the host value. Values reach the agent run through a private file, never exec argv, and `runner-config.json` records only the name |
 | `--binary <path>` | — | Prebuilt omp binary (repeat for arm64+x64) |
 | `--install <source\|local\|published>` | `source` | `source` = repo bind-mount, `local` = tarball pack, `published` = npm `@oh-my-pi/pi-coding-agent` |
 | `--environment <docker\|apple-container>` | `docker` | `apple-container` runs trials via Apple's `container` CLI (no Docker); source/deps mounts go through `harbor --mounts` and the gateway is auto-forwarded from `192.168.64.1:4000` to the loopback-bound gateway |
