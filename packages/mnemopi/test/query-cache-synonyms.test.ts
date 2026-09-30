@@ -81,14 +81,14 @@ describe("QueryCache", () => {
 	it("does not serve a short query from a long cached prompt that merely contains its words", () => {
 		const qc = cache({ maxSize: 100 });
 		qc.put(
-			"Here is the deal. I need you to fix the hiring process now that we have the new candidate work test. " +
-				"First, how do we set the scoring rubric for the account of each reviewer, and what should the recruiter " +
-				"see for every candidate? Second, the pipeline stages need renaming so the dashboard matches the offer " +
-				"flow, and the rejection emails should go out automatically once a reviewer signs off on the test.",
-			[{ content: "hiring ranking" }],
+			"Here is the plan. I need you to rework the bakery ordering flow now that we have the new seasonal menu. " +
+				"First, how do we set the price tier for the account of each wholesale customer, and what should the cashier " +
+				"see for every order? Second, the checkout steps need renaming so the receipt matches the delivery " +
+				"flow, and the confirmation emails should go out automatically once a manager signs off on the menu.",
+			[{ content: "bakery ranking" }],
 		);
 
-		expect(qc.get("how do I set the gcloud account for the devbox")).toBeNull();
+		expect(qc.get("how do I set the printer account for the office")).toBeNull();
 		expect(qc.tier4Hits).toBe(0);
 	});
 
