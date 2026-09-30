@@ -100,6 +100,26 @@ describe("QueryCache", () => {
 		expect(qc.tier4Hits).toBe(0);
 	});
 
+	it("hits tier4 exactly at half of the cached query and at 70% of the new query", () => {
+		const halfCached = cache({ maxSize: 100 });
+		halfCached.put("apple banana cherry damson", [{ content: "half" }]);
+		expect(halfCached.get("apple banana")?.[0]?.content).toBe("half");
+
+		const seventyQuery = cache({ maxSize: 100 });
+		seventyQuery.put("one two three four five six seven alpha beta gamma", [{ content: "seventy" }]);
+		expect(seventyQuery.get("one two three four five six seven delta epsilon zeta")?.[0]?.content).toBe("seventy");
+	});
+
+	it("misses tier4 just below half of the cached query or 70% of the new query", () => {
+		const belowHalf = cache({ maxSize: 100 });
+		belowHalf.put("apple banana cherry damson elder", [{ content: "below half" }]);
+		expect(belowHalf.get("apple banana")).toBeNull();
+
+		const belowSeventy = cache({ maxSize: 100 });
+		belowSeventy.put("apple banana cherry", [{ content: "below seventy" }]);
+		expect(belowSeventy.get("apple banana zucchini")).toBeNull();
+	});
+
 	it("matches only entries of the same scope in every tier", () => {
 		const qc = cache({ maxSize: 100 });
 		qc.put("deploy server status", [{ content: "top five" }], [1, 0, 0], "topK=5");
