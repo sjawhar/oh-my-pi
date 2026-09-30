@@ -90,7 +90,7 @@ Retention writes a marker-free transcript projection: when the host supplies an 
 
 ## Recall ranking weights
 
-Recall multiplies each memory's score by a weight for its stored `veracity` label and, for episodic memories, by a weight for its degradation tier. Each weight is read from its environment variable on every recall:
+Recall multiplies each memory's score by a weight for its stored `veracity` label and, for episodic memories, by a weight for its degradation tier. Each weight is read from its environment variable on every recall, and a negative value counts as 0:
 
 | Variable                  | Default | Applies to                                                                           |
 | ------------------------- | ------- | ------------------------------------------------------------------------------------ |
@@ -103,9 +103,9 @@ Recall multiplies each memory's score by a weight for its stored `veracity` labe
 | `MNEMOPI_TIER2_WEIGHT`    | `0.85`  | episodic memories at degradation tier 2                                              |
 | `MNEMOPI_TIER3_WEIGHT`    | `0.7`   | episodic memories at degradation tier 3 or beyond                                    |
 
-Sleep consolidation carries a working memory's label onto the episodic memory it produces.
+Sleep consolidation labels each episode with the most common label among the working memories it summarises, ignoring `unknown` unless every source is `unknown`; a tie goes to the lower-weighted label.
 
-Memories labelled `true` or `likely_true` always weigh `1.0`, and `false` weighs `0`. With `mnemopi.polyphonicRecall`, these weights order the standard ranking that becomes the fused `hybrid` voice; the vector, graph, fact and temporal voices do not apply them.
+Memories labelled `true` always weigh `1.0`, and `false` weighs `0`. With `mnemopi.polyphonicRecall`, these weights order the standard ranking that becomes the fused `hybrid` voice; the vector, graph, fact and temporal voices do not apply them.
 
 ## LLM and embeddings
 
