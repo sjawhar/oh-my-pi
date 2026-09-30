@@ -99,6 +99,15 @@ impl ChildProcess {
 		#[allow(unused_mut, reason = "only mutated on some platforms")]
 		let mut sigchld = sys::signal::chld_signal_listener()?;
 
+		// A SIGCHLD delivered before the subscription above never reaches
+		// `sigchld`. Pipeline stages are all spawned before the first is
+		// waited on, so a stage can stop before this point; check once for
+		// children that already stopped. Exits need no such check: the child's
+		// exec future registered for them when it was spawned.
+		if sys::signal::poll_for_stopped_children()? {
+			return Ok(ProcessWaitResult::Stopped);
+		}
+
 		let cancelled = async {
 			match &cancel_token {
 				Some(token) => token.cancelled().await,
