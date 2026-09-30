@@ -11,6 +11,7 @@
 - Added `ChartPlan` fields a planner can set — row naming (`qualifiers`, `group`), `shading`, `reference`, `order`, `polarity`, `rivals`, `focus`, `title`, `normalize` — and `shouldJudge`, which picks the tables `smart` mode sends to a model
 - Added an optional `assistantMessageText` theme token that colors assistant reply paragraph prose; unset or empty keeps the terminal default foreground ([#11204](https://github.com/can1357/oh-my-pi/issues/11204), [#11260](https://github.com/can1357/oh-my-pi/pull/11260) by [@oleg494](https://github.com/oleg494)).
 - Added optional `StatusLineHost.classifyResetExpiry` and `resetExpiryNotice` plus `StatusLineComponent.setResetExpiryNoticeHandler`: the usage segment marks saved resets expiring within 7 days (`▲ N exp …`), and the handler gets one pool-wide warning per conversation for resets expiring within 24 hours ([#15134](https://github.com/can1357/oh-my-pi/pull/15134) by [@will-bogusz](https://github.com/will-bogusz))
+- Added `renderMarkdownHead` and `MarkdownHead` to `components/markdown`, which render only the leading rows of a Markdown document and report whether it was cut, and an optional `orMore` flag to `formatMoreItems` that marks the count as a minimum (`… 45+ more lines`) ([#13840](https://github.com/can1357/oh-my-pi/pull/13840) by [@sjawhar](https://github.com/sjawhar)).
 
 ### Changed
 
@@ -35,6 +36,7 @@
 - Fixed dead keys on Windows Terminal 1.24 and earlier (US-International and similar layouts): `'` or `"` followed by Space now types the quote instead of a space, and a dead key followed by Enter or Tab types the quote instead of submitting or inserting a tab ([#15138](https://github.com/can1357/oh-my-pi/pull/15138) by [@davide-butera](https://github.com/davide-butera))
 - Fixed SIXEL auto-detection on terminals that advertise graphics through DA1 attribute 4 but do not answer XTSMGRAPHICS, including native Windows Terminal; SVG figures and inline images no longer require `PI_FORCE_IMAGE_PROTOCOL=sixel`. Terminals that answer both queries keep consuming the pending graphics reply after DA1 enables SIXEL, preventing probe bytes from reaching application input ([#15226](https://github.com/can1357/oh-my-pi/pull/15226) by [@pgkim42](https://github.com/pgkim42)).
 - Fixed user messages showing as empty blank padding bars and leaving moving OSC 133 prompt markers across terminal rows in the overflow transcript emergency layout ([#13835](https://github.com/can1357/oh-my-pi/issues/13835), [#14910](https://github.com/can1357/oh-my-pi/pull/14910) by [@twotnguyen](https://github.com/twotnguyen))
+- Fixed long Markdown files and skills being slow to appear in read previews: a collapsed preview now renders only the start of the document, so its footer gives the rows it hides as a minimum (`… 45+ more lines`) ([#13840](https://github.com/can1357/oh-my-pi/pull/13840) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.8.9] - 2026-10-10
 
