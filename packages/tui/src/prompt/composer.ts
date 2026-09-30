@@ -8,7 +8,6 @@ import { ProcessTerminal, type Terminal } from "../terminal";
 import {
 	type Component,
 	Container,
-	EXIT_FLUSH_MAX_ROWS,
 	type HistoryFlushOptions,
 	type RenderTimer,
 	type ResizeScrollbackMode,
@@ -1132,7 +1131,7 @@ export class Composer implements TerminalFrameProvider, NativeSurfaceProvider {
 		// Remains live after transfer until InteractiveMode installs its configured handlers.
 		if (this.#stopped) return;
 		this.#welcome?.stopIntro();
-		if (this.#started) this.ui.stop({ maxRows: EXIT_FLUSH_MAX_ROWS });
+		if (this.#started) this.ui.stop();
 		this.#stopped = true;
 		this.#exit(code);
 	}
