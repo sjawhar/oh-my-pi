@@ -1151,6 +1151,15 @@ const CTRL_L_APPEARANCE_RESPONSE_DEADLINE_MS = 2000;
 /** Repaint cadence of the open jobs sheet: output tails, pids and list ages are polled, not pushed. */
 const JOBS_SHEET_REFRESH_MS = 250;
 
+/**
+ * Write to stderr after the terminal output a stopped TUI still holds: a
+ * stalled terminal may not have read the restore yet, and a direct write would
+ * land ahead of it.
+ */
+function writeStderrBehindTerminal(text: string): void {
+	if (!queueStderrBehindTerminal(text)) process.stderr.write(text);
+}
+
 export class InteractiveMode implements InteractiveModeContext {
 	#ownsStartedUi: boolean;
 	session: AgentSession;
@@ -6798,9 +6807,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		const sessionId = this.#resumableSessionId();
 		if (sessionId) {
 			// Command on its own line so triple-click selects just the command (#11001).
-			const hint = `\n${chalk.dim("Resume this session with")}\n${chalk.dim(resumeCommand(sessionId))}\n`;
-			// A stalled terminal may not have read the restore yet; queue behind it so the hint lands last.
-			if (!queueStderrBehindTerminal(hint)) process.stderr.write(hint);
+			writeStderrBehindTerminal(
+				`\n${chalk.dim("Resume this session with")}\n${chalk.dim(resumeCommand(sessionId))}\n`,
+			);
 		}
 
 		await postmortem.quit(0);
@@ -6849,8 +6858,9 @@ export class InteractiveMode implements InteractiveModeContext {
 			try {
 				execReplace(cmd); // never returns on success
 			} catch (err) {
-				const message = `${chalk.red(`Restart exec failed: ${err instanceof Error ? err.message : err}`)}\n`;
-				if (!queueStderrBehindTerminal(message)) process.stderr.write(message);
+				writeStderrBehindTerminal(
+					`${chalk.red(`Restart exec failed: ${err instanceof Error ? err.message : err}`)}\n`,
+				);
 			}
 		}
 		try {
@@ -6861,8 +6871,9 @@ export class InteractiveMode implements InteractiveModeContext {
 			});
 			await postmortem.quit(await child.exited);
 		} catch (err) {
-			const message = `${chalk.red(`Restart spawn failed: ${err instanceof Error ? err.message : err}`)}\n`;
-			if (!queueStderrBehindTerminal(message)) process.stderr.write(message);
+			writeStderrBehindTerminal(
+				`${chalk.red(`Restart spawn failed: ${err instanceof Error ? err.message : err}`)}\n`,
+			);
 			await postmortem.quit(1);
 		}
 	}
