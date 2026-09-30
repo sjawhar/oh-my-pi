@@ -891,9 +891,9 @@ describe("Mnemopi backend lifecycle", () => {
 
 	it("stores an explicit memory save as stated, not as an unlabelled transcript row", async () => {
 		const state = registerMnemopiState();
-		const result = await mnemopiBackend.save(
+		const result = await mnemopiBackend.save!(
 			{ agentDir: path.dirname(tempDbPath!), cwd: "/tmp", session: state.session },
-			{ content: "The deploy freeze lifts on Friday." },
+			{ content: "The greenhouse sprinklers run at dawn." },
 		);
 		expect(result.stored).toBe(1);
 
