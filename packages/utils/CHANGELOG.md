@@ -2,10 +2,6 @@
 
 ## [Unreleased]
 
-### Added
-
-- Added `queueStderrBehindTerminal()`, which queues text for stderr behind terminal output a stopped TUI has not delivered yet, and `setTerminalHandoffWriter()`, which the TUI uses to provide that queue ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
-
 ## [18.6.3] - 2026-10-06
 
 ### Breaking Changes
