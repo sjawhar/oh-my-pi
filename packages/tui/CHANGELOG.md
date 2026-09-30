@@ -5,11 +5,13 @@
 ### Added
 
 - `AutocompleteItem.descriptionMatch` marks a slash command matched only through its description; `Editor` Enter no longer applies such a row unless the user moved the selection onto it ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
+- Added `renderMarkdownHead` and `MarkdownHead` to `components/markdown`, which render only the leading rows of a Markdown document and report whether it was cut, and an optional `orMore` flag to `formatMoreItems` that marks the count as a minimum (`… 45+ more lines`) ([#13840](https://github.com/can1357/oh-my-pi/pull/13840) by [@sjawhar](https://github.com/sjawhar)).
 
 ### Fixed
 
 - Fixed the composer caret drifting one cell left per pasted image or video chip in terminals that draw the chip icon as a wide emoji (JetBrains terminal); the `unicode` preset now uses `📷`/`🎬` chip icons ([#16270](https://github.com/can1357/oh-my-pi/issues/16270))
 - Fixed Tern hiding user text sent with `/skill:<name>` inside a collapsed skill card; only the loaded skill prompt is hidden ([#16311](https://github.com/can1357/oh-my-pi/issues/16311))
+- Fixed long Markdown files and skills being slow to appear in read previews: a collapsed preview now renders only the start of the document, so its footer gives the rows it hides as a minimum (`… 45+ more lines`) ([#13840](https://github.com/can1357/oh-my-pi/pull/13840) by [@sjawhar](https://github.com/sjawhar)).
 
 ## [18.12.2] - 2026-10-18
 
