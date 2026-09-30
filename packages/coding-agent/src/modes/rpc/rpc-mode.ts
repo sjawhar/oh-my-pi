@@ -32,13 +32,8 @@ import {
 	getExtensionUISelectOptionLabel,
 	timedOutAskDialogResult,
 } from "../../extensibility/extensions";
-import {
-	type BuiltSkillPromptMessage,
-	buildSkillPromptMessage,
-	parseSkillInvocation,
-	type Skill,
-	type SkillPromptInput,
-} from "../../extensibility/skills";
+import { buildSkillPromptMessage } from "../../extensibility/skills";
+import { type RpcSkillCommandSession, resolveRpcSkillInvocation, runRpcSkillCommand } from "./rpc-skill-invocation";
 import { type Theme, theme } from "@oh-my-pi/pi-tui/theme";
 import { AgentLifecycleManager } from "../../registry/agent-lifecycle";
 import {
@@ -52,7 +47,7 @@ import { type AgentSession, SessionBusyError } from "../../session/agent-session
 import type { RestoredQueuedMessage } from "../../session/agent-session-types";
 import { CACHE_WARMING_MODES } from "../../session/cache-warmer";
 import { findMostRecentNonEmptySession } from "../../session/session-listing";
-import { SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/messages";
+import { USER_INTERRUPT_LABEL } from "../../session/messages";
 import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins";
 import { buildAvailableSlashCommands } from "../../slash-commands/available-commands";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
@@ -244,55 +239,7 @@ export type RpcSessionChangeResult =
 
 export type RpcSessionChangeSession = Pick<AgentSession, "newSession" | "switchSession" | "branch" | "fork">;
 
-export type RpcSkillCommandSession = Pick<AgentSession, "promptCustomMessage" | "skills" | "skillsSettings">;
 export type RpcSkillCommandResult = { agentInvoked: true };
-
-export interface RpcSkillInvocation extends SkillPromptInput {
-	skill: Skill;
-	queueChipText: string;
-}
-
-/**
- * Fast in-memory pre-check for a skill invocation: settings gate, text shape,
- * and skill lookup. Returns null when the message is not a runnable skill
- * command. Performs no I/O — safe to run on the RPC serial queue.
- */
-export function resolveRpcSkillInvocation(session: RpcSkillCommandSession, text: string): RpcSkillInvocation | null {
-	if (!session.skillsSettings?.enableSkillCommands) return null;
-	const parsed = parseSkillInvocation(text);
-	if (!parsed) return null;
-	const skill = session.skills.find(candidate => candidate.name === parsed.name);
-	if (!skill) return null;
-	return { skill, args: parsed.args, prompt: parsed.prompt, queueChipText: text };
-}
-
-/**
- * Slow half of a skill invocation: builds the skill prompt message (file I/O)
- * and dispatches it through the full prompt pipeline (usage preflight,
- * compaction checks, provider calls). Resolves once the turn is scheduled.
- * Must not run on the RPC serial queue's response path — register it with
- * watchAndReportPromptResult and answer the command once it is admitted.
- */
-export async function runRpcSkillCommand(
-	session: RpcSkillCommandSession,
-	invocation: RpcSkillInvocation,
-	streamingBehavior: "steer" | "followUp" = "steer",
-	prebuilt?: BuiltSkillPromptMessage,
-	onPromptAdmitted?: () => void,
-	images?: ImageContent[],
-): Promise<boolean> {
-	const built = prebuilt ?? (await buildSkillPromptMessage(invocation.skill, invocation, "user"));
-	return session.promptCustomMessage(
-		{
-			customType: SKILL_PROMPT_MESSAGE_TYPE,
-			content: images?.length ? [{ type: "text", text: built.message }, ...images] : built.message,
-			display: true,
-			details: built.details,
-			attribution: "user",
-		},
-		{ streamingBehavior, queueChipText: invocation.queueChipText, onPromptAdmitted },
-	);
-}
 
 /**
  * Skill branch of the `prompt` command: resolves the invocation cheaply, then

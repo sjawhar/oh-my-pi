@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Extensions can run text as if the user typed it with `pi.sendUserInput(text, { deliverAs?, tag? })`: `/skill:<name>`, headless built-in slash commands, extension and custom commands, file slash commands and prompt templates run as they do in RPC mode, and the call reports how the text was handled (`prompt`, `command` with any output, `skill`, `terminal-only`, `unknown`, or `unavailable`). `tag` is recorded on the message the input submits, so a bridge can match it on `message_start`.
+
 ### Fixed
 
 - Fixed `read` middle-eliding large file pages into an artifact; a page past the output spill threshold now stops at a line boundary with an exact `:N` continuation ([#16277](https://github.com/can1357/oh-my-pi/issues/16277))
