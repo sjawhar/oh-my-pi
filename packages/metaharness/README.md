@@ -72,7 +72,9 @@ bun run serve --port 4700
   overrides the retry set, which defaults to every exception type in the job's
   `result.json`). The runner recovers the original launch flags from
   `_bench/<name>/runner-config.json` (snapshotted at launch) or the run's
-  `manager.json` — nothing needs re-specifying.
+  `manager.json` — nothing needs re-specifying. The snapshot records each
+  `--env` variable by name only, so the server's own environment must carry
+  it when a run resumes.
 - `GET /api/runs/:name/traces/:trace[?raw=1]` — normalized or native trace.
 - `GET /api/events` — SSE stream of run-list snapshots (sent on change).
 
@@ -133,14 +135,14 @@ omitted from the benchmark prompt. Override infrastructure with
 | `-i/-x, --include/--exclude <glob>` | — | Task filters (repeatable) |
 | `--timeout-multiplier <x>` | — | Scales task agent/verifier timeouts |
 | `--agent-arg <arg>` | — | Extra arg forwarded verbatim to the in-container omp CLI (repeatable) |
-| `--env <KEY[=VALUE]>` | — | Forward env into the omp container (repeatable); `KEY` alone forwards the host value |
+| `--env <KEY[=VALUE]>` | — | Forward env into the omp container (repeatable); `KEY` alone forwards the host value. `runner-config.json` records only the name |
 | `--binary <path>` | — | Prebuilt omp binary (repeat for arm64+x64) |
 | `--install <source\|local\|published>` | `source` | `source` = repo bind-mount, `local` = tarball pack, `published` = npm `@oh-my-pi/pi-coding-agent` |
 | `--environment <docker\|apple-container>` | `docker` | `apple-container` runs trials via Apple's `container` CLI (no Docker); source/deps mounts go through `harbor --mounts` and the gateway is auto-forwarded from `192.168.64.1:4000` to the loopback-bound gateway |
 | `--gateway-url <url>` | `http://host.docker.internal:4000` | `http://192.168.64.1:4000` under `--environment apple-container` |
 | `--no-gateway` | off | Pass host provider keys into containers instead |
 | `-o, --jobs-dir <path>` | `<repo>/runs/harbor` | Shared with the server |
-| `--resume <name\|path>` | — | Resume that job dir via `harbor job resume`; original flags recovered automatically |
+| `--resume <name\|path>` | — | Resume that job dir via `harbor job resume`; original flags recovered automatically, except `--env` values: each recorded name is read again from this invocation's `--env` or environment, and the resume refuses a name neither provides |
 | `--filter-error-type <T>` | `CancelledError` | With `--resume`: also re-run completed trials that errored with exception type `T` (repeatable) |
 | `--dry-run` | off | Print the harbor command + models.yml and exit |
 

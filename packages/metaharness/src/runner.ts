@@ -189,7 +189,9 @@ Output / control:
       --job-name <name>          Default <model>-<timestamp>
       --resume <name|path>       Resume that job dir: the original launch flags are recovered
                                  automatically (runner-config.json / manager.json), completed
-                                 trials are kept and paid for once, the rest re-run
+                                 trials are kept and paid for once, the rest re-run. --env values
+                                 are not recorded: each name is read again from this run's --env
+                                 or environment
       --filter-error-type <T>    With --resume: also re-run completed trials whose exception
                                  type is <T> (repeatable; CancelledError is always evicted)
       --dry-run                  Print the harbor command + models.yml and exit
@@ -416,14 +418,56 @@ interface ManagerRecord {
 }
 
 /**
+ * `_bench/<job>/runner-config.json`: the launch Config with every `--env` entry
+ * recorded by name only. A forwarded value is often a credential (`--env KEY`
+ * copies the host's), so it never reaches disk.
+ */
+interface RunnerSnapshot extends Omit<Config, "env"> {
+	jobName: string;
+	envNames: string[];
+}
+
+function runnerSnapshot(cfg: Config, jobName: string): RunnerSnapshot {
+	const { env, ...launch } = cfg;
+	return { ...launch, jobName, envNames: Object.keys(env) };
+}
+
+/**
+ * Values for the `--env` names a snapshot recorded: the resume invocation's own
+ * `--env` first, then the live environment. A name neither provides refuses the
+ * resume, since running on without it would silently drop what the launch forwarded.
+ */
+function resolveRecordedEnv(
+	jobName: string,
+	names: string[],
+	cliEnv: Record<string, string>,
+	liveEnv: Record<string, string | undefined>,
+): Record<string, string> {
+	const env: Record<string, string> = {};
+	const missing: string[] = [];
+	for (const name of names) {
+		const value = cliEnv[name] ?? liveEnv[name];
+		if (value === undefined) missing.push(name);
+		else env[name] = value;
+	}
+	if (missing.length > 0) {
+		throw new Error(
+			`--resume: ${jobName} was launched with --env ${missing.join(", ")}; runner-config.json records ` +
+				"names only, so set each in the environment or pass --env NAME=VALUE",
+		);
+	}
+	return env;
+}
+
+/**
  * Recover the original launch Config for `--resume <job>` — nothing needs
- * re-specifying. Prefers the exact Config snapshot recorded at launch
+ * re-specifying except `--env` values. Prefers the snapshot recorded at launch
  * (`_bench/<job>/runner-config.json`), falling back to rebuilding runner argv
  * from the manager.json launch record of API-launched runs. The job dir's own
  * harbor config.json decides the container backend: harbor rejects a resume
  * whose reconstructed config differs from the recorded one.
  */
-export function resolveResumeConfig(cli: Config): Config {
+export function resolveResumeConfig(cli: Config, liveEnv: Record<string, string | undefined> = process.env): Config {
 	const spec = cli.resume as string;
 	const jobsDir = spec.includes(path.sep) ? path.dirname(path.resolve(spec)) : cli.jobsDir;
 	const jobName = path.basename(spec);
@@ -434,7 +478,10 @@ export function resolveResumeConfig(cli: Config): Config {
 	let cfg: Config | null = null;
 	const saved = readJson(path.join(jobsDir, "_bench", jobName, "runner-config.json"));
 	if (saved && typeof saved === "object") {
-		cfg = { ...defaultConfig(), ...(saved as Partial<Config>) };
+		// `env` is the older snapshot shape, which held values; only its names are used.
+		const { env, envNames, ...launch } = saved as Partial<RunnerSnapshot> & { env?: Record<string, string> };
+		cfg = { ...defaultConfig(), ...launch };
+		cfg.env = resolveRecordedEnv(jobName, envNames ?? Object.keys(env ?? {}), cli.env, liveEnv);
 	} else {
 		const manager = readJson(path.join(jobDir, "manager.json")) as ManagerRecord | null;
 		if (manager?.config) {
@@ -468,6 +515,7 @@ export function resolveResumeConfig(cli: Config): Config {
 	cfg.dryRun = cli.dryRun;
 	cfg.cleanup = cli.cleanup;
 	cfg.cleanupForce = cli.cleanupForce;
+	Object.assign(cfg.env, cli.env);
 	return cfg;
 }
 // ──────────────────────────────────────────────────────────────────── helpers
@@ -1628,9 +1676,12 @@ async function runBenchmark(cfg: Config): Promise<BenchmarkRun> {
 	const benchDir = path.join(cfg.jobsDir, "_bench", jobName);
 	fs.mkdirSync(benchDir, { recursive: true });
 	if (!cfg.resume && !cfg.dryRun) {
-		// Snapshot the resolved launch config so a later `--resume <job>` can
-		// rebuild the exact same invocation without re-specifying flags.
-		fs.writeFileSync(path.join(benchDir, "runner-config.json"), JSON.stringify({ ...cfg, jobName }, null, "\t"));
+		// Snapshot the launch config so a later `--resume <job>` can rebuild the
+		// same invocation without re-specifying flags (forwarded env by name only).
+		fs.writeFileSync(
+			path.join(benchDir, "runner-config.json"),
+			JSON.stringify(runnerSnapshot(cfg, jobName), null, "\t"),
+		);
 	}
 
 	const version = readPkgVersion();

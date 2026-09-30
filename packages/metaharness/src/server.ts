@@ -436,7 +436,9 @@ export class ManagerServer {
 	 * trials (and their spend) are reused, interrupted/pending trials re-run,
 	 * and errored trials are evicted for retry. The runner recovers the
 	 * original launch flags from the run's recorded config, so nothing needs
-	 * re-specifying. `filterErrorTypes` overrides the default retry set
+	 * re-specifying except `--env` values: the snapshot records those by name
+	 * only, so this server's environment must carry each forwarded variable.
+	 * `filterErrorTypes` overrides the default retry set
 	 * (every exception type recorded in the job's result.json).
 	 */
 	resume(jobName: string, opts: { filterErrorTypes?: string[] } = {}): { jobName: string; pid: number } {

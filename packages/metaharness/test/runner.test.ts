@@ -260,6 +260,91 @@ describe("resume", () => {
 		}
 	});
 
+	it("snapshots a forwarded --env variable by name while harbor's process still gets its value", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "harbor-snapshot-test-"));
+		const fakeBin = path.join(root, "bin");
+		const jobsDir = path.join(root, "jobs");
+		const capture = path.join(root, "harbor-forward-env.json");
+		const fakeValue = "fake-credential-5a0c1e";
+		fs.mkdirSync(fakeBin);
+		// The launch snapshot is written before harbor starts; this harbor records the
+		// forwarded env it was handed, then stops the runner so no trial ever runs.
+		fs.writeFileSync(
+			path.join(fakeBin, "harbor"),
+			`#!/bin/sh\nprintf '%s' "$OMP_BENCH_FORWARD_ENV" > "$HARBOR_CAPTURE"\nkill -9 $PPID\n`,
+			{ mode: 0o755 },
+		);
+		fs.writeFileSync(path.join(fakeBin, "docker"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+		try {
+			const runner = Bun.spawn(
+				[
+					process.execPath,
+					path.join(import.meta.dir, "..", "src", "runner.ts"),
+					"--model",
+					"anthropic/claude-sonnet-4-6",
+					"--install",
+					"published",
+					"--no-gateway",
+					"--env",
+					"SOME_NAME",
+					"--jobs-dir",
+					jobsDir,
+					"--job-name",
+					"job-x",
+				],
+				{
+					env: {
+						...process.env,
+						PATH: `${fakeBin}:${process.env.PATH}`,
+						SOME_NAME: fakeValue,
+						HARBOR_CAPTURE: capture,
+					},
+					stdout: "pipe",
+					stderr: "pipe",
+				},
+			);
+			await runner.exited;
+			const snapshot = fs.readFileSync(path.join(jobsDir, "_bench", "job-x", "runner-config.json"), "utf8");
+			expect(snapshot).not.toContain(fakeValue);
+			expect(JSON.parse(snapshot).envNames).toEqual(["SOME_NAME"]);
+			expect(JSON.parse(fs.readFileSync(capture, "utf8")).SOME_NAME).toBe(fakeValue);
+		} finally {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("resolves each recorded --env name from the resume invocation: its --env first, then the live environment", () => {
+		const { jobsDir, jobName } = mkJob({
+			runnerConfig: { models: ["anthropic/claude-opus-4-8"], envNames: ["FROM_FLAG", "FROM_ENV"] },
+		});
+		try {
+			const cfg = resolveResumeConfig(
+				parseArgs(["--resume", jobName, "--jobs-dir", jobsDir, "--env", "FROM_FLAG=flag-value"]),
+				{ FROM_FLAG: "live-value-loses", FROM_ENV: "live-value" },
+			);
+			expect(cfg.env).toEqual({ FROM_FLAG: "flag-value", FROM_ENV: "live-value" });
+		} finally {
+			fs.rmSync(jobsDir, { recursive: true, force: true });
+		}
+	});
+
+	it("refuses to resume a forwarded name the resume cannot resolve, even when an older snapshot holds its value", () => {
+		const { jobsDir, jobName } = mkJob({
+			runnerConfig: { models: ["anthropic/claude-opus-4-8"], env: { OLD_SNAPSHOT_NAME: "value-on-disk" } },
+		});
+		try {
+			expect(() => resolveResumeConfig(parseArgs(["--resume", jobName, "--jobs-dir", jobsDir]), {})).toThrow(
+				/OLD_SNAPSHOT_NAME/,
+			);
+			const cfg = resolveResumeConfig(parseArgs(["--resume", jobName, "--jobs-dir", jobsDir]), {
+				OLD_SNAPSHOT_NAME: "live-value",
+			});
+			expect(cfg.env).toEqual({ OLD_SNAPSHOT_NAME: "live-value" });
+		} finally {
+			fs.rmSync(jobsDir, { recursive: true, force: true });
+		}
+	});
+
 	it("re-adds harbor's CancelledError default when explicit -f filters would replace it", () => {
 		const withFilters = parseArgs(["--resume", "j", "--filter-error-type", "RewardFileNotFoundError"]);
 		expect(buildResumeArgs(withFilters, "/jobs/j")).toEqual([
