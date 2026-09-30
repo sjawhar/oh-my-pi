@@ -11,6 +11,8 @@
 - Added `ChartPlan` fields a planner can set — row naming (`qualifiers`, `group`), `shading`, `reference`, `order`, `polarity`, `rivals`, `focus`, `title`, `normalize` — and `shouldJudge`, which picks the tables `smart` mode sends to a model
 - Added an optional `assistantMessageText` theme token that colors assistant reply paragraph prose; unset or empty keeps the terminal default foreground ([#11204](https://github.com/can1357/oh-my-pi/issues/11204), [#11260](https://github.com/can1357/oh-my-pi/pull/11260) by [@oleg494](https://github.com/oleg494)).
 - Added optional `StatusLineHost.classifyResetExpiry` and `resetExpiryNotice` plus `StatusLineComponent.setResetExpiryNoticeHandler`: the usage segment marks saved resets expiring within 7 days (`▲ N exp …`), and the handler gets one pool-wide warning per conversation for resets expiring within 24 hours ([#15134](https://github.com/can1357/oh-my-pi/pull/15134) by [@will-bogusz](https://github.com/will-bogusz))
+- Added optional `Terminal.settleOutput()`, which drains or drops queued output before the terminal is handed over; custom terminals may implement it ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
+- Added `writeStderrBehindTerminal()` (`@oh-my-pi/pi-tui/terminal-handoff`), which writes to stderr after the output a stopped terminal has not delivered yet ([#13794](https://github.com/can1357/oh-my-pi/pull/13794) by [@sjawhar](https://github.com/sjawhar)).
 
 ### Changed
 
