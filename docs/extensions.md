@@ -33,7 +33,7 @@ Extensions can combine all of the following in one module:
 - slash commands (`pi.registerCommand(...)`)
 - keyboard shortcuts and flags
 - custom message rendering
-- session/message injection APIs (`sendMessage`, `sendUserMessage`, `appendEntry`)
+- session/message injection APIs (`sendMessage`, `sendUserMessage`, `sendUserInput`, `appendEntry`)
 
 ## Runtime model
 
@@ -120,7 +120,7 @@ Core methods:
 - `registerMessageRenderer`, `registerAssistantThinkingRenderer`
 - `registerComposerShape`
 - `setLabel`, `getFlag`
-- `sendMessage`, `sendUserMessage`, `appendEntry`, `exec`
+- `sendMessage`, `sendUserMessage`, `sendUserInput`, `appendEntry`, `exec`
 - `getActiveTools`, `getAllTools`, `setActiveTools`
 - `getCommands`
 - `getSessionName`, `setSessionName`
@@ -280,6 +280,16 @@ injects at the next step boundary while a run is live and starts a turn when
 idle. The message is recorded with `attribution: "user"` unless you pass
 `attribution: "agent"`; use `"agent"` for text the extension generated or relayed
 from another agent.
+
+`pi.sendUserInput(text, { deliverAs, tag })` runs text as if the user typed it, the way RPC mode runs a `prompt` command, and resolves with how it was handled:
+
+- `/skill:<name>` is submitted as the user's skill prompt → `{ handled: "skill" }`.
+- A built-in slash command with a headless handler (the set RPC and ACP run, e.g. `/jobs`, `/compact`, `/retry`) runs → `{ handled: "command", output? }`, where `output` is what it printed; one that returns prompt text submits it → `{ handled: "prompt" }`. A built-in only the interactive terminal runs (e.g. `/new`, `/resume`, `/quit`) sends nothing → `{ handled: "terminal-only" }`.
+- A leading `/` that names no extension, custom or MCP prompt command, file slash command or prompt template sends nothing → `{ handled: "unknown" }`.
+- Otherwise the text goes through the prompt flow: extension and custom commands run locally → `{ handled: "command" }`; plain text, templates and file slash commands submit a user message → `{ handled: "prompt" }`.
+- A host that does not wire the action answers `{ handled: "unavailable" }`.
+
+`deliverAs` picks how a submitted message queues while the agent is streaming (default steer, like Enter); an idle session starts a turn either way. `tag` is recorded on the message the input submits (the user message, or the skill prompt message) and so appears on its `message_start`/`message_end` events and in the session file, letting a bridge match the message to the input it forwarded. `listUserInputBuiltinCommands()` (exported from `extensibility/extensions/send-user-input-handler`) lists the built-ins with a `terminalOnly` flag, for completion. SDK embedders that build their own `ExtensionActions` can wire the optional `sendUserInput` action with `sendSessionUserInput(session, text, options)` from the same module.
 
 Payloads passed to `pi.sendMessage` are normalized before delivery
 (`normalizeCustomMessagePayload` in `packages/tui/src/chat/messages.ts`,
