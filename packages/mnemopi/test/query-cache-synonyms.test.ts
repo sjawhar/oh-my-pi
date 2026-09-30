@@ -78,6 +78,28 @@ describe("QueryCache", () => {
 		expect(qc.tier4Hits).toBe(1);
 	});
 
+	it("does not serve a short query from a long cached prompt that merely contains its words", () => {
+		const qc = cache({ maxSize: 100 });
+		qc.put(
+			"Here is the deal. I need you to fix the hiring process now that we have the new candidate work test. " +
+				"First, how do we set the scoring rubric for the account of each reviewer, and what should the recruiter " +
+				"see for every candidate? Second, the pipeline stages need renaming so the dashboard matches the offer " +
+				"flow, and the rejection emails should go out automatically once a reviewer signs off on the test.",
+			[{ content: "hiring ranking" }],
+		);
+
+		expect(qc.get("how do I set the gcloud account for the devbox")).toBeNull();
+		expect(qc.tier4Hits).toBe(0);
+	});
+
+	it("counts a word repeated in the cached query once toward tier4 overlap", () => {
+		const qc = cache({ maxSize: 100 });
+		qc.put("the deploy the rollout the", [{ content: "deploy ranking" }]);
+
+		expect(qc.get("the deploy canary metrics")).toBeNull();
+		expect(qc.tier4Hits).toBe(0);
+	});
+
 	it("matches only entries of the same scope in every tier", () => {
 		const qc = cache({ maxSize: 100 });
 		qc.put("deploy server status", [{ content: "top five" }], [1, 0, 0], "topK=5");
