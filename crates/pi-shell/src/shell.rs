@@ -2607,9 +2607,12 @@ mod tests {
 		assert_eq!(fs::read_to_string(&out).expect("probe output"), "unset|kept");
 	}
 
+	/// Waits until `pid` runs as `expected`. Each poll walks the whole process
+	/// table, which takes seconds on a loaded host, so the bound is generous;
+	/// it stays below the 30 s lifetime of the process-test children.
 	#[cfg(unix)]
 	async fn wait_for_process_name(pid: i32, expected: &str) {
-		time::timeout(Duration::from_secs(2), async {
+		time::timeout(Duration::from_secs(20), async {
 			loop {
 				if pi_builtins::ProcInfo::all().into_iter().any(|process| {
 					process.pid() == pid
@@ -2920,13 +2923,27 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	async fn pidwait_returns_after_the_matching_process_exits() {
 		let (_dir, command, name) = process_test_command("opw");
-		let mut child = process_test_child(&command, Duration::from_millis(250))
-			.spawn()
-			.expect("waited process");
+		let mut command = process_test_child(&command, Duration::from_secs(30));
+		command.kill_on_drop(true);
+		let mut child = command.spawn().expect("waited process");
 		let pid = i32::try_from(child.id().expect("child pid")).expect("pid fits i32");
 		wait_for_process_name(pid, &name).await;
 
-		let (result, output) = execute_captured(format!("pidwait -x -p {pid} {name}")).await;
+		// The test, not a fixed child lifetime, decides when the process exits:
+		// a child that exits on its own can be gone before a loaded host has
+		// seen it start. pidwait gets a window in which it must keep waiting on
+		// the live process; then the process is killed and pidwait must return.
+		let mut pidwait = tokio::spawn(execute_captured(format!("pidwait -x -p {pid} {name}")));
+		let joined = match time::timeout(Duration::from_secs(1), &mut pidwait).await {
+			Ok(joined) => joined,
+			Err(_) => {
+				let _ = child.start_kill();
+				time::timeout(Duration::from_secs(30), pidwait)
+					.await
+					.expect("pidwait did not return after its matching process exited")
+			},
+		};
+		let (result, output) = joined.expect("pidwait task");
 		let status = child.try_wait().expect("waited child status");
 		if status.is_none() {
 			let _ = child.start_kill();

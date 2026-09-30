@@ -796,18 +796,20 @@ mod tests {
 	async fn timeout_drains_pipeline_output_before_stopping_reader() {
 		let shell = CoreShell::new(None);
 		let (tx, rx) = flume::unbounded::<String>();
-		// The producer writes five lines, signals readiness on stderr, then
-		// holds the pipe open. `tail` flushes its buffered lines only after
-		// timeout cancellation stops that producer. Waiting for readiness avoids
-		// cancelling before the producer starts under concurrent CI load.
+		// The producer writes more `x` lines than any pipe buffer holds, signals
+		// readiness on stderr, then holds the pipe open. That write can only
+		// finish once `tail` has read all but one buffer of it, so READY means
+		// `tail` already holds five `x` lines. It has to: cancellation turns
+		// `tail`'s next read into EOF without reading input still queued in the
+		// pipe, and `tail` must flush what it holds before the reader stops.
 		let mut cancel = CancelToken::default();
 		let abort = cancel.emplace_abort_token();
 		let handle = tokio::spawn(async move {
 			shell
 				.run(
 					CoreShellRunOptions {
-						command:    "{ printf 'x\\nx\\nx\\nx\\nx\\n'; printf 'READY\\n' >&2; sleep 30; \
-						             } | tail -5"
+						command:    "{ printf 'x\\n%.0s' {1..65536}; printf 'READY\\n' >&2; sleep 30; } \
+						             | tail -5"
 							.to_string(),
 						cwd:        None,
 						env:        None,
@@ -820,7 +822,7 @@ mod tests {
 				.await
 		});
 		let mut output = String::new();
-		time::timeout(Duration::from_secs(10), async {
+		time::timeout(Duration::from_secs(30), async {
 			while !output.contains("READY") {
 				output.push_str(
 					&rx.recv_async()
@@ -831,9 +833,6 @@ mod tests {
 		})
 		.await
 		.expect("producer did not become ready");
-		// Give the downstream builtin a turn to consume the queued pipe data
-		// before cancellation closes the producer.
-		time::sleep(Duration::from_millis(200)).await;
 		abort.abort(AbortReason::Timeout);
 		let result = time::timeout(Duration::from_secs(10), handle)
 			.await
