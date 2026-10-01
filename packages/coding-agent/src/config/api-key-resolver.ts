@@ -31,6 +31,13 @@ export class ApiKeyCommandError extends AIError.CredentialUnavailableError {
 	}
 }
 
+const API_KEY_COMMAND_FAILURE_PATTERN = /\bThe apiKey command for provider \S+ produced no key\b/;
+
+/** Whether a turn's error text is an {@link ApiKeyCommandError}, which turn recovery retries on its own cap. */
+export function isApiKeyCommandFailureMessage(errorMessage: string | undefined): boolean {
+	return errorMessage !== undefined && API_KEY_COMMAND_FAILURE_PATTERN.test(errorMessage);
+}
+
 /**
  * Minimal slice of `ModelRegistry` the resolver needs. Typed structurally so
  * narrower registry shells (e.g. the commit pipeline's `CommitModelRegistry`)
