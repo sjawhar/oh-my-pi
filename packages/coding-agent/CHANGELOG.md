@@ -29,6 +29,7 @@
 - A `/btw` answer promoted into the main branch, or a turn moved under another prompt, keeps whether its reasoning is a provider-written summary or the model's own trace, so a summary never reaches another host as the model's reasoning ([#15123](https://github.com/can1357/oh-my-pi/pull/15123) by [@will-bogusz](https://github.com/will-bogusz)).
 - Background Claude saved-reset salvage now lists Claude accounts only when an account's usage report shows a saved reset due for salvage, instead of every open session listing every Claude account every few minutes, which tripped Anthropic's usage rate limit ([#15129](https://github.com/can1357/oh-my-pi/pull/15129) by [@will-bogusz](https://github.com/will-bogusz))
 - Sessions with no prompt UI (`omp -p`, subagents, headless RPC, ACP clients without form elicitation) now spend a saved Codex or Claude reset under the default `autoRedeem: unset` when it expires within 5 minutes, with a notice naming the account, instead of letting it expire; `autoRedeem: no` still never spends, and other resets still wait for consent ([#15131](https://github.com/can1357/oh-my-pi/pull/15131) by [@will-bogusz](https://github.com/will-bogusz))
+- When saving pruned tool output fails, the pruning now stays applied in the live context, and the session file catches up on the next successful save.
 
 ### Fixed
 
@@ -83,7 +84,7 @@
 - Fixed `grep` showing only the first 512 bytes of a long matching line, so a match further in never appeared; it now shows the part around the match, with `...` on cut sides and the match's `[col N]` ([#15278](https://github.com/can1357/oh-my-pi/pull/15278) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed snapcompact archives being sized from the context window, which could leave the context over a low compaction trigger right after compacting; archives now take half the room left under the trigger ([#14345](https://github.com/can1357/oh-my-pi/pull/14345) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed a usage-limited session with an account pool (such as a task agent under `task.agentAccountPools`) spending a saved reset to restore an account outside its pool, which it cannot use; resets about to expire are still salvaged on every account ([#15135](https://github.com/can1357/oh-my-pi/pull/15135) by [@will-bogusz](https://github.com/will-bogusz))
-- Stopped long sessions from rewriting their entire session file on every turn that prunes a superseded read or uneventful tool result; the prune is now appended, so disk writes no longer grow with transcript size
+- Stopped long sessions from rewriting their entire session file on every turn that prunes tool output (superseded reads, uneventful results, or the context-size prune), so the disk writes of those turns no longer grow with session length.
 
 ## [18.8.9] - 2026-10-10
 

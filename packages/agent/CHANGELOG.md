@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed `PruneResult.undo()` from `pruneToolOutputs` and `pruneSupersededToolResults`; persist `PruneResult.pruned` instead of rolling the prune back when saving it fails.
+
+### Added
+
+- Added `PruneResult.pruned`, which lists each blanked tool result's entry id, notice, and `prunedAt`, and `blankToolResult()`, which applies one of those entries to a loaded copy of its tool result.
+
 ### Fixed
 
 - Fixed `queue_update` events going stale while a queued steer was adopted into the running turn as live steering, withdrawn by the interrupt path, or landed in the transcript; those transitions now notify queue listeners like every other queue mutator ([#14821](https://github.com/can1357/oh-my-pi/pull/14821) by [@jchanghong023](https://github.com/jchanghong023)).
