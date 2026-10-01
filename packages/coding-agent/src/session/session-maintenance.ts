@@ -45,6 +45,7 @@ import {
 } from "@oh-my-pi/pi-agent-core/compaction";
 import {
 	DEFAULT_PRUNE_CONFIG,
+	type PruneResult,
 	pruneSupersededToolResults,
 	pruneToolOutputs,
 	readToolSupersedeKey,
@@ -106,6 +107,7 @@ import type { CompactionEntry, SessionEntry } from "./session-entries";
 import type { SessionManager } from "./session-manager";
 import type { ShakeMode, ShakeResult } from "./shake-types";
 import { resolveSpeculationLeadTokens, SPECULATION_LEAD_MIN_TOKENS } from "./speculation-lead";
+import { TOOL_RESULT_PRUNE_CUSTOM_TYPE, type ToolResultPruneData } from "./tool-result-prunes";
 import experimentalContextNotesReminderPrompt from "../prompts/system/experimental-context-notes-reminder.md" with { type: "text" };
 import experimentalContextRolloverPrompt from "../prompts/system/experimental-context-rollover.md" with { type: "text" };
 import lengthStopRetryTemplate from "../prompts/system/length-stop-retry.md" with { type: "text" };
@@ -658,6 +660,24 @@ export class SessionMaintenance {
 		return { ...config, protectedTools: [...config.protectedTools, planMatcher] };
 	}
 
+	/**
+	 * Commit a prune pass: append its `tool_result_prune` record, whose size
+	 * follows the pruned results rather than the transcript, then rebuild the
+	 * state derived from the pruned history. Resume and file-based forks
+	 * (`/fork`, `/tan`) replay the record, so they rebuild the live prefix and
+	 * keep the provider prompt cache warm.
+	 */
+	#commitPrune(result: PruneResult, advisorRebaseReason: string): void {
+		this.#host.sessionManager.appendCustomEntry(TOOL_RESULT_PRUNE_CUSTOM_TYPE, {
+			results: result.pruned,
+		} satisfies ToolResultPruneData);
+		const sessionContext = this.#host.buildDisplaySessionContext();
+		this.#host.agent.replaceMessages(sessionContext.messages);
+		this.#host.rebaseAdvisorPrefix(advisorRebaseReason);
+		this.#host.syncTodoPhasesFromBranch();
+		this.#host.closeCodexProviderSessionsForHistoryRewrite();
+	}
+
 	#pruneToolOutputs(): { prunedCount: number; tokensSaved: number } | undefined {
 		const branchEntries = this.#host.sessionManager.getBranch();
 		const keepBoundaryId = getLatestCompactionEntry(branchEntries)?.firstKeptEntryId;
@@ -679,12 +699,7 @@ export class SessionMaintenance {
 			return undefined;
 		}
 
-		this.#host.sessionManager.appendToolResultPrunes(result.pruned);
-		const sessionContext = this.#host.buildDisplaySessionContext();
-		this.#host.agent.replaceMessages(sessionContext.messages);
-		this.#host.rebaseAdvisorPrefix("prune-tool-outputs");
-		this.#host.syncTodoPhasesFromBranch();
-		this.#host.closeCodexProviderSessionsForHistoryRewrite();
+		this.#commitPrune(result, "prune-tool-outputs");
 		return result;
 	}
 
@@ -696,11 +711,9 @@ export class SessionMaintenance {
 	 * provider prompt cache is cold), so it is cheap to run every turn. Gated
 	 * on the `compaction.supersedeReads` and `compaction.dropUseless` settings.
 	 *
-	 * Persists as an appended prune record, not a transcript rewrite: the pass
-	 * fires on most turns of a read→edit→read loop, and the session file must
-	 * rebuild to the live (pruned) context or file-based forks (`/fork`,
-	 * `/tan`) and resume rebuild a divergent prefix and cold-miss the provider
-	 * prompt cache.
+	 * Persists through `#commitPrune`: the pass fires on most turns of a
+	 * read→edit→read loop, so it appends a prune record instead of rewriting
+	 * the transcript.
 	 */
 	#pruneStaleToolResults(): { prunedCount: number; tokensSaved: number } | undefined {
 		const { supersedeReads, dropUseless } = cfgCompaction.get(this.#host.settings);
@@ -727,12 +740,7 @@ export class SessionMaintenance {
 			return undefined;
 		}
 
-		this.#host.sessionManager.appendToolResultPrunes(result.pruned);
-		const sessionContext = this.#host.buildDisplaySessionContext();
-		this.#host.agent.replaceMessages(sessionContext.messages);
-		this.#host.rebaseAdvisorPrefix("prune-stale-tool-results");
-		this.#host.syncTodoPhasesFromBranch();
-		this.#host.closeCodexProviderSessionsForHistoryRewrite();
+		this.#commitPrune(result, "prune-stale-tool-results");
 		return result;
 	}
 
