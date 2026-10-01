@@ -15,8 +15,9 @@
  *    (`totalTokens > 0`) with a terminal `stopReason` that is not `"aborted"` /
  *    `"error"`. Unsettled assistants never read or insert. Non-assistant roles
  *    are immutable once appended and cache by identity.
- * 2. **Owner invalidation.** `pruneToolOutputs` / `pruneSupersededToolResults`,
- *    `applyShakeRegion`, and `stripImagesFromMessage` rewrite message content in
+ * 2. **Owner invalidation.** `markToolResultPruned` (both prune passes and the
+ *    session's persisted-prune replay), `applyShakeRegion`, and
+ *    `stripImagesFromMessage` rewrite message content in
  *    place under a stable identity. Each MUST call {@link invalidateMessageCache}
  *    on the mutated message before the next convert/estimate pass. Invalidation
  *    bumps a symbol-keyed version tag on the message itself, so every live
