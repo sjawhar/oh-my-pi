@@ -2435,8 +2435,8 @@ mod tests {
 	}
 
 	#[cfg(unix)]
-	fn pseudo_terminal_input() -> (std::os::fd::OwnedFd, OpenFile) {
-		use std::os::fd::{FromRawFd as _, OwnedFd};
+	fn pseudo_terminal_session() -> (std::os::fd::OwnedFd, fs::File) {
+		use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 
 		let mut master = -1;
 		let mut slave = -1;
@@ -2459,12 +2459,31 @@ mod tests {
 		let master = unsafe { OwnedFd::from_raw_fd(master) };
 		// SAFETY: openpty returned unique descriptors on success.
 		let slave = unsafe { fs::File::from_raw_fd(slave) };
-		(master, OpenFile::from(slave))
+		// SAFETY: this re-exec test process inherited its parent's process
+		// group, so it is not a process-group leader and may create a session.
+		assert_ne!(unsafe { libc::setsid() }, -1, "setsid");
+		// SAFETY: slave is a live pseudo-terminal descriptor owned by this
+		// process; fd 0 is deliberately replaced only in this isolated test.
+		assert_eq!(unsafe { libc::dup2(slave.as_raw_fd(), libc::STDIN_FILENO) }, 0, "dup2 stdin");
+		// SAFETY: this session has no controlling terminal and fd 0 is the
+		// pseudo-terminal slave, so TIOCSCTTY establishes it as controlling.
+		assert_eq!(unsafe { libc::ioctl(libc::STDIN_FILENO, libc::TIOCSCTTY, 0) }, 0, "TIOCSCTTY");
+		// SAFETY: this isolated test process deliberately ignores terminal
+		// background-write stops and hangups while fg hands the pseudo-terminal
+		// to a job. The dispositions cannot escape the re-exec test process.
+		for signal in [libc::SIGTTOU, libc::SIGHUP] {
+			assert_ne!(
+				unsafe { libc::signal(signal, libc::SIG_IGN) },
+				libc::SIG_ERR,
+				"ignore terminal job-control signal {signal}"
+			);
+		}
+		(master, slave)
 	}
 
-	#[cfg(unix)]
-	async fn interactive_kill_test_context()
-	-> (ShellSessionCore, ExecutionParameters, std::os::fd::OwnedFd) {
+	async fn interactive_kill_test_context(
+		terminal_stdin: &fs::File,
+	) -> (ShellSessionCore, ExecutionParameters) {
 		let config = ShellConfig {
 			session_env:   None,
 			snapshot_path: None,
@@ -2474,11 +2493,13 @@ mod tests {
 		let mut session = create_session(&config).await.expect("create_session");
 		session.shell.options_mut().enable_job_control = true;
 		let mut params = session.shell.default_exec_params();
-		let (pty_master, pty_slave) = pseudo_terminal_input();
-		params.set_fd(OpenFiles::STDIN_FD, pty_slave);
+		params.set_fd(
+			OpenFiles::STDIN_FD,
+			OpenFile::from(terminal_stdin.try_clone().expect("clone terminal stdin")),
+		);
 		params.set_fd(OpenFiles::STDOUT_FD, null_file().expect("null stdout"));
 		params.set_fd(OpenFiles::STDERR_FD, null_file().expect("null stderr"));
-		(session, params, pty_master)
+		(session, params)
 	}
 
 	/// Shell-quotes an argument when building a command string for a test.
@@ -3066,10 +3087,11 @@ mod tests {
 		while let Ok(chunk) = rx.recv_async().await {
 			output.push_str(&chunk);
 		}
-		let status = child.try_wait().expect("waited child status");
+		let mut status = child.try_wait().expect("waited child status");
 		if status.is_none() {
 			let _ = child.start_kill();
 			let _ = child.wait().await;
+			status = child.try_wait().expect("reaped child status");
 		}
 		assert_eq!(result.exit_code, Some(0));
 		assert_eq!(output, waiting_for);
@@ -3680,7 +3702,8 @@ mod tests {
 			return;
 		}
 
-		let (mut session, params, _pty_master) = interactive_kill_test_context().await;
+		let (_pty_master, pty_slave) = pseudo_terminal_session();
+		let (mut session, params) = interactive_kill_test_context(&pty_slave).await;
 		let source_info = SourceInfo::from("pi-natives:test");
 		let result = time::timeout(
 			Duration::from_secs(20),
@@ -3703,6 +3726,122 @@ mod tests {
 			2,
 			"stopped pipeline must retain every external stage"
 		);
+	}
+
+	/// Every selected stopped stage reports one pipeline stop episode. After
+	/// every stage is continued, fg must consume no stale stop report and wait
+	/// for the pipeline to complete.
+	#[cfg(unix)]
+	#[tokio::test(flavor = "multi_thread")]
+	async fn resumed_pipeline_drains_every_selected_stop_report() {
+		const MARKER: &str = "PI_SHELL_TEST_DRAINED_STOP_REPORTS";
+		if std::env::var_os(MARKER).is_none() {
+			run_isolated_kill_test(
+				"shell::tests::resumed_pipeline_drains_every_selected_stop_report",
+				MARKER,
+				false,
+			)
+			.await;
+			return;
+		}
+
+		let script = "echo $$ > \"$1\"; : > \"$2\"; if test \"$3\" -eq 1; then kill -STOP $$; fi; \
+		              while ! test -e \"$4\"; do sleep 0.01; done";
+		let (_pty_master, pty_slave) = pseudo_terminal_session();
+		for stage_count in [2_usize, 3] {
+			for stopped_subset in 1..(1_usize << stage_count) {
+				let files = tempfile::tempdir().expect("pipeline files");
+				let release = files.path().join("release");
+				let pidfiles: Vec<_> = (0..stage_count)
+					.map(|stage| files.path().join(format!("{stage}.pid")))
+					.collect();
+				let readyfiles: Vec<_> = (0..stage_count)
+					.map(|stage| files.path().join(format!("{stage}.ready")))
+					.collect();
+				let command = (0..stage_count)
+					.map(|stage| {
+						let stopped = usize::from(stopped_subset & (1 << stage) != 0);
+						format!(
+							"sh -c {} sh {} {} {stopped} {}",
+							quote_arg(script),
+							quote_arg(pidfiles[stage].to_str().expect("utf8 pidfile")),
+							quote_arg(readyfiles[stage].to_str().expect("utf8 readyfile")),
+							quote_arg(release.to_str().expect("utf8 release")),
+						)
+					})
+					.collect::<Vec<_>>()
+					.join(" | ");
+				let (mut session, params) = interactive_kill_test_context(&pty_slave).await;
+				let source_info = SourceInfo::from("pi-natives:test");
+				let initial = time::timeout(
+					Duration::from_secs(20),
+					session.shell.run_string(command, &source_info, &params),
+				)
+				.await
+				.expect("pipeline did not report its initial stop")
+				.expect("stopped pipeline");
+				assert_eq!(exit_code(&initial), 148, "subset {stopped_subset:#b}");
+				time::timeout(Duration::from_secs(20), async {
+					while !readyfiles.iter().all(|file| file.exists()) {
+						time::sleep(Duration::from_millis(10)).await;
+					}
+				})
+				.await
+				.expect("pipeline stages did not become ready");
+				let pids: Vec<i32> = pidfiles
+					.iter()
+					.map(|file| {
+						fs::read_to_string(file)
+							.expect("stage pidfile")
+							.trim()
+							.parse()
+							.expect("stage pid")
+					})
+					.collect();
+				time::timeout(Duration::from_secs(20), async {
+					while pids.iter().enumerate().any(|(stage, pid)| {
+						stopped_subset & (1 << stage) != 0
+							&& !pi_builtins::ProcInfo::all()
+								.into_iter()
+								.any(|process| process.pid() == *pid && process.state() == 'T')
+					}) {
+						time::sleep(Duration::from_millis(10)).await;
+					}
+				})
+				.await
+				.expect("selected stages did not stop");
+				fs::write(&release, "").expect("release stages");
+				let continued = session
+					.shell
+					.run_string(
+						format!(
+							"kill -CONT {}",
+							pids
+								.iter()
+								.map(ToString::to_string)
+								.collect::<Vec<_>>()
+								.join(" ")
+						),
+						&source_info,
+						&params,
+					)
+					.await
+					.expect("continue stages");
+				assert_eq!(exit_code(&continued), 0, "subset {stopped_subset:#b}");
+				let resumed = time::timeout(
+					Duration::from_secs(20),
+					session.shell.run_string("fg %1", &source_info, &params),
+				)
+				.await
+				.expect("resumed pipeline did not complete")
+				.expect("foreground resumed pipeline");
+				assert_eq!(
+					exit_code(&resumed),
+					0,
+					"subset {stopped_subset:#b} reported a stale stop after fg"
+				);
+			}
+		}
 	}
 
 	/// A child that stops before `ChildProcess::wait` begins is still reported

@@ -84,24 +84,28 @@ pub(crate) fn poll_for_stopped_processes(
 	pgid: Option<sys::process::ProcessId>,
 ) -> Result<bool, error::Error> {
 	let flags = nix::sys::wait::WaitPidFlag::WUNTRACED | nix::sys::wait::WaitPidFlag::WNOHANG;
+	let mut found_stopped = false;
 	for pid in pids {
-		if stopped(waitid_child(*pid, None, flags))? {
-			return Ok(true);
-		}
+		found_stopped |= drain_stopped(|| waitid_child(*pid, None, flags))?;
 	}
 	if let Some(pgid) = pgid {
-		return stopped(waitid_child(pgid, Some(pgid), flags));
+		found_stopped |= drain_stopped(|| waitid_child(pgid, Some(pgid), flags))?;
 	}
-	Ok(false)
+	Ok(found_stopped)
 }
 
-fn stopped(
-	wait_status: Result<nix::sys::wait::WaitStatus, nix::errno::Errno>,
+fn drain_stopped(
+	mut wait: impl FnMut() -> Result<nix::sys::wait::WaitStatus, nix::errno::Errno>,
 ) -> Result<bool, error::Error> {
-	match wait_status {
-		Ok(nix::sys::wait::WaitStatus::Stopped(_stopped_pid, _signal)) => Ok(true),
-		Ok(_) | Err(nix::errno::Errno::ECHILD) => Ok(false),
-		Err(e) => Err(e.into()),
+	let mut found_stopped = false;
+	loop {
+		match wait() {
+			Ok(nix::sys::wait::WaitStatus::Stopped(_stopped_pid, _signal)) => {
+				found_stopped = true;
+			},
+			Ok(_) | Err(nix::errno::Errno::ECHILD) => return Ok(found_stopped),
+			Err(e) => return Err(e.into()),
+		}
 	}
 }
 
