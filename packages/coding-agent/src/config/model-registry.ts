@@ -2729,6 +2729,15 @@ export class ModelRegistry {
 		return isCommandConfigValue(keyConfig);
 	}
 
+	/**
+	 * Whether a missing key for the provider means its `!command` apiKey produced
+	 * nothing, which the request reports retryably. False for a provider whose
+	 * catalog dispatches without a key instead.
+	 */
+	retriesFailedCommandKey(provider: string): boolean {
+		return this.hasCommandBackedApiKey(provider) && !getProviderDefinition(provider)?.allowsMissingApiKey;
+	}
+
 	getDiscoverableProviders(): string[] {
 		const disabledProviders = getDisabledProviderIdsFromSettings(this.#settings);
 		return this.#discoverableProviders
@@ -2951,7 +2960,7 @@ export class ModelRegistry {
 			if (
 				ctx.error === undefined &&
 				resolvedApiKeyBearer(resolved) === undefined &&
-				this.hasCommandBackedApiKey(provider)
+				this.retriesFailedCommandKey(provider)
 			) {
 				throw new ApiKeyCommandError(
 					provider,
