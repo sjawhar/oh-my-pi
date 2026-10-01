@@ -104,7 +104,7 @@ import type { CompactionEntry, SessionEntry } from "./session-entries";
 import type { SessionManager } from "./session-manager";
 import type { ShakeMode, ShakeResult } from "./shake-types";
 import { resolveSpeculationLeadTokens, SPECULATION_LEAD_MIN_TOKENS } from "./speculation-lead";
-import { TOOL_RESULT_PRUNE_CUSTOM_TYPE, type ToolResultPruneData } from "./tool-result-prunes";
+import { TOOL_RESULT_PRUNE_CUSTOM_TYPE, toToolResultPruneData } from "./tool-result-prunes";
 import experimentalContextNotesReminderPrompt from "../prompts/system/experimental-context-notes-reminder.md" with { type: "text" };
 import experimentalContextRolloverPrompt from "../prompts/system/experimental-context-rollover.md" with { type: "text" };
 import lengthStopRetryTemplate from "../prompts/system/length-stop-retry.md" with { type: "text" };
@@ -666,9 +666,7 @@ export class SessionMaintenance {
 	 * keep the provider prompt cache warm.
 	 */
 	#commitPrune(result: PruneResult, advisorRebaseReason: string): void {
-		this.#host.sessionManager.appendCustomEntry(TOOL_RESULT_PRUNE_CUSTOM_TYPE, {
-			results: result.pruned,
-		} satisfies ToolResultPruneData);
+		this.#host.sessionManager.appendCustomEntry(TOOL_RESULT_PRUNE_CUSTOM_TYPE, toToolResultPruneData(result.pruned));
 		const sessionContext = this.#host.buildDisplaySessionContext();
 		this.#host.agent.replaceMessages(sessionContext.messages);
 		this.#host.rebaseAdvisorPrefix(advisorRebaseReason);
