@@ -3,21 +3,22 @@
  * prune pass blanked in place.
  *
  * The per-turn prune passes blank stale tool results in memory and append one
- * record listing them, instead of republishing the whole transcript. The
- * original result line stays in the file, so every reader that loads a whole
- * session file calls {@link applyToolResultPrunes} right after migration and
- * before blob resolution (a pruned result's blobs are then never read):
+ * record listing them ({@link toToolResultPruneData}), instead of republishing
+ * the whole transcript. The original result line stays in the file, so every
+ * reader that loads a whole session file calls {@link applyToolResultPrunes}:
  * `SessionManager` resume and `forkFrom`, `loadSessionMessagesReadOnly`
- * (`history://` for parked agents), and the HTML sub-session export.
+ * (`history://` for parked agents), and the HTML sub-session export. Where the
+ * reader migrates and resolves blobs, it applies the records after migration
+ * and before blob resolution, so a pruned result's blobs are never read.
  *
- * Byte-offset tail readers (the Agent Hub transcript viewer, RPC subagent
- * streaming) parse each line once as it lands and cannot blank a line they
- * already emitted, so they show pruned results in full.
+ * Byte-offset tail readers (the Agent Hub transcript viewer, the collab agent
+ * drawer, RPC subagent streaming) parse each line once as it lands and cannot
+ * blank a line they already emitted, so they show pruned results in full.
  *
  * A later full rewrite folds the blanked content inline and keeps the records;
  * replaying a record over already-blanked content changes nothing.
  */
-import { blankToolResult } from "@oh-my-pi/pi-agent-core/compaction/pruning";
+import { blankToolResult, type ToolResultPrune } from "@oh-my-pi/pi-agent-core/compaction/pruning";
 import { logger } from "@oh-my-pi/pi-utils";
 import type { FileEntry, SessionEntry } from "./session-entries";
 
@@ -36,6 +37,15 @@ export interface ToolResultPruneRecord {
 /** `data` of a `tool_result_prune` custom entry. */
 export interface ToolResultPruneData {
 	readonly results: readonly ToolResultPruneRecord[];
+}
+
+/**
+ * The `data` to persist for one prune pass. Copies each field explicitly, so a
+ * field added to agent-core's in-memory {@link ToolResultPrune} does not
+ * silently become part of the on-disk record.
+ */
+export function toToolResultPruneData(pruned: readonly ToolResultPrune[]): ToolResultPruneData {
+	return { results: pruned.map(({ entryId, notice, prunedAt }) => ({ entryId, notice, prunedAt })) };
 }
 
 function isToolResultPruneRecord(value: unknown): value is ToolResultPruneRecord {
