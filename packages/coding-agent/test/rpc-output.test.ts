@@ -14,10 +14,11 @@ it("drains RPC command responses after stdin EOF while the real stdout pipe is b
 	await using spoolDir = await TempDir.create("@rpc-output-pipe-");
 	const child = Bun.spawn(
 		[
-			"sh",
+			"bash",
 			"-c",
-			// The reader takes the ready line, then stops reading for 2 s: a real stalled pipe.
-			'exec "$0" "$@" | { head -n 1; sleep 2; cat; }',
+			// Pass the ready line, then stop reading for 2 s (a real stalled pipe);
+			// pipefail makes the exit status omp's, not the reader's.
+			'set -o pipefail; "$0" "$@" | { IFS= read -r l; printf "%s\\n" "$l"; sleep 2; cat; }',
 			process.execPath,
 			path.join(import.meta.dir, "../src/cli.ts"),
 			"--mode",
@@ -74,7 +75,8 @@ it("drains RPC command responses after stdin EOF while the real stdout pipe is b
 		expect(await child.exited).toBe(0);
 	} finally {
 		reader.releaseLock();
-		child.kill();
+		// child is the bash wrapper; reach omp underneath it too.
+		killProcessTree(child.pid);
 		await child.exited.catch(() => {});
 		await stderr;
 	}
@@ -264,15 +266,16 @@ it("spills to disk with bounded memory when a real stdout reader stalls", async 
 }, 60_000);
 
 it("writes straight to a real stdout pipe while its reader keeps up", async () => {
+	// 16 MiB through a 4 MiB budget: any spill while the reader keeps up fails this.
 	const { report, order } = await runStdoutWriter({
-		frames: 64,
+		frames: 256,
 		frameBytes: 64 * 1024,
 		budget: 4 * 1024 * 1024,
 		paced: true,
 		stallMs: 0,
 	});
 	expect(report.spooled).toBe(false);
-	expect(order).toEqual(Array.from({ length: 64 }, (_, i) => i));
+	expect(order).toEqual(Array.from({ length: 256 }, (_, i) => i));
 }, 60_000);
 
 it("delivers a spool opened while the sink still accepts writes", async () => {
@@ -290,3 +293,20 @@ it("delivers a spool opened while the sink still accepts writes", async () => {
 	await writer.close();
 	expect(Buffer.concat(chunks).toString()).toBe("first\nsecond\nthird\n");
 }, 5_000);
+
+/** Kill a process and its descendants (Linux /proc; elsewhere just the process). */
+function killProcessTree(pid: number): void {
+	let children: number[] = [];
+	try {
+		children = fs
+			.readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8")
+			.trim()
+			.split(/\s+/)
+			.filter(Boolean)
+			.map(Number);
+	} catch {}
+	for (const child of children) killProcessTree(child);
+	try {
+		process.kill(pid, "SIGKILL");
+	} catch {}
+}

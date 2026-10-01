@@ -20,7 +20,7 @@ Bun.gc(true);
 const rssBefore = process.memoryUsage().rss;
 for (let i = 0; i < frames; i++) {
 	writer.write([`${JSON.stringify({ i, payload })}\n`]);
-	if (paced) await Bun.sleep(0);
+	if (paced) await Bun.sleep(1); // events arrive over time, not as one synchronous burst
 }
 const spooled = fs.readdirSync(os.tmpdir()).some(name => name.startsWith("omp-rpc-output-"));
 Bun.gc(true);
