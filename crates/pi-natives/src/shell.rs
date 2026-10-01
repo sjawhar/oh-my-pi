@@ -807,20 +807,19 @@ mod tests {
 	async fn timeout_drains_pipeline_output_before_stopping_reader() {
 		let shell = CoreShell::new(None);
 		let (tx, rx) = flume::unbounded::<String>();
-		// The producer writes more `x` lines than any pipe buffer holds, signals
-		// readiness on stderr, then holds the pipe open. That write can only
-		// finish once `tail` has read all but one buffer of it, so READY means
-		// `tail` already holds five `x` lines. It has to: cancellation turns
-		// `tail`'s next read into EOF without reading input still queued in the
-		// pipe, and `tail` must flush what it holds before the reader stops.
+		// The downstream stage reads and writes exactly five complete lines
+		// before it emits READY, then blocks in a sixth read. READY therefore
+		// proves the reader, rather than merely the producer or pipe, consumed
+		// the asserted output. Cancellation makes the sixth read return EOF.
 		let mut cancel = CancelToken::default();
 		let abort = cancel.emplace_abort_token();
 		let handle = tokio::spawn(async move {
 			shell
 				.run(
 					CoreShellRunOptions {
-						command:    "{ printf 'x\\n%.0s' {1..65536}; printf 'READY\\n' >&2; sleep 30; } \
-						             | tail -5"
+						command:    "{ printf 'x\\nx\\nx\\nx\\nx\\n'; sleep 30; } | { for _ in 1 2 3 4 \
+						             5; do IFS= read -r line; printf '%s\\n' \"$line\"; done; printf \
+						             'READY\\n' >&2; read -r; }"
 							.to_string(),
 						cwd:        None,
 						env:        None,

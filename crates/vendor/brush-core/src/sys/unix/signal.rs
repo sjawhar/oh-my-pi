@@ -74,19 +74,30 @@ pub(crate) fn mask_sigttou() -> Result<(), error::Error> {
 /// Consumes a pending stopped-child status for a process or pipeline.
 ///
 /// A pipeline's stages share a process group when one is available, so a stop
-/// from any stage stops that pipeline. Commands without one only observe their
-/// own child. The `ChildProcess::wait` caller owns this state transition and
-/// reports it to the job manager; `WNOWAIT` would report the same stop again
-/// after the job resumes.
-pub(crate) fn poll_for_stopped_child(
-	pid: sys::process::ProcessId,
+/// from any stage stops that pipeline. Detached embedded-shell stages have no
+/// shared group, so they are queried by their explicit pipeline member IDs.
+/// The `ChildProcess::wait` caller owns this state transition and reports it
+/// to the job manager; `WNOWAIT` would report the same stop again after the
+/// job resumes.
+pub(crate) fn poll_for_stopped_processes(
+	pids: &[sys::process::ProcessId],
 	pgid: Option<sys::process::ProcessId>,
 ) -> Result<bool, error::Error> {
-	let wait_status = waitid_child(
-		pid,
-		pgid,
-		nix::sys::wait::WaitPidFlag::WUNTRACED | nix::sys::wait::WaitPidFlag::WNOHANG,
-	);
+	let flags = nix::sys::wait::WaitPidFlag::WUNTRACED | nix::sys::wait::WaitPidFlag::WNOHANG;
+	if let Some(pgid) = pgid {
+		return stopped(waitid_child(pgid, Some(pgid), flags));
+	}
+	for pid in pids {
+		if stopped(waitid_child(*pid, None, flags))? {
+			return Ok(true);
+		}
+	}
+	Ok(false)
+}
+
+fn stopped(
+	wait_status: Result<nix::sys::wait::WaitStatus, nix::errno::Errno>,
+) -> Result<bool, error::Error> {
 	match wait_status {
 		Ok(nix::sys::wait::WaitStatus::Stopped(_stopped_pid, _signal)) => Ok(true),
 		Ok(_) | Err(nix::errno::Errno::ECHILD) => Ok(false),

@@ -149,8 +149,8 @@ pub(crate) fn mask_sigttou() -> Result<(), error::Error> {
 	Ok(())
 }
 
-pub(crate) fn poll_for_stopped_child(
-	_pid: sys::process::ProcessId,
+pub(crate) fn poll_for_stopped_processes(
+	_pids: &[sys::process::ProcessId],
 	_pgid: Option<sys::process::ProcessId>,
 ) -> Result<bool, error::Error> {
 	Ok(false)
