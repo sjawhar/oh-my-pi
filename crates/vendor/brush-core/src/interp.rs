@@ -861,10 +861,10 @@ async fn wait_for_pipeline_processes_and_update_status(
 	// Clear our the pipeline status so we can start filling it out.
 	shell.last_pipeline_statuses_mut().clear();
 
-	// Embedded non-interactive stages detach into separate sessions, so their
-	// process-group IDs cannot represent the pipeline. Give each external
-	// stage the complete external member set as a fallback stop scope; stages
-	// with a shared process group continue to use that narrower selector.
+	// Use the exact external member set as the stop scope for a multi-process
+	// pipeline. A process group remains an additional scope because a detached
+	// pipe-input stage can leave the recorded group while still belonging to
+	// the pipeline.
 	let pipeline_pids: Arc<[_]> = process_spawn_results
 		.iter()
 		.filter_map(|result| match result {
