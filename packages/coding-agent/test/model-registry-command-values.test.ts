@@ -7,6 +7,7 @@ import { streamSimple } from "@oh-my-pi/pi-ai";
 import { resolvedApiKeyBearer, withAuth } from "@oh-my-pi/pi-ai/auth-retry";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
+import * as awsCredentials from "@oh-my-pi/pi-ai/providers/aws-credentials";
 import * as aiStream from "@oh-my-pi/pi-ai/stream";
 import type { Api, Context, FetchImpl, Model } from "@oh-my-pi/pi-ai/types";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
@@ -53,6 +54,13 @@ function failingCommandWithSecret(secret: string): string {
 function stdoutFileCommand(file: string): string {
 	if (process.platform !== "win32") return `IFS= read -r t < ${shellQuote(file)}; printf %s "$t"`;
 	const script = `const fs=require("node:fs");process.stdout.write(fs.readFileSync(${JSON.stringify(file)}, "utf8").trim());`;
+	return `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
+}
+
+/** Command that prints `value` after a one-second delay. */
+function slowStdoutCommand(value: string): string {
+	if (process.platform !== "win32") return `sleep 1; printf %s ${shellQuote(value)}`;
+	const script = `setTimeout(() => process.stdout.write(${JSON.stringify(value)}), 1000)`;
 	return `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
 }
 
@@ -518,6 +526,75 @@ describe("ModelRegistry command-resolved models.yml values", () => {
 			stopReason: "error",
 			errorMessage: expect.stringContaining("The apiKey command for provider custom-proxy produced no key"),
 		});
+	});
+
+	test("a provider that runs without a key still dispatches keyless when its apiKey command fails", async () => {
+		const counterFile = path.join(tempDir, "counter.txt");
+		fs.writeFileSync(counterFile, "");
+		fs.writeFileSync(
+			modelsPath,
+			JSON.stringify({ providers: { "bedrock-mantle": { apiKey: `!${failedTrackingCommand(counterFile)}` } } }),
+		);
+		const registry = new ModelRegistry(authStorage, modelsPath);
+		const model = registry.getAll().find(candidate => candidate.provider === "bedrock-mantle");
+		if (!model) throw new Error("Expected a bundled bedrock-mantle model");
+		// Keyless bedrock-mantle signs with the AWS credential chain.
+		const credentials = spyOn(awsCredentials, "resolveAwsCredentials").mockResolvedValue({
+			accessKeyId: "AKIDSYNTHETIC",
+			secretAccessKey: "synthetic-secret",
+		});
+		const requests: string[] = [];
+		const captureFetch: FetchImpl = Object.assign(
+			async (input: string | URL | Request) => {
+				requests.push(String(input instanceof Request ? input.url : input));
+				return new Response("captured", { status: 418 });
+			},
+			{ preconnect: fetch.preconnect },
+		);
+
+		const context: Context = { systemPrompt: ["s"], messages: [{ role: "user", content: "hi", timestamp: 0 }] };
+		await streamSimple(model, context, { apiKey: registry.resolver(model), fetch: captureFetch, maxTokens: 16 })
+			.result()
+			.catch(() => undefined)
+			.finally(() => credentials.mockRestore());
+
+		expect(fs.readFileSync(counterFile, "utf8")).toBe("1");
+		expect(requests.length).toBeGreaterThan(0);
+	});
+
+	test("an abort while withAuth resolves a slow apiKey command reports the abort, not a missing key", async () => {
+		fs.writeFileSync(
+			modelsPath,
+			JSON.stringify({
+				providers: {
+					"custom-proxy": {
+						baseUrl: "https://custom-proxy.example.com/v1",
+						api: "openai-completions",
+						apiKey: `!${slowStdoutCommand("slow-key")}`,
+						models: [{ id: "custom-model", name: "Custom Model" }],
+					},
+				},
+			}),
+		);
+		const registry = new ModelRegistry(authStorage, modelsPath);
+		const model = registry.find("custom-proxy", "custom-model");
+		if (!model) throw new Error("Expected custom model");
+		const controller = new AbortController();
+		const reason = new Error("synthetic user abort");
+		let attempts = 0;
+
+		const pending = withAuth(
+			registry.resolver(model),
+			async () => {
+				attempts += 1;
+				return "sent";
+			},
+			{ signal: controller.signal },
+		);
+		controller.abort(reason);
+
+		await expect(pending).rejects.toBe(reason);
+		expect(attempts).toBe(0);
 	});
 
 	test("401 refreshes a command-backed provider header and retries with the fresh value", async () => {
