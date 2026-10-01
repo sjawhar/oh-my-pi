@@ -514,12 +514,15 @@ describe("ModelRegistry command-resolved models.yml values", () => {
 		},
 	);
 
-	test("a turn whose apiKey command never produces a key re-runs it on every retry, then fails without a request", async () => {
-		const run = await runCommandKeyedTurn(2, false);
+	test("a turn whose apiKey command never produces a key stops after 3 command retries without a request", async () => {
+		// retry.maxRetries at its default of 10: the key-command cap ends the turn first.
+		const run = await runCommandKeyedTurn(10, false);
 
 		expect(run.sentKeys).toEqual([]);
-		// The prompt's key check plus one run per retry.
-		expect(run.helperRuns).toBe(3);
+		expect(run.retries).toBe(3);
+		// The prompt's key check plus one run per retry, each after the 30 s failure window.
+		expect(run.helperRuns).toBe(4);
+		expect(run.elapsedMs).toBeGreaterThanOrEqual(90_000);
 		expect(run.retryEnds).toEqual([expect.objectContaining({ success: false })]);
 		expect(run.lastMessage).toMatchObject({
 			role: "assistant",
