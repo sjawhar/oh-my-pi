@@ -10,6 +10,7 @@ import type {
 	Usage,
 } from "@oh-my-pi/pi-ai";
 import { createSyntheticToolResultMessage } from "@oh-my-pi/pi-agent-core";
+import { markToolResultPruned, type PrunedToolResult } from "@oh-my-pi/pi-agent-core/compaction/pruning";
 import {
 	directoryIsEnterable,
 	getBlobsDir,
@@ -123,6 +124,40 @@ const DISCARDED_ENTRY_BRANCH_MARKER = "discarded-entry-branch";
  * inside every read-to-publish window exhausts them.
  */
 const MAX_WRITE_CONFLICT_RECOVERIES = 3;
+
+/**
+ * `custom` entry recording tool results a prune pass blanked in place
+ * ({@link SessionManager.appendToolResultPrunes}); loads replay it onto the
+ * targeted entries.
+ */
+const TOOL_RESULT_PRUNE_CUSTOM_TYPE = "tool_result_prune";
+
+interface ToolResultPruneData {
+	results: PrunedToolResult[];
+}
+
+function isPrunedToolResult(value: unknown): value is PrunedToolResult {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"entryId" in value &&
+		typeof value.entryId === "string" &&
+		"notice" in value &&
+		typeof value.notice === "string" &&
+		"prunedAt" in value &&
+		typeof value.prunedAt === "number"
+	);
+}
+
+function isToolResultPruneData(value: unknown): value is ToolResultPruneData {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"results" in value &&
+		Array.isArray(value.results) &&
+		value.results.every(isPrunedToolResult)
+	);
+}
 
 /** A fresh session id. */
 export function mintSessionId(): string {
@@ -2232,6 +2267,7 @@ export class SessionManager {
 		}
 
 		this.#applyEntries(header, fileEntries.slice(1) as SessionEntry[]);
+		this.#replayToolResultPrunes();
 		this.#expectedDiskSize = sourceSize;
 		this.#additionalDirectories = header.additionalDirectories ?? [];
 		this.#titleUpdatedAt = titleSlot?.updatedAt ?? header.timestamp;
@@ -3422,8 +3458,28 @@ export class SessionManager {
 	}
 
 	/**
-	 * Rewrite the session file after in-place entry updates (e.g. pruning old tool
-	 * outputs). Use sparingly.
+	 * Persist tool results a prune pass blanked in place by appending one
+	 * `tool_result_prune` record: its size follows the pruned results, not the
+	 * transcript, whereas {@link rewriteEntries} republishes the whole file.
+	 * Loads replay the record, so resume and file-based forks (`/fork`, `/tan`)
+	 * rebuild the pruned context. Like other bookkeeping `custom` entries it
+	 * joins the active branch and stays out of the model context.
+	 */
+	appendToolResultPrunes(results: readonly PrunedToolResult[]): void {
+		if (results.length === 0) return;
+		const entry: CustomEntry<ToolResultPruneData> = {
+			type: "custom",
+			customType: TOOL_RESULT_PRUNE_CUSTOM_TYPE,
+			data: { results: [...results] },
+			...this.#freshEntryFields(),
+		};
+		this.#recordEntry(entry);
+	}
+
+	/**
+	 * Rewrite the whole session file after in-place entry updates that have no
+	 * append-only record (shake, image drops, compaction warning stamps). Costs
+	 * the full transcript in bytes; use sparingly.
 	 */
 	async rewriteEntries(): Promise<void> {
 		if (!this.#persist || !this.#sessionFile) return;
@@ -3599,6 +3655,33 @@ export class SessionManager {
 		}
 
 		return changed;
+	}
+
+	/**
+	 * Re-apply `tool_result_prune` records ({@link appendToolResultPrunes}) to
+	 * freshly loaded entries, so the history rebuilds to the context the live
+	 * session had after its prune passes. The file already holds the records,
+	 * so this never schedules a rewrite.
+	 */
+	#replayToolResultPrunes(): void {
+		for (const entry of this.#entries) {
+			if (entry.type !== "custom" || entry.customType !== TOOL_RESULT_PRUNE_CUSTOM_TYPE) continue;
+			if (!isToolResultPruneData(entry.data)) {
+				logger.warn("Skipping malformed tool-result prune record", { id: entry.id });
+				continue;
+			}
+			for (const result of entry.data.results) {
+				const target = this.#index.get(result.entryId);
+				if (target?.type !== "message" || target.message.role !== "toolResult") {
+					logger.warn("Tool-result prune record targets no tool result", {
+						id: entry.id,
+						target: result.entryId,
+					});
+					continue;
+				}
+				markToolResultPruned(target.message, result.notice, result.prunedAt);
+			}
+		}
 	}
 
 	getHeader(): SessionHeader | null {
@@ -3868,6 +3951,7 @@ export class SessionManager {
 		manager.#hasTitleSlot = true;
 		manager.#entries = history;
 		manager.#index.rebuild(history);
+		manager.#replayToolResultPrunes();
 		manager.sanitizeLoadedOpenAIResponsesReplayMetadata();
 		if (options?.repairInterruptedTail) {
 			SessionManager.#repairForkedInterruptedTail(history, manager.#index.pathTo());
