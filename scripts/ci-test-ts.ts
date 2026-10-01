@@ -407,13 +407,47 @@ const SCRUBBED_ENV_NAMES = new Set([
 	"XAI_OAUTH_TOKEN",
 	"COLORTERM",
 ]);
-// The test harness's own controls inside those families pass through: runner and
-// test knobs (`OMP_TEST_*`, `PI_TEST_*`), live E2E targets (`OMP_E2E_*`), and the
-// variables that opt a developer into suites that are skipped by default.
-// `SSH_AUTH_SOCK` passes too: tests that `git commit` inherit the developer's git
-// config, which may sign through the agent, and no tested behavior reads it.
-const PASSED_ENV_PREFIXES = ["OMP_TEST_", "PI_TEST_", "OMP_E2E_"];
-const PASSED_ENV_NAMES = new Set(["PI_PYTHON_INTEGRATION", "PI_LOCAL_LLM", "PI_SHELL_PERSIST", "SSH_AUTH_SOCK"]);
+// Variables inside those families that are not omp configuration pass through:
+// - the test harness's own controls: runner and test knobs (`OMP_TEST_*`,
+//   `PI_TEST_*`), live E2E targets (`OMP_E2E_*`), the variables that opt a
+//   developer into or out of suites that are skipped by default, and the Rust
+//   device-test opt-ins (`OMP_NATIVE_AUDIO_*`);
+// - native build knobs (`OMP_APPLEFM_*`, read by the pi-natives build script);
+// - OpenMP's own runtime variables, which share the `OMP_` prefix;
+// - `SSH_AUTH_SOCK`: tests that `git commit` inherit the developer's git config,
+//   which may sign through the agent, and no tested behavior reads it.
+const PASSED_ENV_PREFIXES = ["OMP_TEST_", "PI_TEST_", "OMP_E2E_", "OMP_NATIVE_AUDIO_", "OMP_APPLEFM_"];
+const PASSED_ENV_NAMES = new Set([
+	"PI_PYTHON_INTEGRATION",
+	"PI_LOCAL_LLM",
+	"PI_NO_LOCAL_LLM",
+	"PI_SHELL_PERSIST",
+	"SSH_AUTH_SOCK",
+	"OMP_AFFINITY_FORMAT",
+	"OMP_ALLOCATOR",
+	"OMP_CANCELLATION",
+	"OMP_DEBUG",
+	"OMP_DEFAULT_DEVICE",
+	"OMP_DISPLAY_AFFINITY",
+	"OMP_DISPLAY_ENV",
+	"OMP_DYNAMIC",
+	"OMP_MAX_ACTIVE_LEVELS",
+	"OMP_MAX_TASK_PRIORITY",
+	"OMP_NESTED",
+	"OMP_NUM_TEAMS",
+	"OMP_NUM_THREADS",
+	"OMP_PLACES",
+	"OMP_PROC_BIND",
+	"OMP_SCHEDULE",
+	"OMP_STACKSIZE",
+	"OMP_TARGET_OFFLOAD",
+	"OMP_TEAMS_THREAD_LIMIT",
+	"OMP_THREAD_LIMIT",
+	"OMP_TOOL",
+	"OMP_TOOL_LIBRARIES",
+	"OMP_TOOL_VERBOSE_INIT",
+	"OMP_WAIT_POLICY",
+]);
 
 function isScrubbedEnvVar(key: string): boolean {
 	if (PASSED_ENV_NAMES.has(key) || PASSED_ENV_PREFIXES.some(prefix => key.startsWith(prefix))) {

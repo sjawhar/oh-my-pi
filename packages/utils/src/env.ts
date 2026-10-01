@@ -297,8 +297,9 @@ for (const key of Object.keys(Bun.env)) {
 	}
 }
 
-// `PI_NO_DOTENV` (any non-empty value) leaves the environment as launched: the
-// test runner sets it so a developer's dotenv files cannot reach its tests.
+// `PI_NO_DOTENV` (any non-empty value) skips these files; Bun's own launch-directory
+// autoload is separate (`bun --no-env-file`). The test runner sets both, so a
+// developer's dotenv files cannot reach its tests.
 for (const file of Bun.env.PI_NO_DOTENV ? [] : [projectEnv, agentEnv, piEnv, homeEnv]) {
 	for (const key in file) {
 		if (!isMacosMallocStackLoggingEnvName(key) && !Bun.env[key]) {

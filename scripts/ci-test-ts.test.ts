@@ -87,6 +87,11 @@ describe("test child environment", () => {
 			COLORTERM: "truecolor",
 			TERM: "xterm-256color",
 			SSH_AUTH_SOCK: "/tmp/ssh-agent.sock",
+			PI_NO_LOCAL_LLM: "1",
+			OMP_NATIVE_AUDIO_PLAYBACK_TEST: "1",
+			OMP_APPLEFM_SWIFTC: "/usr/bin/swiftc",
+			OMP_NUM_THREADS: "4",
+			OMP_THREAD_LIMIT: "8",
 		});
 
 		for (const key of [
@@ -111,6 +116,11 @@ describe("test child environment", () => {
 			PI_PYTHON_INTEGRATION: "1",
 			TERM: "xterm-256color",
 			SSH_AUTH_SOCK: "/tmp/ssh-agent.sock",
+			PI_NO_LOCAL_LLM: "1",
+			OMP_NATIVE_AUDIO_PLAYBACK_TEST: "1",
+			OMP_APPLEFM_SWIFTC: "/usr/bin/swiftc",
+			OMP_NUM_THREADS: "4",
+			OMP_THREAD_LIMIT: "8",
 			AWS_EC2_METADATA_DISABLED: "true",
 			PI_NO_DOTENV: "1",
 			PI_TEST_RUNTIME: "1",

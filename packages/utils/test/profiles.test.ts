@@ -343,6 +343,8 @@ describe("dirs module import behavior", () => {
 				PI_CODING_AGENT_DIR: agentDir,
 			};
 			delete childEnv.OMP_WORKER_HOST_PROBE;
+			// The test runner disables dotenv loading; this probe checks it stays unloaded.
+			delete childEnv.PI_NO_DOTENV;
 			const proc = Bun.spawn([process.execPath, probePath], {
 				stdout: "pipe",
 				stderr: "pipe",

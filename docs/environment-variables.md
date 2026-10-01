@@ -20,7 +20,7 @@ Most runtime lookups use `$env` from `@oh-my-pi/pi-utils` (`packages/utils/src/e
 4. Active config-root `.env` (normally `~/.omp/.env`) for keys whose current value is empty/unset
 5. Home `.env` (`~/.env`) for keys whose current value is empty/unset
 
-Setting `PI_NO_DOTENV` (any non-empty value) skips steps 2-5 and leaves the environment as launched. `scripts/ci-test-ts.ts` sets it for every test process it spawns.
+Setting `PI_NO_DOTENV` (any non-empty value) skips steps 2-5, omp's own dotenv loading. Bun's launch-directory autoload, which source and npm installs perform before this module runs, is separate: disable it with `bun --no-env-file` (the compiled binary is built with it off). `scripts/ci-test-ts.ts` does both for every test process it spawns.
 
 The agent/root locations respect profiles, `PI_CONFIG_DIR`, and—only for the default profile—`PI_CODING_AGENT_DIR`. Whole dotenv files are parsed with Bun's `node:util.parseEnv`, including quoted multiline values, escaped newlines, and inline comments. Names must be shell identifiers (`[A-Za-z_][A-Za-z0-9_]*`); unsafe names/values are discarded. Variable references remain literal in this parser; only Bun's launch-directory dotenv autoload performs variable expansion before this module runs. Child-shell filtering uses the same parser to identify project dotenv values across `.env`, `.env.<NODE_ENV>` (default `development`), `.env.local`, and `.env.<NODE_ENV>.local`. It removes project-dotenv credentials from shell subprocesses while preserving launcher-owned variables; Linux's original exec environment provides the authoritative launch snapshot, with best-effort value matching elsewhere.
 

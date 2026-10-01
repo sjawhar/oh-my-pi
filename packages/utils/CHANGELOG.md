@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added `PI_NO_DOTENV`, which skips loading the project, agent, config-root and home `.env` files.
+- Added `PI_NO_DOTENV`, which skips omp's own loading of the project, agent, config-root and home `.env` files; Bun's launch-directory autoload for source and npm installs is controlled separately with `bun --no-env-file` (the compiled binary already disables it).
 
 ## [18.4.4] - 2026-09-29
 
