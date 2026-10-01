@@ -79,7 +79,7 @@ it("delivers ordered v1 and chunked v2 frames through a slow sink before close c
 		},
 	});
 	const errors: Error[] = [];
-	const writer = new RpcOutputWriter(sink, error => errors.push(error));
+	const writer = new RpcOutputWriter(sink, error => errors.push(error), 1024);
 	const encoder = new RpcFrameEncoder();
 	const expected: object[] = [{ type: "ready" }, { type: "response", command: "negotiate_protocol", success: true }];
 	for (const frame of expected) writer.write(encoder.encodeFrames(frame));
@@ -109,7 +109,7 @@ it("fails promptly and removes spilled output when the reader disconnects", asyn
 	spyOn(TempDir, "createSync").mockReturnValue(dir);
 	const sink = new Writable({ highWaterMark: 1, write() {} });
 	const failure = Promise.withResolvers<Error>();
-	const writer = new RpcOutputWriter(sink, failure.resolve);
+	const writer = new RpcOutputWriter(sink, failure.resolve, 1);
 	writer.write(["first\n", "pending\n"]);
 	const closed = writer.close();
 	sink.destroy(new Error("reader disconnected"));
@@ -126,7 +126,7 @@ it("reports disk exhaustion and removes the partial spool instead of silently dr
 	});
 	const sink = new Writable({ highWaterMark: 1, write() {} });
 	const failures: Error[] = [];
-	const writer = new RpcOutputWriter(sink, error => failures.push(error));
+	const writer = new RpcOutputWriter(sink, error => failures.push(error), 1);
 	writer.write(["first\n", "pending\n"]);
 	await expect(writer.close()).rejects.toThrow("disk full");
 	expect(failures.map(error => error.message)).toEqual(["disk full"]);
@@ -145,7 +145,7 @@ it("reports a truncated spool during delivery instead of completing a partial pr
 		},
 	});
 	const failures: Error[] = [];
-	const writer = new RpcOutputWriter(sink, error => failures.push(error));
+	const writer = new RpcOutputWriter(sink, error => failures.push(error), 1);
 	writer.write(["first\n", "pending\n"]);
 	const closed = writer.close();
 	fs.truncateSync(dir.join("output"), 0);
@@ -154,4 +154,40 @@ it("reports a truncated spool during delivery instead of completing a partial pr
 	expect(failures.map(error => error.message)).toEqual(["RPC output spool ended before delivery completed"]);
 	expect(await Bun.file(dir.join("output")).exists()).toBe(false);
 	sink.destroy();
+});
+
+it("keeps a large-frame burst in memory while the reader keeps up", async () => {
+	// Regression: one frame over the pipe's 16 KiB high-water mark made every
+	// later frame of the burst spill to disk even though the reader drained
+	// promptly — a 50 KB streamed reply wrote ~10 MB of spool.
+	const createSpool = spyOn(TempDir, "createSync");
+	const chunks: Buffer[] = [];
+	const sink = new Writable({
+		write(chunk, _encoding, callback) {
+			chunks.push(Buffer.from(chunk));
+			queueMicrotask(() => callback());
+		},
+	});
+	const errors: Error[] = [];
+	const writer = new RpcOutputWriter(sink, error => errors.push(error));
+	const encoder = new RpcFrameEncoder();
+	const expected = [
+		{ type: "message_update", text: "x".repeat(64 * 1024) },
+		{ type: "message_end", text: "y".repeat(64 * 1024) },
+		{ type: "turn_end" },
+		{ type: "agent_end", messages: [] },
+	];
+	for (const frame of expected) writer.write(encoder.encodeFrames(frame));
+	await writer.close();
+
+	expect(createSpool).not.toHaveBeenCalled();
+	const decoder = new RpcFrameDecoder();
+	const actual = Buffer.concat(chunks)
+		.toString()
+		.trimEnd()
+		.split("\n")
+		.map(line => decoder.push(JSON.parse(line)))
+		.filter(frame => frame !== undefined);
+	expect(actual).toEqual(expected);
+	expect(errors).toEqual([]);
 });
