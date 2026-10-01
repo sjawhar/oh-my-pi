@@ -400,7 +400,8 @@ describe("ModelRegistry command-resolved models.yml values", () => {
 		expect(AIError.retriable(AIError.classify(error))).toBe(false);
 	});
 
-	test("a turn whose apiKey command failed auto-retries and completes once the command recovers", async () => {
+	/** Prompt a real AgentSession whose provider key is a helper that fails on its first run. */
+	async function runCommandKeyedTurn(maxRetries: number, helperRecovers: boolean) {
 		const tokenFile = path.join(tempDir, "token.txt");
 		const counterFile = path.join(tempDir, "counter.txt");
 		fs.writeFileSync(tokenFile, "FAIL");
@@ -444,7 +445,7 @@ describe("ModelRegistry command-resolved models.yml values", () => {
 			settings: Settings.isolated({
 				"compaction.enabled": false,
 				"retry.enabled": true,
-				"retry.maxRetries": 10,
+				"retry.maxRetries": maxRetries,
 				"retry.baseDelayMs": 500,
 				"retry.modelFallback": false,
 				"features.unexpectedStopDetection": "none",
@@ -457,13 +458,13 @@ describe("ModelRegistry command-resolved models.yml values", () => {
 		const wallStart = Date.now();
 		const monotonicStart = performance.now();
 		vi.spyOn(Date, "now").mockImplementation(() => Math.floor(wallStart + performance.now() - monotonicStart));
-		const runsAtRetryStart: string[] = [];
+		let retries = 0;
 		const retryEnds: Array<Extract<AgentSessionEvent, { type: "auto_retry_end" }>> = [];
 		session.subscribe(event => {
 			if (event.type === "auto_retry_start") {
-				runsAtRetryStart.push(fs.readFileSync(counterFile, "utf8"));
-				// The helper is healthy from here on; only the failure window delays its next run.
-				fs.writeFileSync(tokenFile, "recovered-key");
+				retries += 1;
+				// A recovering helper succeeds from here on; only its failure window delays the next run.
+				if (helperRecovers) fs.writeFileSync(tokenFile, "recovered-key");
 			}
 			if (event.type === "auto_retry_end") retryEnds.push(event);
 		});
@@ -471,26 +472,52 @@ describe("ModelRegistry command-resolved models.yml values", () => {
 		try {
 			await session.prompt("Use the command-keyed provider.");
 			await session.waitForIdle();
-
-			expect(agent.state.messages.at(-1)).toMatchObject({
-				role: "assistant",
-				stopReason: "stop",
-				content: [{ type: "text", text: "answered with the command key" }],
-			});
-			expect(sentKeys).toEqual(["recovered-key"]);
-			expect(retryEnds).toHaveLength(1);
-			expect(retryEnds[0]).toMatchObject({ success: true });
-			// Several retries ran inside the failure window without re-running the
-			// helper; it ran once more only after the window had elapsed.
-			expect(runsAtRetryStart.length).toBeGreaterThan(1);
-			expect(runsAtRetryStart).toEqual(runsAtRetryStart.map(() => "1"));
-			expect(fs.readFileSync(counterFile, "utf8")).toBe("11");
-			expect(Date.now() - wallStart).toBeGreaterThanOrEqual(30_000);
+			return {
+				lastMessage: agent.state.messages.at(-1),
+				sentKeys,
+				retries,
+				retryEnds,
+				helperRuns: fs.readFileSync(counterFile, "utf8").length,
+				elapsedMs: Date.now() - wallStart,
+			};
 		} finally {
 			await session.dispose();
 			await sessionManager.close();
 			vi.restoreAllMocks();
 		}
+	}
+
+	test.each([1, 10])(
+		"a turn whose apiKey command failed retries once the failure window passes and completes (maxRetries %d)",
+		async maxRetries => {
+			const run = await runCommandKeyedTurn(maxRetries, true);
+
+			expect(run.lastMessage).toMatchObject({
+				role: "assistant",
+				stopReason: "stop",
+				content: [{ type: "text", text: "answered with the command key" }],
+			});
+			expect(run.sentKeys).toEqual(["recovered-key"]);
+			expect(run.retryEnds).toEqual([expect.objectContaining({ success: true })]);
+			// The retry waited out the helper's failure window, then re-ran it.
+			expect(run.helperRuns).toBe(2);
+			expect(run.helperRuns).toBe(run.retries + 1);
+			expect(run.elapsedMs).toBeGreaterThanOrEqual(30_000);
+		},
+	);
+
+	test("a turn whose apiKey command never produces a key re-runs it on every retry, then fails without a request", async () => {
+		const run = await runCommandKeyedTurn(2, false);
+
+		expect(run.sentKeys).toEqual([]);
+		// The prompt's key check plus one run per retry.
+		expect(run.helperRuns).toBe(3);
+		expect(run.retryEnds).toEqual([expect.objectContaining({ success: false })]);
+		expect(run.lastMessage).toMatchObject({
+			role: "assistant",
+			stopReason: "error",
+			errorMessage: expect.stringContaining("The apiKey command for provider custom-proxy produced no key"),
+		});
 	});
 
 	test("401 refreshes a command-backed provider header and retries with the fresh value", async () => {

@@ -5,7 +5,7 @@
 ### Fixed
 
 - Fixed `queue_update` events going stale while a queued steer was adopted into the running turn as live steering, withdrawn by the interrupt path, or landed in the transcript; those transitions now notify queue listeners like every other queue mutator ([#14821](https://github.com/can1357/oh-my-pi/pull/14821) by [@jchanghong023](https://github.com/jchanghong023)).
-- A turn that fails with a thrown error now records that error's classification (`errorId`), so retryable failures raised before or outside the provider stream are auto-retried like provider stream errors.
+- A turn that fails with a thrown `CredentialUnavailableError` now carries its transient classification (`errorId`) on the error message, so a host's turn retry can treat it as retryable.
 
 ## [18.8.8] - 2026-10-10
 
