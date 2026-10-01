@@ -11,6 +11,7 @@ import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
+import { loadSessionMessagesReadOnly } from "@oh-my-pi/pi-coding-agent/session/session-loader";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import {
 	FileSessionStorage,
@@ -18,6 +19,7 @@ import {
 	type SessionStorageWriter,
 	type WriteTextAtomicOptions,
 } from "@oh-my-pi/pi-coding-agent/session/session-storage";
+import { collectSubSessions } from "@oh-my-pi/pi-coding-agent/session/sub-sessions";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { logger, TempDir } from "@oh-my-pi/pi-utils";
 
@@ -208,19 +210,54 @@ describe("AgentSession per-turn prune persistence", () => {
 		return text.text;
 	}
 
-	/** Text of a tool result in a fresh session rebuilt from the file, as resume and `/fork` see it. */
-	async function rebuiltResultText(toolCallId = BIG_CALL_ID): Promise<string | undefined> {
+	/** Text content of the tool result answering `toolCallId` among `messages`. */
+	function resultTextIn(messages: readonly AgentMessage[], toolCallId: string): string | undefined {
+		const result = messages.find(candidate => candidate.role === "toolResult" && candidate.toolCallId === toolCallId);
+		if (result?.role !== "toolResult" || !Array.isArray(result.content)) {
+			throw new Error(`Expected tool result ${toolCallId} in the rebuilt messages`);
+		}
+		const text = result.content.find(block => block.type === "text");
+		return text?.type === "text" ? text.text : undefined;
+	}
+
+	function persistedSessionFile(): string {
 		const sessionFile = sessionManager.getSessionFile();
 		if (!sessionFile) throw new Error("Expected a persisted session file");
-		const reloaded = await SessionManager.open(sessionFile, tempDir.path());
-		const rebuilt = reloaded
-			.buildSessionContext()
-			.messages.find(candidate => candidate.role === "toolResult" && candidate.toolCallId === toolCallId);
-		if (rebuilt?.role !== "toolResult" || !Array.isArray(rebuilt.content)) {
-			throw new Error("Expected the seeded tool result in the from-disk rebuild");
-		}
-		const rebuiltText = rebuilt.content.find(block => block.type === "text");
-		return rebuiltText?.type === "text" ? rebuiltText.text : undefined;
+		return sessionFile;
+	}
+
+	/** Text of a tool result in a fresh session rebuilt from the file, as resume sees it. */
+	async function rebuiltResultText(toolCallId = BIG_CALL_ID): Promise<string | undefined> {
+		const reloaded = await SessionManager.open(persistedSessionFile(), tempDir.path());
+		return resultTextIn(reloaded.buildSessionContext().messages, toolCallId);
+	}
+
+	/**
+	 * Text of a tool result as each reader that loads the whole session file
+	 * sees it: resume, `/fork`/`/tan`, `history://` for a parked agent, and the
+	 * HTML export of the same file as a subagent transcript.
+	 */
+	async function wholeFileReaderTexts(toolCallId = BIG_CALL_ID): Promise<Record<string, string | undefined>> {
+		const sessionFile = persistedSessionFile();
+		const forked = await SessionManager.forkFrom(
+			sessionFile,
+			tempDir.path(),
+			path.join(tempDir.path(), "fork"),
+			undefined,
+			{ copyArtifacts: false, suppressBreadcrumb: true },
+		);
+		const parentFile = path.join(tempDir.path(), "export", "parent.jsonl");
+		fs.mkdirSync(path.join(tempDir.path(), "export", "parent"), { recursive: true });
+		fs.copyFileSync(sessionFile, path.join(tempDir.path(), "export", "parent", "Helper.jsonl"));
+		const subSession = (await collectSubSessions(parentFile)).Helper;
+		if (!subSession) throw new Error("Expected the copied session as an exported subagent transcript");
+		const exported = subSession.entries.flatMap(entry => (entry.type === "message" ? [entry.message] : []));
+		return {
+			resume: await rebuiltResultText(toolCallId),
+			fork: resultTextIn(forked.buildSessionContext().messages, toolCallId),
+			readOnly: resultTextIn(await loadSessionMessagesReadOnly(sessionFile), toolCallId),
+			htmlSubSession: resultTextIn(exported, toolCallId),
+		};
 	}
 
 	/** Ends a turn outside the agent loop; its agent end runs the per-turn prune pass. */
@@ -247,16 +284,23 @@ describe("AgentSession per-turn prune persistence", () => {
 		await session.waitForIdle();
 	}
 
-	it("persists the pruned rewrite so a from-disk rebuild matches the live context", async () => {
+	it("persists the prune so every whole-file reader rebuilds the live context", async () => {
 		await endTurn();
 
 		// The per-turn pass rewrote the live context…
 		expect(liveResultText()).toBe(USELESS_NOTICE);
 
-		// …and the persisted file must rebuild to the SAME content (fork/resume
-		// read this file; a divergent prefix cold-misses the provider cache).
+		// …and every reader of the persisted file must rebuild the SAME content:
+		// a divergent fork/resume prefix cold-misses the provider cache, and a
+		// parked agent's `history://` or its exported transcript would show the
+		// stale output.
 		await sessionManager.flush();
-		expect(await rebuiltResultText()).toBe(USELESS_NOTICE);
+		expect(await wholeFileReaderTexts()).toEqual({
+			resume: USELESS_NOTICE,
+			fork: USELESS_NOTICE,
+			readOnly: USELESS_NOTICE,
+			htmlSubSession: USELESS_NOTICE,
+		});
 	});
 
 	it("persists a prune in bytes that do not grow with the transcript", async () => {
@@ -317,18 +361,19 @@ describe("AgentSession per-turn prune persistence", () => {
 		});
 		session.agent.replaceMessages(session.buildDisplaySessionContext().messages);
 		await sessionManager.flush();
-		const sessionFile = sessionManager.getSessionFile();
-		if (!sessionFile) throw new Error("Expected a persisted session file");
+		const sessionFile = persistedSessionFile();
 		const transcriptBytes = fs.statSync(sessionFile).size;
 		expect(transcriptBytes).toBeGreaterThan(2 * 1024 * 1024);
 
 		storage.bytesWritten = 0;
 		await endTurn();
+		await sessionManager.flush();
 
 		expect(liveResultText(lateCallId)).toBe(USELESS_NOTICE);
-		// The turn wrote its own entries and the prune — not the transcript again.
-		expect(storage.bytesWritten).toBeLessThan(64 * 1024);
-		await sessionManager.flush();
+		// The turn wrote its own entries and the prune record. A whole-file
+		// publish writes at least the file it publishes (the pre-turn transcript
+		// is no bound: that publish drops the pruned body).
+		expect(storage.bytesWritten).toBeLessThan(fs.statSync(sessionFile).size);
 		expect(await rebuiltResultText(lateCallId)).toBe(USELESS_NOTICE);
 	});
 
