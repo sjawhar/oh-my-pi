@@ -73,24 +73,24 @@ pub(crate) fn mask_sigttou() -> Result<(), error::Error> {
 
 /// Consumes a pending stopped-child status for a process or pipeline.
 ///
-/// A pipeline's stages share a process group when one is available, so a stop
-/// from any stage stops that pipeline. Detached embedded-shell stages have no
-/// shared group, so they are queried by their explicit pipeline member IDs.
-/// The `ChildProcess::wait` caller owns this state transition and reports it
-/// to the job manager; `WNOWAIT` would report the same stop again after the
-/// job resumes.
+/// A pipeline's external member IDs are always checked first. A process group
+/// is an additional scoped check: a detached pipe-input stage can leave the
+/// recorded group while still belonging to the pipeline. The
+/// `ChildProcess::wait` caller owns this state transition and reports it to
+/// the job manager; `WNOWAIT` would report the same stop again after the job
+/// resumes.
 pub(crate) fn poll_for_stopped_processes(
 	pids: &[sys::process::ProcessId],
 	pgid: Option<sys::process::ProcessId>,
 ) -> Result<bool, error::Error> {
 	let flags = nix::sys::wait::WaitPidFlag::WUNTRACED | nix::sys::wait::WaitPidFlag::WNOHANG;
-	if let Some(pgid) = pgid {
-		return stopped(waitid_child(pgid, Some(pgid), flags));
-	}
 	for pid in pids {
 		if stopped(waitid_child(*pid, None, flags))? {
 			return Ok(true);
 		}
+	}
+	if let Some(pgid) = pgid {
+		return stopped(waitid_child(pgid, Some(pgid), flags));
 	}
 	Ok(false)
 }
