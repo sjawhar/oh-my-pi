@@ -2,13 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+- When saving pruned tool output fails, the pruning now stays applied in the live context, and the session file catches up on the next successful save.
+
 ### Fixed
 
 - Fixed `read` middle-eliding large file pages into an artifact; a page past the output spill threshold now stops at a line boundary with an exact `:N` continuation ([#16277](https://github.com/can1357/oh-my-pi/issues/16277))
 - Fixed an edit after a restart replacing a line that `read` or `grep` had shown cut at the column cap and silently dropping the rest of that line; such edits now ask for a full `:raw` read of the line first, while edits to lines within the cap still apply ([#16171](https://github.com/can1357/oh-my-pi/issues/16171))
 - Fixed Enter on an unknown slash command such as `/not-a-command` running a command whose description happened to match it (e.g. `/loop`, which then resent every later prompt after each turn); Enter now sends what you typed, including as the deny-and-steer message for a pending tool approval, unless you select a suggestion first ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
 - Fixed `read` of web pages dropping collapsed sections such as accordion and expander panels (e.g. a product page's "Item details" table); content in `<template>`, `<noscript>` and scripts stays out ([#16246](https://github.com/can1357/oh-my-pi/issues/16246))
-- Stopped long sessions from rewriting their entire session file on every turn that prunes a superseded read or uneventful tool result; the prune is now appended, so disk writes no longer grow with transcript size
+- Stopped long sessions from rewriting their entire session file on every turn that prunes tool output (superseded reads, uneventful results, or the context-size prune), so the disk writes of those turns no longer grow with session length.
 
 ## [18.12.2] - 2026-10-18
 
