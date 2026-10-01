@@ -373,9 +373,13 @@ async function commandsForMode(mode: Mode): Promise<TestCommand[]> {
 // `envFrom`, GitHub Actions injects `GITHUB_TOKEN`,
 // and a host may carry provider API keys. Any of these make env-sensitive code
 // non-deterministic in tests — e.g. leaked AWS creds make `amazon-bedrock` look
-// authenticated and win the provider startup fallback over `anthropic`. Run the
-// suites in a hermetic environment with all credential / cloud-config variables
-// stripped so resolution depends only on the test's own fixtures.
+// authenticated and win the provider startup fallback over `anthropic`. A
+// launcher wrapper may also export `PI_CONFIG_FILES` into every shell it starts;
+// each loaded `Settings` instance reads it as an overlay that outranks the
+// global-layer writes tests make, so the user's own config would decide their
+// settings. Run the suites in a hermetic environment with all credential /
+// cloud-config / config-overlay variables stripped so resolution depends only
+// on the test's own fixtures.
 const SCRUBBED_ENV_PREFIXES = ["AWS_", "GOOGLE_CLOUD_"];
 const SCRUBBED_ENV_NAMES = new Set([
 	"GITHUB_TOKEN",
@@ -384,6 +388,7 @@ const SCRUBBED_ENV_NAMES = new Set([
 	"GOOGLE_APPLICATION_CREDENTIALS",
 	"ANTHROPIC_OAUTH_TOKEN",
 	"XAI_OAUTH_TOKEN",
+	"PI_CONFIG_FILES",
 ]);
 
 function isScrubbedEnvVar(key: string): boolean {
@@ -438,8 +443,9 @@ async function runTestCommand(testCommand: TestCommand): Promise<void> {
 }
 
 // Child env shared by every spawned test process: the parent env with the
-// private test-runtime marker set, all CI credential / cloud-config variables
-// scrubbed (see SCRUBBED_ENV_* above), and GITHUB_ACTIONS cleared.
+// private test-runtime marker set, all CI credential / cloud-config /
+// config-overlay variables scrubbed (see SCRUBBED_ENV_* above), and
+// GITHUB_ACTIONS cleared.
 //
 // GC knobs (both needed — they gate different JSC mechanisms):
 // - `BUN_JSC_useConcurrentGC=0` stops the collector from marking concurrently
