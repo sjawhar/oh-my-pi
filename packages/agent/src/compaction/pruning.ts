@@ -62,13 +62,13 @@ export const DEFAULT_PRUNE_CONFIG: PruneConfig = {
 };
 
 /** One tool result a prune pass blanked in place, with what replaying the blanking needs. */
-export interface PrunedToolResult {
+export interface ToolResultPrune {
 	/** Session entry id of the blanked `toolResult` message. */
-	entryId: string;
+	readonly entryId: string;
 	/** Placeholder text now standing in for the result. */
-	notice: string;
+	readonly notice: string;
 	/** {@link ToolResultMessage.prunedAt} stamped by the pass. */
-	prunedAt: number;
+	readonly prunedAt: number;
 }
 
 export interface PruneResult {
@@ -76,16 +76,20 @@ export interface PruneResult {
 	tokensSaved: number;
 	/**
 	 * Every result this pass blanked in place. Callers persist these instead of
-	 * the rewritten history; {@link markToolResultPruned} replays one onto a
-	 * freshly loaded copy of its entry.
+	 * the rewritten history; {@link blankToolResult} replays one onto a freshly
+	 * loaded copy of its entry.
 	 */
-	pruned: readonly PrunedToolResult[];
+	pruned: readonly ToolResultPrune[];
 }
 
 const NOTHING_PRUNED: PruneResult = { prunedCount: 0, tokensSaved: 0, pruned: [] };
 
-/** Blank `message` to `notice` in place: the single shape every prune pass, and its replay, produces. */
-export function markToolResultPruned(message: ToolResultMessage, notice: string, prunedAt: number): void {
+/**
+ * Replace `message`'s content with `notice` in place and stamp `prunedAt`: the
+ * single shape every tool-result prune (both passes, their session replay,
+ * advisor eviction) produces.
+ */
+export function blankToolResult(message: ToolResultMessage, notice: string, prunedAt: number): void {
 	message.content = [{ type: "text", text: notice }];
 	message.prunedAt = prunedAt;
 	invalidateMessageCache(message as AgentMessage);
@@ -403,7 +407,7 @@ export function pruneSupersededToolResults(
 	const prunedAt = Date.now();
 	const pruned = toPrune.map(candidate => {
 		tokensSaved += estimatePrunedSavings(candidate.tokens, candidate.notice);
-		markToolResultPruned(candidate.message, candidate.notice, prunedAt);
+		blankToolResult(candidate.message, candidate.notice, prunedAt);
 		return { entryId: candidate.entry.id, notice: candidate.notice, prunedAt };
 	});
 	return { prunedCount: pruned.length, tokensSaved, pruned };
@@ -523,7 +527,7 @@ export function pruneToolOutputs(
 			: candidate.useless
 				? USELESS_NOTICE
 				: createPrunedNotice(candidate.tokens);
-		markToolResultPruned(candidate.entry.message as ToolResultMessage, notice, prunedAt);
+		blankToolResult(candidate.entry.message as ToolResultMessage, notice, prunedAt);
 		return { entryId: candidate.entry.id, notice, prunedAt };
 	});
 
