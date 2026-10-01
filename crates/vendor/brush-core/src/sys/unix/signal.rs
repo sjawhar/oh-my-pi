@@ -71,30 +71,40 @@ pub(crate) fn mask_sigttou() -> Result<(), error::Error> {
 	Ok(())
 }
 
-pub(crate) fn poll_for_stopped_children() -> Result<bool, error::Error> {
-	let mut found_stopped = false;
-
-	loop {
-		let wait_status =
-			waitid_all(nix::sys::wait::WaitPidFlag::WUNTRACED | nix::sys::wait::WaitPidFlag::WNOHANG);
-		match wait_status {
-			Ok(nix::sys::wait::WaitStatus::Stopped(_stopped_pid, _signal)) => {
-				found_stopped = true;
-			},
-			Ok(_) => break,
-			Err(nix::errno::Errno::ECHILD) => break,
-			Err(e) => return Err(e.into()),
-		}
+/// Consumes a pending stopped-child status for a process or pipeline.
+///
+/// A pipeline's stages share a process group when one is available, so a stop
+/// from any stage stops that pipeline. Commands without one only observe their
+/// own child. The `ChildProcess::wait` caller owns this state transition and
+/// reports it to the job manager; `WNOWAIT` would report the same stop again
+/// after the job resumes.
+pub(crate) fn poll_for_stopped_child(
+	pid: sys::process::ProcessId,
+	pgid: Option<sys::process::ProcessId>,
+) -> Result<bool, error::Error> {
+	let wait_status = waitid_child(
+		pid,
+		pgid,
+		nix::sys::wait::WaitPidFlag::WUNTRACED | nix::sys::wait::WaitPidFlag::WNOHANG,
+	);
+	match wait_status {
+		Ok(nix::sys::wait::WaitStatus::Stopped(_stopped_pid, _signal)) => Ok(true),
+		Ok(_) | Err(nix::errno::Errno::ECHILD) => Ok(false),
+		Err(e) => Err(e.into()),
 	}
-
-	Ok(found_stopped)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn waitid_all(
+fn waitid_child(
+	pid: sys::process::ProcessId,
+	pgid: Option<sys::process::ProcessId>,
 	flags: nix::sys::wait::WaitPidFlag,
 ) -> Result<nix::sys::wait::WaitStatus, nix::errno::Errno> {
-	nix::sys::wait::waitid(nix::sys::wait::Id::All, flags)
+	let id = match pgid {
+		Some(pgid) => nix::sys::wait::Id::PGid(nix::unistd::Pid::from_raw(pgid)),
+		None => nix::sys::wait::Id::Pid(nix::unistd::Pid::from_raw(pid)),
+	};
+	nix::sys::wait::waitid(id, flags)
 }
 
 //
@@ -104,7 +114,9 @@ fn waitid_all(
 //
 
 #[cfg(target_os = "macos")]
-fn waitid_all(
+fn waitid_child(
+	pid: sys::process::ProcessId,
+	pgid: Option<sys::process::ProcessId>,
 	flags: nix::sys::wait::WaitPidFlag,
 ) -> Result<nix::sys::wait::WaitStatus, nix::errno::Errno> {
 	// SAFETY:
@@ -113,11 +125,15 @@ fn waitid_all(
 	// rather than uninitialized, as not all platforms initialize the memory in
 	// the StillAlive case.
 	let mut siginfo: nix::libc::siginfo_t = unsafe { std::mem::zeroed() };
+	let (id_type, id) = match pgid {
+		Some(pgid) => (nix::libc::P_PGID, pgid),
+		None => (nix::libc::P_PID, pid),
+	};
 
 	// SAFETY:
 	// Code copied from nix::sys::wait implementation of waitid for other platforms.
 	nix::errno::Errno::result(unsafe {
-		nix::libc::waitid(nix::libc::P_ALL, 0, &raw mut siginfo, flags.bits())
+		nix::libc::waitid(id_type, id as nix::libc::id_t, &raw mut siginfo, flags.bits())
 	})?;
 
 	siginfo_to_wait_status(siginfo)
