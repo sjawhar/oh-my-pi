@@ -3141,7 +3141,10 @@ mod tests {
 		let command = "top -s 0 | head -n 1";
 		#[cfg(not(target_os = "macos"))]
 		let command = "top -d 0 | head -n 1";
-		let execution = time::timeout(Duration::from_secs(2), execute_captured(command.to_string()))
+		// top observes head's closed pipe on its next write, after completing a
+		// full synchronous process snapshot. Under host load that scan takes
+		// seconds; this is only a bound against a broken pipe-close loop.
+		let execution = time::timeout(Duration::from_secs(30), execute_captured(command.to_string()))
 			.await
 			.expect("top kept sampling after its output pipe closed");
 		assert_eq!(execution.0.exit_code, Some(0));
@@ -3524,6 +3527,48 @@ mod tests {
 		for pid in pids {
 			assert!(process::Process::from_pid(pid).is_none(), "pipeline process {pid} survived");
 		}
+	}
+
+	/// Detached non-interactive external pipeline stages do not share a process
+	/// group. A stopped later stage must still stop the whole pipeline instead
+	/// of leaving its earlier producer blocked on a full pipe.
+	#[cfg(unix)]
+	#[tokio::test(flavor = "multi_thread")]
+	async fn stopped_later_detached_pipeline_stage_stops_pipeline() {
+		const MARKER: &str = "PI_SHELL_TEST_STOPPED_LATER_DETACHED_STAGE";
+		if std::env::var_os(MARKER).is_none() {
+			run_isolated_kill_test(
+				"shell::tests::stopped_later_detached_pipeline_stage_stops_pipeline",
+				MARKER,
+				false,
+			)
+			.await;
+			return;
+		}
+
+		let (mut session, params) = kill_test_context().await;
+		let source_info = SourceInfo::from("pi-natives:test");
+		let result = time::timeout(
+			Duration::from_secs(20),
+			session
+				.shell
+				.run_string("/usr/bin/yes | sh -c 'kill -STOP $$'", &source_info, &params),
+		)
+		.await
+		.expect("pipeline did not report its stopped later stage")
+		.expect("stopped pipeline");
+		assert_eq!(exit_code(&result), 148);
+		assert_eq!(
+			session
+				.shell
+				.jobs()
+				.current_job()
+				.expect("stopped pipeline job")
+				.process_ids()
+				.count(),
+			2,
+			"stopped pipeline must retain every external stage"
+		);
 	}
 
 	/// A child that stops before `ChildProcess::wait` begins is still reported

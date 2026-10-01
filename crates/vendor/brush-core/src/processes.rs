@@ -1,7 +1,10 @@
 //! Process management
 
 use futures::FutureExt;
-use std::io::Write;
+use std::{
+	io::Write,
+	sync::Arc,
+};
 
 #[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
@@ -31,8 +34,10 @@ pub struct ChildProcess {
 	reaped:      bool,
 	/// If available, the process ID of the child.
 	pid:         Option<sys::process::ProcessId>,
-	/// If available, the process group ID of the child.
+	/// If available, the shared process group ID of the pipeline.
 	pgid:        Option<sys::process::ProcessId>,
+	/// Every external process in this pipeline when no process group is shared.
+	stop_pids:   Option<Arc<[sys::process::ProcessId]>>,
 	/// Windows handle duplicated from the child process for safe termination.
 	#[cfg(windows)]
 	kill_handle: Option<OwnedHandle>,
@@ -53,6 +58,7 @@ impl ChildProcess {
 			exec_future: Box::pin(child.wait_with_output()),
 			pid,
 			pgid,
+			stop_pids: None,
 			reaped: false,
 			#[cfg(windows)]
 			kill_handle,
@@ -68,6 +74,12 @@ impl ChildProcess {
 	/// Returns the process's group ID.
 	pub const fn pgid(&self) -> Option<sys::process::ProcessId> {
 		self.pgid
+	}
+
+	/// Sets the external process IDs that form this pipeline without a shared
+	/// process group.
+	pub(crate) fn set_stop_pids(&mut self, pids: Arc<[sys::process::ProcessId]>) {
+		self.stop_pids = Some(pids);
 	}
 
 	/// Duplicates the process handle for termination use on Windows.
@@ -92,7 +104,11 @@ impl ChildProcess {
 		let Some(pid) = self.pid else {
 			return Ok(false);
 		};
-		sys::signal::poll_for_stopped_child(pid, self.pgid)
+		let pids = self
+			.stop_pids
+			.as_deref()
+			.unwrap_or_else(|| std::slice::from_ref(&pid));
+		sys::signal::poll_for_stopped_processes(pids, self.pgid)
 	}
 
 
