@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- A turn that fails with a thrown error now records that error's classification (`errorId`), so retryable failures raised before or outside the provider stream are auto-retried like provider stream errors.
+
 ## [18.4.6] - 2026-10-01
 
 ### Added

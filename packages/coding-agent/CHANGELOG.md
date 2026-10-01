@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- A provider `apiKey: "!command"` that fails, times out, or prints nothing is now retried with the usual turn auto-retry backoff instead of ending the turn (or subagent) with "No API key".
+
 ## [18.4.6] - 2026-10-01
 
 ### Added
