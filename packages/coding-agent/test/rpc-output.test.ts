@@ -52,7 +52,7 @@ it("drains RPC command responses after stdin EOF while the real stdout pipe is b
 		}
 		await child.stdin.flush();
 		child.stdin.end();
-		// ~10 MiB of replies against the 8 MiB in-flight budget: the writer must spill.
+		// About 30 MB of replies (320 get_state responses of ~94 KB) against the 8 MiB in-flight budget: the writer must spill.
 		let spooled = false;
 		for (let attempt = 0; attempt < 40 && !spooled; attempt++) {
 			spooled = fs.readdirSync(spoolDir.path()).some(name => name.startsWith("omp-rpc-output-"));
@@ -205,14 +205,13 @@ it("keeps a large-frame burst in memory while the reader keeps up", async () => 
 	expect(errors).toEqual([]);
 });
 
-/** Run the stdout-writer fixture on a real pipe; `stallMs` delays the first stdout read past the child's whole burst. */
-async function runStdoutWriter(args: {
-	frames: number;
-	frameBytes: number;
-	budget: number;
-	paced: boolean;
-	stallMs: number;
-}) {
+/**
+ * Run the stdout-writer fixture on a real pipe. "acked": the child writes each
+ * frame only after this process has read the previous one. "burst": the child
+ * writes every frame in one synchronous loop, so no write callback fires until
+ * it ends; to the writer that is a reader that has taken nothing.
+ */
+async function runStdoutWriter(args: { frames: number; frameBytes: number; budget: number; mode: "acked" | "burst" }) {
 	await using tmp = await TempDir.create("@rpc-output-stdout-");
 	const child = Bun.spawn(
 		[
@@ -221,9 +220,9 @@ async function runStdoutWriter(args: {
 			String(args.frames),
 			String(args.frameBytes),
 			String(args.budget),
-			args.paced ? "paced" : "burst",
+			args.mode,
 		],
-		{ env: { ...process.env, TMPDIR: tmp.path() }, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+		{ env: { ...process.env, TMPDIR: tmp.path() }, stdin: "pipe", stdout: "pipe", stderr: "pipe" },
 	);
 	const stderr = child.stderr.getReader();
 	const readReport = async (): Promise<{ spooled: boolean; retainedBytes: number }> => {
@@ -235,10 +234,20 @@ async function runStdoutWriter(args: {
 		}
 		return JSON.parse(text.slice(0, text.indexOf("\n")));
 	};
-	const stdout = args.stallMs > 0 ? undefined : new Response(child.stdout).text();
+	// Acknowledge each frame as it arrives; the acked child writes the next one only then.
+	const readAcked = async (): Promise<string> => {
+		const chunks: Uint8Array[] = [];
+		for await (const chunk of child.stdout) {
+			chunks.push(chunk);
+			for (let at = chunk.indexOf(10); at !== -1; at = chunk.indexOf(10, at + 1)) child.stdin.write("\n");
+			await child.stdin.flush();
+		}
+		return Buffer.concat(chunks).toString();
+	};
+	const stdout = args.mode === "acked" ? readAcked() : new Response(child.stdout).text();
 	const report = await readReport();
-	if (args.stallMs > 0) await Bun.sleep(args.stallMs);
-	const output = await (stdout ?? new Response(child.stdout).text());
+	const output = await stdout;
+	child.stdin.end();
 	stderr.releaseLock();
 	expect(await child.exited).toBe(0);
 	const order = output
@@ -256,8 +265,7 @@ it("spills to disk with bounded memory when a real stdout reader stalls", async 
 		frames: 512,
 		frameBytes: 256 * 1024,
 		budget: 4 * 1024 * 1024,
-		paced: false,
-		stallMs: 2000,
+		mode: "burst",
 	});
 	expect(report.spooled).toBe(true);
 	// 128 MiB of frames pass through; only the 4 MiB budget may stay queued in memory.
@@ -266,13 +274,15 @@ it("spills to disk with bounded memory when a real stdout reader stalls", async 
 }, 60_000);
 
 it("writes straight to a real stdout pipe while its reader keeps up", async () => {
-	// 16 MiB through a 4 MiB budget: any spill while the reader keeps up fails this.
+	// 16 MiB through a 4 MiB budget, each frame written only after this reader took
+	// the previous one: a writer that counts lifetime bytes instead of in-flight
+	// bytes spills here, and any spill fails this.
+	// Can't model a stalled reader: Bun drains a child's stdout unread. The burst and cli.ts tests cover stalls.
 	const { report, order } = await runStdoutWriter({
 		frames: 256,
 		frameBytes: 64 * 1024,
 		budget: 4 * 1024 * 1024,
-		paced: true,
-		stallMs: 0,
+		mode: "acked",
 	});
 	expect(report.spooled).toBe(false);
 	expect(order).toEqual(Array.from({ length: 256 }, (_, i) => i));
