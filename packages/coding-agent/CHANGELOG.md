@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Stopped RPC mode from spooling streamed output to a temp file on disk whenever a reply frame exceeded 16 KiB, even while the client was reading promptly; output now spills only once the client falls 8 MiB behind
+- Stopped RPC mode from writing streamed output to a temporary spool file while the client was reading promptly; output now spills to disk only after 8 MiB is waiting on the client, and a stalled client still cannot grow memory past that
 
 ## [18.4.9] - 2026-10-01
 
