@@ -5,6 +5,14 @@ import type { BunFile } from "bun";
 
 const READ_BYTES = 64 * 1024;
 
+/**
+ * Output the sink may hold in memory before frames spill to disk. `write()`
+ * reports backpressure as soon as one frame exceeds the stream's high-water
+ * mark (16 KiB on a pipe), even while the reader keeps up; spilling on that
+ * signal sent every later frame of a large-message burst through the disk.
+ */
+const RPC_OUTPUT_MEMORY_BACKLOG_BYTES = 8 * 1024 * 1024;
+
 interface Spool {
 	dir: TempDir;
 	file: BunFile;
@@ -13,7 +21,7 @@ interface Spool {
 	written: number;
 }
 
-/** Synchronous event producers spill to disk while the RPC reader applies backpressure. */
+/** Synchronous event producers spill to disk once the RPC reader falls a full memory backlog behind. */
 export class RpcOutputWriter {
 	#spool: Spool | undefined;
 	#blocked = false;
@@ -26,6 +34,7 @@ export class RpcOutputWriter {
 	constructor(
 		private readonly sink: Writable,
 		private readonly onFailure: (error: Error) => void,
+		private readonly memoryBacklogBytes = RPC_OUTPUT_MEMORY_BACKLOG_BYTES,
 	) {
 		sink.on("drain", this.#onDrain);
 		sink.on("error", this.#onError);
@@ -37,7 +46,7 @@ export class RpcOutputWriter {
 		if (this.#failure || this.#closing) return;
 		try {
 			for (const line of frames) {
-				if (this.#blocked || this.#pumping || this.#spool) this.#append(line);
+				if (this.#pumping || this.#spool || this.sink.writableLength >= this.memoryBacklogBytes) this.#append(line);
 				else this.#write(line);
 			}
 		} catch (error) {
