@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { Agent, type AgentMessage } from "@oh-my-pi/pi-agent-core";
 import { USELESS_NOTICE } from "@oh-my-pi/pi-agent-core/compaction/pruning";
@@ -11,8 +12,66 @@ import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import {
+	FileSessionStorage,
+	type SessionStorageWriteOptions,
+	type SessionStorageWriter,
+	type WriteTextAtomicOptions,
+} from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { logger, TempDir } from "@oh-my-pi/pi-utils";
+
+/**
+ * File storage that counts the bytes the session layer hands it — whole-body
+ * publishes plus appended lines — and can fail one append, the way a full or
+ * read-only disk refuses a write.
+ */
+class InstrumentedFileSessionStorage extends FileSessionStorage {
+	bytesWritten = 0;
+	/** The next appended line containing this text throws instead of landing. */
+	failNextAppendContaining: string | undefined;
+
+	override writeTextSync(filePath: string, content: string, options?: SessionStorageWriteOptions): void {
+		this.bytesWritten += Buffer.byteLength(content, "utf8");
+		super.writeTextSync(filePath, content, options);
+	}
+
+	override writeTextAtomic(filePath: string, content: string, options?: WriteTextAtomicOptions): Promise<void> {
+		this.bytesWritten += Buffer.byteLength(content, "utf8");
+		return super.writeTextAtomic(filePath, content, options);
+	}
+
+	override openWriter(
+		filePath: string,
+		options?: { flags?: "a" | "w"; onError?: (err: Error) => void },
+	): SessionStorageWriter {
+		const writer = super.openWriter(filePath, options);
+		const admit = (line: string): void => {
+			const marker = this.failNextAppendContaining;
+			if (marker !== undefined && line.includes(marker)) {
+				this.failNextAppendContaining = undefined;
+				throw new Error("injected append failure");
+			}
+			this.bytesWritten += Buffer.byteLength(line, "utf8");
+		};
+		return {
+			append: line => {
+				admit(line);
+				return writer.append(line);
+			},
+			appendSync: line => {
+				admit(line);
+				if (!writer.appendSync) throw new Error("file writer lost appendSync");
+				writer.appendSync(line);
+			},
+			flush: () => writer.flush(),
+			flushSync: () => writer.flushSync?.(),
+			isOpen: () => writer.isOpen(),
+			close: () => writer.close(),
+			getError: () => writer.getError(),
+		};
+	}
+}
 
 /**
  * Regression: the per-turn supersede/useless prune pass rewrote the LIVE agent
@@ -28,6 +87,7 @@ describe("AgentSession per-turn prune persistence", () => {
 	let tempDir: TempDir;
 	let session: AgentSession;
 	let sessionManager: SessionManager;
+	let storage: InstrumentedFileSessionStorage;
 	let authStorage: AuthStorage;
 
 	const BIG_CALL_ID = "call-big-useless";
@@ -39,7 +99,8 @@ describe("AgentSession per-turn prune persistence", () => {
 		authStorage = await AuthStorage.create(path.join(tempDir.path(), "testauth.db"));
 		authStorage.keys.setRuntime("anthropic", "test-key");
 		const modelRegistry = new ModelRegistry(authStorage);
-		sessionManager = SessionManager.create(tempDir.path(), tempDir.path());
+		storage = new InstrumentedFileSessionStorage();
+		sessionManager = SessionManager.create(tempDir.path(), tempDir.path(), storage);
 
 		const bundled = getBundledModel("anthropic", "claude-sonnet-4-5");
 		if (!bundled) throw new Error("Expected built-in anthropic model to exist");
@@ -135,9 +196,9 @@ describe("AgentSession per-turn prune persistence", () => {
 		}
 	});
 
-	function liveResultText(): string {
+	function liveResultText(toolCallId = BIG_CALL_ID): string {
 		const message = session.agent.state.messages.find(
-			candidate => candidate.role === "toolResult" && candidate.toolCallId === BIG_CALL_ID,
+			candidate => candidate.role === "toolResult" && candidate.toolCallId === toolCallId,
 		);
 		if (message?.role !== "toolResult" || !Array.isArray(message.content)) {
 			throw new Error("Expected the seeded tool result in live agent state");
@@ -147,7 +208,23 @@ describe("AgentSession per-turn prune persistence", () => {
 		return text.text;
 	}
 
-	it("persists the pruned rewrite so a from-disk rebuild matches the live context", async () => {
+	/** Text of a tool result in a fresh session rebuilt from the file, as resume and `/fork` see it. */
+	async function rebuiltResultText(toolCallId = BIG_CALL_ID): Promise<string | undefined> {
+		const sessionFile = sessionManager.getSessionFile();
+		if (!sessionFile) throw new Error("Expected a persisted session file");
+		const reloaded = await SessionManager.open(sessionFile, tempDir.path());
+		const rebuilt = reloaded
+			.buildSessionContext()
+			.messages.find(candidate => candidate.role === "toolResult" && candidate.toolCallId === toolCallId);
+		if (rebuilt?.role !== "toolResult" || !Array.isArray(rebuilt.content)) {
+			throw new Error("Expected the seeded tool result in the from-disk rebuild");
+		}
+		const rebuiltText = rebuilt.content.find(block => block.type === "text");
+		return rebuiltText?.type === "text" ? rebuiltText.text : undefined;
+	}
+
+	/** Ends a turn outside the agent loop; its agent end runs the per-turn prune pass. */
+	async function endTurn(): Promise<void> {
 		const finalAssistant = {
 			role: "assistant" as const,
 			content: [{ type: "text" as const, text: "Continuing." }],
@@ -168,6 +245,10 @@ describe("AgentSession per-turn prune persistence", () => {
 		session.agent.emitExternalEvent({ type: "message_end", message: finalAssistant });
 		session.agent.emitExternalEvent({ type: "agent_end", messages: [finalAssistant] });
 		await session.waitForIdle();
+	}
+
+	it("persists the pruned rewrite so a from-disk rebuild matches the live context", async () => {
+		await endTurn();
 
 		// The per-turn pass rewrote the live context…
 		expect(liveResultText()).toBe(USELESS_NOTICE);
@@ -175,72 +256,112 @@ describe("AgentSession per-turn prune persistence", () => {
 		// …and the persisted file must rebuild to the SAME content (fork/resume
 		// read this file; a divergent prefix cold-misses the provider cache).
 		await sessionManager.flush();
-		const sessionFile = sessionManager.getSessionFile();
-		if (!sessionFile) throw new Error("Expected a persisted session file");
-		const reloaded = await SessionManager.open(sessionFile, tempDir.path());
-		const rebuilt = reloaded
-			.buildSessionContext()
-			.messages.find(candidate => candidate.role === "toolResult" && candidate.toolCallId === BIG_CALL_ID);
-		if (rebuilt?.role !== "toolResult" || !Array.isArray(rebuilt.content)) {
-			throw new Error("Expected the seeded tool result in the from-disk rebuild");
-		}
-		const rebuiltText = rebuilt.content.find(block => block.type === "text");
-		expect(rebuiltText?.type === "text" ? rebuiltText.text : undefined).toBe(USELESS_NOTICE);
+		expect(await rebuiltResultText()).toBe(USELESS_NOTICE);
 	});
 
-	it("settles the run and restores the result when persisting the prune fails", async () => {
-		const rewriteEntries = vi
-			.spyOn(sessionManager, "rewriteEntries")
-			.mockRejectedValueOnce(new Error("injected rewrite failure"));
-		const runStates: string[] = [];
-		const unsubscribeRunState = session.subscribeRunState(state => runStates.push(state));
-		const settles: boolean[] = [];
-		const notices: string[] = [];
-		const unsubscribe = session.subscribe(event => {
-			if (event.type === "agent_end") settles.push(event.isTerminal !== false);
-			if (event.type === "notice") notices.push(event.message);
-		});
-		try {
-			const finalAssistant = {
-				role: "assistant" as const,
-				content: [{ type: "text" as const, text: "Continuing." }],
-				api: "anthropic-messages" as const,
-				provider: "anthropic" as const,
+	it("persists a prune in bytes that do not grow with the transcript", async () => {
+		// Regression: the pass republished the whole session file for every
+		// prune, so a small tool call on a long session wrote the entire
+		// transcript again (tens of MiB per turn on real sessions).
+		const lateCallId = "call-late-useless";
+		for (let i = 0; i < 4; i++) {
+			sessionManager.appendMessage({
+				role: "user",
+				content: `history line ${i}\n`.repeat(50_000),
+				timestamp: Date.now(),
+			});
+			sessionManager.appendMessage({
+				role: "assistant",
+				content: [{ type: "text", text: `Noted part ${i}.` }],
+				api: "anthropic-messages",
+				provider: "anthropic",
 				model: "claude-sonnet-4-5",
-				stopReason: "stop" as const,
+				stopReason: "stop",
 				usage: {
-					input: 100,
-					output: 10,
+					input: 0,
+					output: 0,
 					cacheRead: 0,
 					cacheWrite: 0,
-					totalTokens: 110,
+					totalTokens: 0,
 					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 				},
 				timestamp: Date.now(),
-			};
-			session.agent.emitExternalEvent({ type: "message_end", message: finalAssistant });
-			session.agent.emitExternalEvent({ type: "agent_end", messages: [finalAssistant] });
-			await session.waitForIdle();
+			});
+		}
+		// The turn's only prune candidate sits in the cache-warm tail.
+		sessionManager.appendMessage({
+			role: "assistant",
+			content: [{ type: "toolCall", id: lateCallId, name: "grep", arguments: { pattern: "FIXME" } }],
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "claude-sonnet-4-5",
+			stopReason: "toolUse",
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			timestamp: Date.now(),
+		});
+		sessionManager.appendMessage({
+			role: "toolResult",
+			toolCallId: lateCallId,
+			toolName: "grep",
+			content: [{ type: "text", text: "late match\n".repeat(20000) }],
+			isError: false,
+			useless: true,
+			timestamp: Date.now(),
+		});
+		session.agent.replaceMessages(session.buildDisplaySessionContext().messages);
+		await sessionManager.flush();
+		const sessionFile = sessionManager.getSessionFile();
+		if (!sessionFile) throw new Error("Expected a persisted session file");
+		const transcriptBytes = fs.statSync(sessionFile).size;
+		expect(transcriptBytes).toBeGreaterThan(2 * 1024 * 1024);
+
+		storage.bytesWritten = 0;
+		await endTurn();
+
+		expect(liveResultText(lateCallId)).toBe(USELESS_NOTICE);
+		// The turn wrote its own entries and the prune — not the transcript again.
+		expect(storage.bytesWritten).toBeLessThan(64 * 1024);
+		await sessionManager.flush();
+		expect(await rebuiltResultText(lateCallId)).toBe(USELESS_NOTICE);
+	});
+
+	it("settles the run and lands the prune durably after its write fails", async () => {
+		storage.failNextAppendContaining = "tool_result_prune";
+		const persistenceErrors: string[] = [];
+		const unsubscribePersistence = sessionManager.onPersistenceError(error => persistenceErrors.push(error.message));
+		const runStates: string[] = [];
+		const unsubscribeRunState = session.subscribeRunState(state => runStates.push(state));
+		const settles: boolean[] = [];
+		const unsubscribe = session.subscribe(event => {
+			if (event.type === "agent_end") settles.push(event.isTerminal !== false);
+		});
+		try {
+			await endTurn();
 
 			// The run reports idle and publishes one terminal settle, so the UI
-			// stops its working indicator instead of spinning forever.
-			expect(rewriteEntries).toHaveBeenCalledTimes(1);
+			// stops its working indicator instead of spinning forever, and the
+			// failed write reaches the persistence-error surface.
 			expect(runStates).toEqual(["idle"]);
 			expect(settles).toEqual([true]);
-			expect(notices.some(message => message.includes("injected rewrite failure"))).toBe(true);
-			// The blanked result was restored: live context matches durable history.
-			expect(liveResultText()).toBe("match line\n".repeat(20000));
-			const entry = sessionManager
-				.getBranch()
-				.find(candidate => candidate.type === "message" && candidate.message.role === "toolResult");
-			expect(entry?.type === "message" ? entry.message : undefined).toMatchObject({
-				content: [{ type: "text", text: "match line\n".repeat(20000) }],
-				prunedAt: undefined,
-			});
+			expect(persistenceErrors).toEqual(["injected append failure"]);
+			expect(liveResultText()).toBe(USELESS_NOTICE);
+
+			// The next entry recovers the store, and the file then rebuilds to
+			// the live (pruned) context.
+			sessionManager.appendCustomEntry("prune-persistence-probe");
+			await sessionManager.flush();
+			expect(await rebuiltResultText()).toBe(USELESS_NOTICE);
 		} finally {
 			unsubscribe();
 			unsubscribeRunState();
-			rewriteEntries.mockRestore();
+			unsubscribePersistence();
 		}
 	});
 
