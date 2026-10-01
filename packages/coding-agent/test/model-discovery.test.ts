@@ -8,7 +8,8 @@ import type { OAuthCredentials } from "@oh-my-pi/pi-ai/oauth/types";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { Effort } from "@oh-my-pi/pi-catalog/effort";
 import { writeModelCache } from "@oh-my-pi/pi-catalog/model-cache";
-import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
+import { getBundledModel, getBundledProviders } from "@oh-my-pi/pi-catalog/models";
+import { PROVIDER_DESCRIPTORS } from "@oh-my-pi/pi-catalog/provider-models/descriptors";
 import { resolveModelCacheProviderId, resolveOllamaModelCacheProviderId } from "@oh-my-pi/pi-catalog/provider-models";
 import type { ModelKind, ModelSpec, OpenAICompat } from "@oh-my-pi/pi-catalog/types";
 import {
@@ -19,7 +20,7 @@ import {
 import { RUNTIME_DYNAMIC_MODEL_FETCH_TIMEOUT_MS } from "@oh-my-pi/pi-coding-agent/config/model-provider-discovery";
 import { kNoAuth, ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { ProviderDiscoverySchema } from "@oh-my-pi/pi-coding-agent/config/models-config-schema";
-import { resetSettingsForTest } from "@oh-my-pi/pi-coding-agent/config/settings";
+import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { removeSyncWithRetries, Snowflake } from "@oh-my-pi/pi-utils";
 
@@ -2960,7 +2961,21 @@ describe("ModelRegistry runtime discovery", () => {
 			throw new Error(`/v1/models must not reintroduce the excluded model: ${url}`);
 		};
 
-		const registry = new ModelRegistry(authStorage, modelsJsonPath, { fetch: fetchMock });
+		// The refreshes stay unscoped. Disabling every other provider keeps them from
+		// running discovery for ~85 built-in providers, which takes seconds and picks
+		// up provider keys from the developer's environment; litellm-test is the only
+		// provider they reach.
+		const otherProviders = new Set<string>([
+			...getBundledProviders(),
+			...PROVIDER_DESCRIPTORS.map(descriptor => descriptor.providerId),
+			// Implicit local discovery the registry adds outside the catalog tables.
+			"llama.cpp",
+			"apple",
+		]);
+		const registry = new ModelRegistry(authStorage, modelsJsonPath, {
+			fetch: fetchMock,
+			settings: Settings.isolated({ disabledProviders: [...otherProviders] }),
+		});
 		await registry.refresh("online");
 		expect(getModelsForProvider(registry, "litellm-test").map(model => model.id)).toEqual([
 			"keep-chat-a",
