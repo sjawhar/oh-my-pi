@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ptree, TempDir } from "@oh-my-pi/pi-utils";
-import { selectShard } from "./ci-test-ts";
+import { buildChildEnv, selectShard } from "./ci-test-ts";
 
 describe("test runner watchdog", () => {
 	// Parent fake timers cannot drive the real watchdog inside the isolated runner process.
@@ -61,5 +61,47 @@ describe("OMP_TEST_SHARD", () => {
 	test("rejects a shard that selects no chunks", () => {
 		expect(() => selectShard([1], "2/2")).toThrow("selects no chunks");
 		expect(() => selectShard([], "1/1")).toThrow("selects no chunks");
+	});
+});
+
+describe("test child environment", () => {
+	test("strips omp configuration and credentials, keeps harness controls, and pins the runner's values", () => {
+		const env = buildChildEnv({
+			PATH: "/usr/bin",
+			PI_EDIT_VARIANT: "replace",
+			PI_CONFIG_FILES: "/home/dev/overlay.yml",
+			OMP_AUTH_BROKER_TOKEN: "broker-token",
+			MNEMOPI_EMBEDDING_API_URL: "http://127.0.0.1:8080",
+			SEARXNG_BASIC_PASSWORD: "searx",
+			HINDSIGHT_API_TOKEN: "hindsight",
+			ANTHROPIC_API_KEY: "sk-ant",
+			OMP_TEST_SHARD: "2/3",
+			OMP_E2E_GATEWAY_URL: "http://127.0.0.1:4000",
+			PI_PYTHON_INTEGRATION: "1",
+			AWS_EC2_METADATA_DISABLED: "false",
+			PI_NO_DOTENV: "",
+			PI_TEST_RUNTIME: "0",
+		});
+
+		for (const key of [
+			"PI_EDIT_VARIANT",
+			"PI_CONFIG_FILES",
+			"OMP_AUTH_BROKER_TOKEN",
+			"MNEMOPI_EMBEDDING_API_URL",
+			"SEARXNG_BASIC_PASSWORD",
+			"HINDSIGHT_API_TOKEN",
+			"ANTHROPIC_API_KEY",
+		]) {
+			expect(env[key], key).toBeUndefined();
+		}
+		expect(env).toMatchObject({
+			PATH: "/usr/bin",
+			OMP_TEST_SHARD: "2/3",
+			OMP_E2E_GATEWAY_URL: "http://127.0.0.1:4000",
+			PI_PYTHON_INTEGRATION: "1",
+			AWS_EC2_METADATA_DISABLED: "true",
+			PI_NO_DOTENV: "1",
+			PI_TEST_RUNTIME: "1",
+		});
 	});
 });

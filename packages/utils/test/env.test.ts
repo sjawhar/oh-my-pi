@@ -138,6 +138,57 @@ describe("parseEnvFile", () => {
 	});
 });
 
+describe("dotenv loading", () => {
+	it("fills unset keys from the home and agent .env files unless PI_NO_DOTENV is set", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-utils-env-home-"));
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-utils-env-cwd-"));
+		tempDirs.push(home, cwd);
+		fs.writeFileSync(path.join(home, ".env"), "OMP_DOTENV_HOME_MARKER=from-home\n");
+		fs.mkdirSync(path.join(home, ".omp", "agent"), { recursive: true });
+		fs.writeFileSync(path.join(home, ".omp", "agent", ".env"), "OMP_DOTENV_AGENT_MARKER=from-agent\n");
+		const envModulePath = path.join(import.meta.dir, "..", "src", "env.ts");
+		const script = [
+			`import ${JSON.stringify(envModulePath)};`,
+			"process.stdout.write(JSON.stringify({",
+			"  home: process.env.OMP_DOTENV_HOME_MARKER ?? null,",
+			"  agent: process.env.OMP_DOTENV_AGENT_MARKER ?? null,",
+			"}));",
+		].join("\n");
+		const probe = async (noDotenv: string | undefined) => {
+			const env: Record<string, string | undefined> = { ...process.env, HOME: home, PI_NO_DOTENV: noDotenv };
+			for (const key of [
+				"PI_CODING_AGENT_DIR",
+				"PI_CONFIG_DIR",
+				"OMP_PROFILE",
+				"PI_PROFILE",
+				"XDG_DATA_HOME",
+				"XDG_STATE_HOME",
+				"XDG_CACHE_HOME",
+				"OMP_DOTENV_HOME_MARKER",
+				"OMP_DOTENV_AGENT_MARKER",
+			]) {
+				delete env[key];
+			}
+			const proc = Bun.spawn([process.execPath, "--no-install", "--eval", script], {
+				cwd,
+				env,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			const [stdout, stderr, exitCode] = await Promise.all([
+				new Response(proc.stdout).text(),
+				new Response(proc.stderr).text(),
+				proc.exited,
+			]);
+			expect(exitCode, stderr).toBe(0);
+			return JSON.parse(stdout);
+		};
+
+		expect(await probe(undefined)).toEqual({ home: "from-home", agent: "from-agent" });
+		expect(await probe("1")).toEqual({ home: null, agent: null });
+	});
+});
+
 describe("filterProcessEnv", () => {
 	it("drops entries that cannot be passed to process spawn env", () => {
 		expect(

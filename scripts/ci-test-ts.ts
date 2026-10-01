@@ -205,7 +205,7 @@ function workspaceTestCommand(pkg: string, parallel: number, options: { extraArg
 	return {
 		label: pkg,
 		cwd: pkg,
-		command: ["bun", "test", ...extraArgs],
+		command: ["bun", "test", "--no-env-file", ...extraArgs],
 		parallel,
 	};
 }
@@ -315,7 +315,7 @@ async function codingAgentTestCommands(bucket: CodingAgentBucket): Promise<TestC
 		commands.push({
 			label: `packages/coding-agent (${plan.label}; ${testFiles.length} files; parallel=${plan.parallel}${chunkLabel}; ${chunk.length} files)`,
 			cwd: "packages/coding-agent",
-			command: ["bun", "test", ...onlyFailuresArgs, ...chunk],
+			command: ["bun", "test", "--no-env-file", ...onlyFailuresArgs, ...chunk],
 			parallel: plan.parallel,
 		});
 	}
@@ -373,14 +373,16 @@ async function commandsForMode(mode: Mode): Promise<TestCommand[]> {
 // `envFrom`, GitHub Actions injects `GITHUB_TOKEN`,
 // and a host may carry provider API keys. Any of these make env-sensitive code
 // non-deterministic in tests — e.g. leaked AWS creds make `amazon-bedrock` look
-// authenticated and win the provider startup fallback over `anthropic`. A
-// launcher wrapper may also export `PI_CONFIG_FILES` into every shell it starts;
-// each loaded `Settings` instance reads it as an overlay that outranks the
-// global-layer writes tests make, so the user's own config would decide their
-// settings. Run the suites in a hermetic environment with all credential /
-// cloud-config / config-overlay variables stripped so resolution depends only
-// on the test's own fixtures.
-const SCRUBBED_ENV_PREFIXES = ["AWS_", "GOOGLE_CLOUD_"];
+// authenticated and win the provider startup fallback over `anthropic`. A shell
+// started by omp or a launcher wrapper also carries omp's own configuration:
+// setting env vars (`PI_EDIT_VARIANT`, `PI_PY`, …), which outrank every settings
+// layer a test writes; `PI_CONFIG_FILES` overlays; profile and directory
+// selectors; and auth-broker, memory and search backends with their tokens
+// (`OMP_AUTH_BROKER_TOKEN`, `HINDSIGHT_*`, `SEARXNG_*`, `MNEMOPI_*`). Run the
+// suites in a hermetic environment with all of these stripped so resolution
+// depends only on the test's own fixtures. The families are scrubbed whole, so a
+// new setting variable is covered without a list to keep current.
+const SCRUBBED_ENV_PREFIXES = ["AWS_", "GOOGLE_CLOUD_", "PI_", "OMP_", "HINDSIGHT_", "SEARXNG_", "MNEMOPI_"];
 const SCRUBBED_ENV_NAMES = new Set([
 	"GITHUB_TOKEN",
 	"GH_TOKEN",
@@ -388,10 +390,17 @@ const SCRUBBED_ENV_NAMES = new Set([
 	"GOOGLE_APPLICATION_CREDENTIALS",
 	"ANTHROPIC_OAUTH_TOKEN",
 	"XAI_OAUTH_TOKEN",
-	"PI_CONFIG_FILES",
 ]);
+// The test harness's own controls inside those families pass through: runner and
+// test knobs (`OMP_TEST_*`, `PI_TEST_*`), live E2E targets (`OMP_E2E_*`), and the
+// variables that opt a developer into suites that are skipped by default.
+const PASSED_ENV_PREFIXES = ["OMP_TEST_", "PI_TEST_", "OMP_E2E_"];
+const PASSED_ENV_NAMES = new Set(["PI_PYTHON_INTEGRATION", "PI_LOCAL_LLM", "PI_SHELL_PERSIST"]);
 
 function isScrubbedEnvVar(key: string): boolean {
+	if (PASSED_ENV_NAMES.has(key) || PASSED_ENV_PREFIXES.some(prefix => key.startsWith(prefix))) {
+		return false;
+	}
 	if (SCRUBBED_ENV_NAMES.has(key)) {
 		return true;
 	}
@@ -442,14 +451,21 @@ async function runTestCommand(testCommand: TestCommand): Promise<void> {
 	}
 }
 
-// Child env shared by every spawned test process: the parent env with the
-// private test-runtime marker set, all CI credential / cloud-config /
-// config-overlay variables scrubbed (see SCRUBBED_ENV_* above), GITHUB_ACTIONS
-// cleared, and EC2 instance metadata disabled. The `AWS_` scrub also drops a
-// parent's `AWS_EC2_METADATA_DISABLED`, and on an EC2 host the instance role
-// is itself an ambient credential: it makes `amazon-bedrock` look
-// authenticated. Tests that exercise IMDS set the variable and a mock endpoint
-// themselves.
+// Child env shared by every spawned test process: the parent env with every
+// credential / cloud-config / omp-configuration variable scrubbed (see
+// SCRUBBED_ENV_* above), then the runner's own values set:
+// - `PI_TEST_RUNTIME=1`, the private test-runtime marker.
+// - `GITHUB_ACTIONS` cleared.
+// - `AWS_EC2_METADATA_DISABLED=true`. The `AWS_` scrub also drops a parent's
+//   value, and on an EC2 host the instance role is itself an ambient
+//   credential: it makes `amazon-bedrock` look authenticated. Tests that
+//   exercise IMDS set or clear the variable themselves.
+// - `PI_NO_DOTENV=1`. pi-utils' env module otherwise fills every unset key from
+//   `~/.env`, `~/.omp/.env`, the agent dir's `.env` and the project `.env` when
+//   the test process loads, which would bring back what was scrubbed here.
+//   Tests of dotenv loading clear it for the processes they spawn. Each `bun
+//   test` command also passes `--no-env-file`, so Bun's own autoload of the
+//   checkout's `.env` files is off too.
 //
 // GC knobs (both needed — they gate different JSC mechanisms):
 // - `BUN_JSC_useConcurrentGC=0` stops the collector from marking concurrently
@@ -469,20 +485,21 @@ async function runTestCommand(testCommand: TestCommand): Promise<void> {
 // `JSAbortSignal::visitAdditionalChildrenInGCThread` reading a dead `reason`
 // cell), where no marker/concurrency knob applies. That residual crash is
 // handled by retrying crashed chunks in a fresh process (MAX_CHUNK_ATTEMPTS).
-function buildChildEnv(): Record<string, string | undefined> {
-	const env: Record<string, string | undefined> = {
-		...Bun.env,
-		GITHUB_ACTIONS: "",
-		PI_TEST_RUNTIME: "1",
-		BUN_JSC_useConcurrentGC: "0",
-		BUN_JSC_numberOfGCMarkers: "1",
-	};
+export function buildChildEnv(
+	parent: Record<string, string | undefined> = Bun.env,
+): Record<string, string | undefined> {
+	const env: Record<string, string | undefined> = { ...parent };
 	for (const key of Object.keys(env)) {
 		if (isScrubbedEnvVar(key)) {
 			delete env[key];
 		}
 	}
+	env.GITHUB_ACTIONS = "";
+	env.PI_TEST_RUNTIME = "1";
+	env.BUN_JSC_useConcurrentGC = "0";
+	env.BUN_JSC_numberOfGCMarkers = "1";
 	env.AWS_EC2_METADATA_DISABLED = "true";
+	env.PI_NO_DOTENV = "1";
 	return env;
 }
 

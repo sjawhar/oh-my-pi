@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `PI_NO_DOTENV`, which skips loading the project, agent, config-root and home `.env` files.
+
 ## [18.4.4] - 2026-09-29
 
 ### Added

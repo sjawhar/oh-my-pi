@@ -2961,10 +2961,10 @@ describe("ModelRegistry runtime discovery", () => {
 			throw new Error(`/v1/models must not reintroduce the excluded model: ${url}`);
 		};
 
-		// The refreshes stay unscoped. Disabling every other provider keeps them from
-		// running discovery for ~85 built-in providers, which takes seconds and picks
-		// up provider keys from the developer's environment; litellm-test is the only
-		// provider they reach.
+		// The refreshes are deliberately unscoped. Disabling every other provider keeps
+		// them from running discovery for ~85 built-in providers, which takes seconds and
+		// picks up provider keys from the developer's environment; litellm-test is the
+		// only provider they reach.
 		const otherProviders = new Set<string>([
 			...getBundledProviders(),
 			...PROVIDER_DESCRIPTORS.map(descriptor => descriptor.providerId),

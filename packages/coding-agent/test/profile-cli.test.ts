@@ -190,6 +190,8 @@ describe("global --profile flag", () => {
 			delete childEnv.PI_PROFILE;
 			delete childEnv.PI_CODING_AGENT_DIR;
 			delete childEnv.OMP_PROFILE_BOOTSTRAP_SENTINEL;
+			// The test runner disables dotenv loading; this probe is about it.
+			delete childEnv.PI_NO_DOTENV;
 
 			const proc = Bun.spawn([process.execPath, probePath], {
 				cwd: repoRoot,

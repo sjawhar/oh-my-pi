@@ -297,7 +297,9 @@ for (const key of Object.keys(Bun.env)) {
 	}
 }
 
-for (const file of [projectEnv, agentEnv, piEnv, homeEnv]) {
+// `PI_NO_DOTENV` (any non-empty value) leaves the environment as launched: the
+// test runner sets it so a developer's dotenv files cannot reach its tests.
+for (const file of Bun.env.PI_NO_DOTENV ? [] : [projectEnv, agentEnv, piEnv, homeEnv]) {
 	for (const key in file) {
 		if (!isMacosMallocStackLoggingEnvName(key) && !Bun.env[key]) {
 			Bun.env[key] = file[key];

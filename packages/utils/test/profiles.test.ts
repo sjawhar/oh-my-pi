@@ -459,6 +459,8 @@ describe("dirs module import behavior", () => {
 			delete childEnv.XDG_DATA_HOME;
 			delete childEnv.XDG_STATE_HOME;
 			delete childEnv.XDG_CACHE_HOME;
+			// The test runner disables dotenv loading; this probe is about it.
+			delete childEnv.PI_NO_DOTENV;
 			const proc = Bun.spawn([process.execPath, probePath], {
 				cwd: root,
 				stdout: "pipe",
