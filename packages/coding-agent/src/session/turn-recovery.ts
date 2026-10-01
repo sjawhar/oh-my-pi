@@ -535,7 +535,6 @@ export class TurnRecovery {
 		});
 		this.#clearPendingRetryErrors();
 		this.#retryAttempt = 0;
-		this.#keyCommandRetryCount = 0;
 		this.resolveRetry();
 	}
 
@@ -2416,9 +2415,10 @@ export class TurnRecovery {
 		const maxRetries = this.#isBoundedThinkingStreamClose(message)
 			? Math.min(retrySettings.maxRetries, 1)
 			: retrySettings.maxRetries;
-		// A failing apiKey command has its own cap, like the other per-kind retry limits.
+		// A failing apiKey command has its own cap, like the other per-kind retry
+		// limits, counted within this retry run (`#retryAttempt` is 1 on its first failure).
 		this.#keyCommandRetryCount = isApiKeyCommandFailureMessage(message.errorMessage)
-			? this.#keyCommandRetryCount + 1
+			? (this.#retryAttempt === 1 ? 0 : this.#keyCommandRetryCount) + 1
 			: 0;
 		const keyCommandCapReached = this.#keyCommandRetryCount > KEY_COMMAND_MAX_RETRIES;
 		if (keyCommandCapReached) {
