@@ -2,7 +2,8 @@ import { describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
-import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
+import { getBundledModel, getBundledProviders } from "@oh-my-pi/pi-catalog/models";
+import { PROVIDER_DESCRIPTORS } from "@oh-my-pi/pi-catalog/provider-models/descriptors";
 import { type Args, parseArgs } from "@oh-my-pi/pi-coding-agent/cli/args";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import type { ScopedModel } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
@@ -16,6 +17,18 @@ import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manage
 import { TempDir } from "@oh-my-pi/pi-utils";
 
 const OPENAI_TEST_MODEL = getBundledModel("openai", "gpt-4o-mini");
+// Startup's background catalog refresh would otherwise run discovery for ~85
+// built-in providers, about two seconds per session here, which has nothing to do
+// with prompt-cache affinity. The test model's provider stays enabled.
+const UNRELATED_PROVIDERS = [
+	...new Set<string>([
+		...getBundledProviders(),
+		...PROVIDER_DESCRIPTORS.map(descriptor => descriptor.providerId),
+		// Implicit local discovery the registry adds outside the catalog tables.
+		"llama.cpp",
+		"apple",
+	]),
+].filter(provider => provider !== OPENAI_TEST_MODEL.provider);
 
 interface ArgsWithPromptCacheKey extends Args {
 	providerPromptCacheKey?: string;
@@ -64,6 +77,7 @@ async function createMinimalSession(
 		settings: Settings.isolated({
 			"async.enabled": false,
 			"marketplace.autoUpdate": "off",
+			disabledProviders: UNRELATED_PROVIDERS,
 		}),
 		disableExtensionDiscovery: true,
 		preloadedExtensions: undefined,
