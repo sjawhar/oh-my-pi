@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import type { ApiKeyResolver, FetchImpl, ResolvedApiKey, UsageProvider } from "@oh-my-pi/pi-ai";
+import { resolvedApiKeyBearer } from "@oh-my-pi/pi-ai/auth-retry";
 import type { AuthApiKeyOptions } from "@oh-my-pi/pi-ai/auth-storage";
 import { registerCustomApi, unregisterCustomApis } from "@oh-my-pi/pi-ai/api-registry";
 import { registerOAuthProvider, unregisterOAuthProvider, unregisterOAuthProviders } from "@oh-my-pi/pi-ai/oauth";
@@ -50,7 +51,12 @@ import { getAgentDir, isBunTestRuntime, logger, wrapFetchForExtraCa } from "@oh-
 import { resolveProviderModelReference } from "../config/model-resolver";
 import { generateCodexAttestation } from "../live/attestation";
 import type { AuthStorage } from "../session/auth-storage";
-import { type ApiKeyResolverModel, type ApiKeyResolverOptions, createApiKeyResolver } from "./api-key-resolver";
+import {
+	ApiKeyCommandError,
+	type ApiKeyResolverModel,
+	type ApiKeyResolverOptions,
+	createApiKeyResolver,
+} from "./api-key-resolver";
 import type { ConfigError, ConfigFile } from "./config-file";
 import {
 	buildCustomModelOverlay,
@@ -3009,19 +3015,32 @@ export class ModelRegistry {
 	 * session id (`resolver(model, sessionId)`) which derives `baseUrl`/`modelId`
 	 * from the model. Callers that need the initial key for a guard can call
 	 * `resolveApiKeyOnce(resolver)`.
+	 *
+	 * When the provider's configured apiKey is a `!command` that produced no key,
+	 * the initial resolve throws {@link ApiKeyCommandError} instead of returning
+	 * no key, so the request fails retryably rather than as a missing key.
 	 */
 	resolver(provider: string, options?: ApiKeyResolverOptions): ApiKeyResolver;
 	resolver(model: ApiKeyResolverModel, sessionId?: string): ApiKeyResolver;
 	resolver(target: string | ApiKeyResolverModel, optionsOrSessionId?: ApiKeyResolverOptions | string): ApiKeyResolver {
 		const options = typeof optionsOrSessionId === "string" ? { sessionId: optionsOrSessionId } : optionsOrSessionId;
-		if (typeof target === "string") {
-			return createApiKeyResolver(this, target, options);
-		}
-		return createApiKeyResolver(this, target.provider, {
-			...options,
-			baseUrl: target.baseUrl,
-			modelId: target.id,
-		});
+		const provider = typeof target === "string" ? target : target.provider;
+		const resolve =
+			typeof target === "string"
+				? createApiKeyResolver(this, target, options)
+				: createApiKeyResolver(this, target.provider, { ...options, baseUrl: target.baseUrl, modelId: target.id });
+		return async ctx => {
+			const resolved = await resolve(ctx);
+			if (
+				ctx.error === undefined &&
+				resolvedApiKeyBearer(resolved) === undefined &&
+				this.hasCommandBackedApiKey(provider) &&
+				!this.#isProviderDisabled(provider)
+			) {
+				throw new ApiKeyCommandError(provider);
+			}
+			return resolved;
+		};
 	}
 
 	async #peekApiKeyForProvider(provider: string): Promise<string | undefined> {

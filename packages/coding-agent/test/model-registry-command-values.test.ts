@@ -1,16 +1,24 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test, vi } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { Agent } from "@oh-my-pi/pi-agent-core";
 import { streamSimple } from "@oh-my-pi/pi-ai";
-import { withAuth } from "@oh-my-pi/pi-ai/auth-retry";
+import { resolvedApiKeyBearer, withAuth } from "@oh-my-pi/pi-ai/auth-retry";
+import * as AIError from "@oh-my-pi/pi-ai/error";
+import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
+import * as aiStream from "@oh-my-pi/pi-ai/stream";
 import type { Api, Context, FetchImpl, Model } from "@oh-my-pi/pi-ai/types";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { invalidateAllCommandConfigs, resolveConfigValue } from "@oh-my-pi/pi-coding-agent/config/resolve-config-value";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
+import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+import { AgentSession, type AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
+import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import * as piUtils from "@oh-my-pi/pi-utils";
 import { removeSyncWithRetries, Snowflake } from "@oh-my-pi/pi-utils";
+import { mockSchedulerWaitWithClock } from "./helpers/mock-scheduler-clock";
 
 function shellQuote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;
@@ -33,6 +41,12 @@ function failedTrackingCommand(counterFile: string): string {
 	if (process.platform !== "win32") return `printf 1 >> ${shellQuote(counterFile)}; exit 1`;
 	const script = `const fs=require("node:fs");fs.appendFileSync(${JSON.stringify(counterFile)}, "1");process.exit(1);`;
 	return `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
+}
+
+/** Command that exits non-zero while carrying a credential-shaped argument. */
+function failingCommandWithSecret(secret: string): string {
+	if (process.platform !== "win32") return `false --token=${secret}`;
+	return `${JSON.stringify(process.execPath)} -e "process.exit(1)" --token=${secret}`;
 }
 
 /** Command that prints the *current* trimmed contents of `file` on each run. */
@@ -329,6 +343,154 @@ describe("ModelRegistry command-resolved models.yml values", () => {
 
 		// The command should have only run once.
 		expect(fs.readFileSync(counterFile, "utf8")).toBe("1");
+	});
+
+	test("a failing apiKey command fails the request as retryable without naming the command", async () => {
+		const secret = "sk-synthetic-command-secret";
+		fs.writeFileSync(
+			modelsPath,
+			JSON.stringify({
+				providers: {
+					"custom-proxy": {
+						baseUrl: "https://custom-proxy.example.com/v1",
+						api: "openai-completions",
+						apiKey: `!${failingCommandWithSecret(secret)}`,
+						models: [{ id: "custom-model", name: "Custom Model" }],
+					},
+				},
+			}),
+		);
+		const registry = new ModelRegistry(authStorage, modelsPath);
+		const model = registry.find("custom-proxy", "custom-model");
+		if (!model) throw new Error("Expected custom model");
+
+		const context: Context = { systemPrompt: ["s"], messages: [{ role: "user", content: "hi", timestamp: 0 }] };
+		const error = await streamSimple(model, context, { apiKey: registry.resolver(model) })
+			.result()
+			.then(
+				() => undefined,
+				(failure: unknown) => failure,
+			);
+
+		expect(error).toBeInstanceOf(Error);
+		expect(error).not.toBeInstanceOf(AIError.MissingApiKeyError);
+		expect(AIError.retriable(AIError.classify(error))).toBe(true);
+		const message = (error as Error).message;
+		expect(message).toContain("custom-proxy");
+		expect(message).not.toContain(secret);
+		expect(message).not.toContain("--token");
+	});
+
+	test("a provider with no apiKey configured still fails with the non-retryable missing-key error", async () => {
+		const envApiKey = spyOn(aiStream, "getEnvApiKey").mockReturnValue(undefined);
+		const registry = new ModelRegistry(authStorage, modelsPath);
+		const model = registry.find("anthropic", "claude-sonnet-4-5");
+		if (!model) throw new Error("Expected bundled Anthropic model");
+
+		const context: Context = { systemPrompt: ["s"], messages: [{ role: "user", content: "hi", timestamp: 0 }] };
+		const error = await streamSimple(model, context, { apiKey: registry.resolver(model) })
+			.result()
+			.then(
+				() => undefined,
+				(failure: unknown) => failure,
+			)
+			.finally(() => envApiKey.mockRestore());
+
+		expect(error).toBeInstanceOf(AIError.MissingApiKeyError);
+		expect(AIError.retriable(AIError.classify(error))).toBe(false);
+	});
+
+	test("a turn whose apiKey command failed auto-retries and completes once the command recovers", async () => {
+		const tokenFile = path.join(tempDir, "token.txt");
+		const counterFile = path.join(tempDir, "counter.txt");
+		fs.writeFileSync(tokenFile, "FAIL");
+		fs.writeFileSync(counterFile, "");
+		fs.writeFileSync(
+			modelsPath,
+			JSON.stringify({
+				providers: {
+					"custom-proxy": {
+						baseUrl: "https://custom-proxy.example.com/v1",
+						api: "openai-completions",
+						apiKey: `!${trackedTokenCommand(tokenFile, counterFile)}`,
+						models: [{ id: "custom-model", name: "Custom Model" }],
+					},
+				},
+			}),
+		);
+		const registry = new ModelRegistry(authStorage, modelsPath);
+		const model = registry.find("custom-proxy", "custom-model");
+		if (!model) throw new Error("Expected custom model");
+
+		const mock = createMockModel({ responses: [{ content: ["answered with the command key"], stopReason: "stop" }] });
+		const sentKeys: Array<string | undefined> = [];
+		const agent = new Agent({
+			getApiKey: requestModel => registry.resolver(requestModel, agent.sessionId),
+			initialState: { model, systemPrompt: ["Test"], tools: [], messages: [] },
+			streamFn: (requestModel, streamContext, options) => {
+				const seeded =
+					typeof options?.apiKey === "function"
+						? options.apiKey({ lastChance: false, error: undefined })
+						: options?.apiKey;
+				if (seeded instanceof Promise) throw new Error("Expected the agent loop to seed its resolved key");
+				sentKeys.push(resolvedApiKeyBearer(seeded));
+				return mock.stream(requestModel, streamContext, options);
+			},
+		});
+		const sessionManager = SessionManager.create(tempDir, path.join(tempDir, "sessions"));
+		const session = new AgentSession({
+			agent,
+			sessionManager,
+			settings: Settings.isolated({
+				"compaction.enabled": false,
+				"retry.enabled": true,
+				"retry.maxRetries": 10,
+				"retry.baseDelayMs": 500,
+				"retry.modelFallback": false,
+				"features.unexpectedStopDetection": "none",
+			}),
+			modelRegistry: registry,
+		});
+		// Backoff sleeps advance a virtual clock instead of waiting; the wall
+		// clock the command failure window reads follows that same clock.
+		mockSchedulerWaitWithClock();
+		const wallStart = Date.now();
+		const monotonicStart = performance.now();
+		vi.spyOn(Date, "now").mockImplementation(() => Math.floor(wallStart + performance.now() - monotonicStart));
+		const runsAtRetryStart: string[] = [];
+		const retryEnds: Array<Extract<AgentSessionEvent, { type: "auto_retry_end" }>> = [];
+		session.subscribe(event => {
+			if (event.type === "auto_retry_start") {
+				runsAtRetryStart.push(fs.readFileSync(counterFile, "utf8"));
+				// The helper is healthy from here on; only the failure window delays its next run.
+				fs.writeFileSync(tokenFile, "recovered-key");
+			}
+			if (event.type === "auto_retry_end") retryEnds.push(event);
+		});
+
+		try {
+			await session.prompt("Use the command-keyed provider.");
+			await session.waitForIdle();
+
+			expect(agent.state.messages.at(-1)).toMatchObject({
+				role: "assistant",
+				stopReason: "stop",
+				content: [{ type: "text", text: "answered with the command key" }],
+			});
+			expect(sentKeys).toEqual(["recovered-key"]);
+			expect(retryEnds).toHaveLength(1);
+			expect(retryEnds[0]).toMatchObject({ success: true });
+			// Several retries ran inside the failure window without re-running the
+			// helper; it ran once more only after the window had elapsed.
+			expect(runsAtRetryStart.length).toBeGreaterThan(1);
+			expect(runsAtRetryStart).toEqual(runsAtRetryStart.map(() => "1"));
+			expect(fs.readFileSync(counterFile, "utf8")).toBe("11");
+			expect(Date.now() - wallStart).toBeGreaterThanOrEqual(30_000);
+		} finally {
+			await session.dispose();
+			await sessionManager.close();
+			vi.restoreAllMocks();
+		}
 	});
 
 	test("401 refreshes a command-backed provider header and retries with the fresh value", async () => {
