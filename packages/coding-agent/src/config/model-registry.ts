@@ -47,7 +47,7 @@ import {
 } from "@oh-my-pi/pi-catalog/provider-models";
 import { toModelSpec } from "@oh-my-pi/pi-catalog/provider-models/bundled-references";
 import { apiServesKind, modelKind, type ModelKind } from "@oh-my-pi/pi-catalog/types";
-import { getAgentDir, isBunTestRuntime, logger, wrapFetchForExtraCa } from "@oh-my-pi/pi-utils";
+import { getAgentDir, isBunTestRuntime, logger, untilAborted, wrapFetchForExtraCa } from "@oh-my-pi/pi-utils";
 import { resolveProviderModelReference } from "../config/model-resolver";
 import { generateCodexAttestation } from "../live/attestation";
 import type { AuthStorage } from "../session/auth-storage";
@@ -68,6 +68,7 @@ import {
 	resolveModelOverrideWithAliases,
 } from "./custom-models";
 import {
+	commandFailureRetryAfterMs,
 	createConfigHeaderResolver,
 	invalidateAllCommandConfigs,
 	invalidateCommandConfig,
@@ -2822,11 +2823,13 @@ export class ModelRegistry {
 
 	/**
 	 * Whether the provider's configured API key is resolved from a command.
+	 * False for a disabled provider, which gets no credential at all.
 	 *
 	 * Callers use this to distinguish the registry's command-first resolver
 	 * path from lower-priority credentials in {@link authStorage}.
 	 */
 	hasCommandBackedApiKey(provider: string): boolean {
+		if (this.#isProviderDisabled(provider)) return false;
 		const keyConfig = this.#customProviderApiKeys.get(provider);
 		return isCommandConfigValue(keyConfig);
 	}
@@ -3035,7 +3038,8 @@ export class ModelRegistry {
 	 *
 	 * When the provider's configured apiKey is a `!command` that produced no key,
 	 * the initial resolve throws {@link ApiKeyCommandError} instead of returning
-	 * no key, so the request fails retryably rather than as a missing key.
+	 * no key, so the request fails retryably rather than as a missing key. The
+	 * initial resolve settles as soon as the request's signal aborts.
 	 */
 	resolver(provider: string, options?: ApiKeyResolverOptions): ApiKeyResolver;
 	resolver(model: ApiKeyResolverModel, sessionId?: string): ApiKeyResolver;
@@ -3047,14 +3051,17 @@ export class ModelRegistry {
 				? createApiKeyResolver(this, target, options)
 				: createApiKeyResolver(this, target.provider, { ...options, baseUrl: target.baseUrl, modelId: target.id });
 		return async ctx => {
-			const resolved = await resolve(ctx);
+			const resolved =
+				ctx.error === undefined ? await untilAborted(ctx.signal, async () => resolve(ctx)) : await resolve(ctx);
 			if (
 				ctx.error === undefined &&
 				resolvedApiKeyBearer(resolved) === undefined &&
-				this.hasCommandBackedApiKey(provider) &&
-				!this.#isProviderDisabled(provider)
+				this.hasCommandBackedApiKey(provider)
 			) {
-				throw new ApiKeyCommandError(provider);
+				throw new ApiKeyCommandError(
+					provider,
+					commandFailureRetryAfterMs(this.#customProviderApiKeys.get(provider)),
+				);
 			}
 			return resolved;
 		};
