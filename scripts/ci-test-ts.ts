@@ -444,8 +444,12 @@ async function runTestCommand(testCommand: TestCommand): Promise<void> {
 
 // Child env shared by every spawned test process: the parent env with the
 // private test-runtime marker set, all CI credential / cloud-config /
-// config-overlay variables scrubbed (see SCRUBBED_ENV_* above), and
-// GITHUB_ACTIONS cleared.
+// config-overlay variables scrubbed (see SCRUBBED_ENV_* above), GITHUB_ACTIONS
+// cleared, and EC2 instance metadata disabled. The `AWS_` scrub also drops a
+// parent's `AWS_EC2_METADATA_DISABLED`, and on an EC2 host the instance role
+// is itself an ambient credential: it makes `amazon-bedrock` look
+// authenticated. Tests that exercise IMDS set the variable and a mock endpoint
+// themselves.
 //
 // GC knobs (both needed — they gate different JSC mechanisms):
 // - `BUN_JSC_useConcurrentGC=0` stops the collector from marking concurrently
@@ -478,6 +482,7 @@ function buildChildEnv(): Record<string, string | undefined> {
 			delete env[key];
 		}
 	}
+	env.AWS_EC2_METADATA_DISABLED = "true";
 	return env;
 }
 
