@@ -17,6 +17,20 @@ export interface ApiKeyResolverOptions {
 }
 
 /**
+ * A provider's configured `!command` apiKey ran but produced no key (failed,
+ * timed out, or printed nothing). Transient, unlike a missing key, so turn
+ * auto-retry backs off and resolves again. The message never includes the
+ * command, which can carry credentials.
+ */
+export class ApiKeyCommandError extends Error {
+	constructor(provider: string) {
+		super(`The apiKey command for provider ${provider} produced no key`);
+		this.name = "ApiKeyCommandError";
+		AIError.attach(this, AIError.create(AIError.Flag.Transient));
+	}
+}
+
+/**
  * Minimal slice of `ModelRegistry` the resolver needs. Typed structurally so
  * narrower registry shells (e.g. the commit pipeline's `CommitModelRegistry`)
  * can build resolvers without depending on the full class.
