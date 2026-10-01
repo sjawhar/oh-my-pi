@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Stopped long sessions from rewriting their entire session file on every turn that prunes a superseded read or uneventful tool result; the prune is now appended, so disk writes no longer grow with transcript size
+
 ## [18.4.6] - 2026-10-01
 
 ### Added
