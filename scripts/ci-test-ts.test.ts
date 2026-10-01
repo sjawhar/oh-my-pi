@@ -65,7 +65,7 @@ describe("OMP_TEST_SHARD", () => {
 });
 
 describe("test child environment", () => {
-	test("strips omp configuration and credentials, keeps harness controls, and pins the runner's values", () => {
+	test("strips omp configuration, credentials and the terminal session, keeps harness controls, and pins the runner's values", () => {
 		const env = buildChildEnv({
 			PATH: "/usr/bin",
 			PI_EDIT_VARIANT: "replace",
@@ -81,6 +81,12 @@ describe("test child environment", () => {
 			AWS_EC2_METADATA_DISABLED: "false",
 			PI_NO_DOTENV: "",
 			PI_TEST_RUNTIME: "0",
+			SSH_CONNECTION: "203.0.113.7 51234 10.0.0.2 22",
+			TMUX_PANE: "%3",
+			TERM_PROGRAM: "tmux",
+			COLORTERM: "truecolor",
+			TERM: "xterm-256color",
+			SSH_AUTH_SOCK: "/tmp/ssh-agent.sock",
 		});
 
 		for (const key of [
@@ -91,6 +97,10 @@ describe("test child environment", () => {
 			"SEARXNG_BASIC_PASSWORD",
 			"HINDSIGHT_API_TOKEN",
 			"ANTHROPIC_API_KEY",
+			"SSH_CONNECTION",
+			"TMUX_PANE",
+			"TERM_PROGRAM",
+			"COLORTERM",
 		]) {
 			expect(env[key], key).toBeUndefined();
 		}
@@ -99,6 +109,8 @@ describe("test child environment", () => {
 			OMP_TEST_SHARD: "2/3",
 			OMP_E2E_GATEWAY_URL: "http://127.0.0.1:4000",
 			PI_PYTHON_INTEGRATION: "1",
+			TERM: "xterm-256color",
+			SSH_AUTH_SOCK: "/tmp/ssh-agent.sock",
 			AWS_EC2_METADATA_DISABLED: "true",
 			PI_NO_DOTENV: "1",
 			PI_TEST_RUNTIME: "1",

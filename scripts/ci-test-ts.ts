@@ -378,11 +378,26 @@ async function commandsForMode(mode: Mode): Promise<TestCommand[]> {
 // setting env vars (`PI_EDIT_VARIANT`, `PI_PY`, …), which outrank every settings
 // layer a test writes; `PI_CONFIG_FILES` overlays; profile and directory
 // selectors; and auth-broker, memory and search backends with their tokens
-// (`OMP_AUTH_BROKER_TOKEN`, `HINDSIGHT_*`, `SEARXNG_*`, `MNEMOPI_*`). Run the
-// suites in a hermetic environment with all of these stripped so resolution
-// depends only on the test's own fixtures. The families are scrubbed whole, so a
-// new setting variable is covered without a list to keep current.
-const SCRUBBED_ENV_PREFIXES = ["AWS_", "GOOGLE_CLOUD_", "PI_", "OMP_", "HINDSIGHT_", "SEARXNG_", "MNEMOPI_"];
+// (`OMP_AUTH_BROKER_TOKEN`, `HINDSIGHT_*`, `SEARXNG_*`, `MNEMOPI_*`). The terminal
+// the developer runs in leaks the same way: an SSH session (`SSH_CONNECTION`,
+// `SSH_TTY`, `SSH_CLIENT`) turns off clipboard image paste and Windows Terminal
+// key handling, and `TMUX*`, `TERM_PROGRAM*` and `COLORTERM` steer terminal
+// capability detection. `TERM` itself stays. Run the suites in a hermetic
+// environment with all of these stripped so resolution depends only on the
+// test's own fixtures. The families are scrubbed whole, so a new setting
+// variable is covered without a list to keep current.
+const SCRUBBED_ENV_PREFIXES = [
+	"AWS_",
+	"GOOGLE_CLOUD_",
+	"PI_",
+	"OMP_",
+	"HINDSIGHT_",
+	"SEARXNG_",
+	"MNEMOPI_",
+	"SSH_",
+	"TMUX",
+	"TERM_PROGRAM",
+];
 const SCRUBBED_ENV_NAMES = new Set([
 	"GITHUB_TOKEN",
 	"GH_TOKEN",
@@ -390,12 +405,15 @@ const SCRUBBED_ENV_NAMES = new Set([
 	"GOOGLE_APPLICATION_CREDENTIALS",
 	"ANTHROPIC_OAUTH_TOKEN",
 	"XAI_OAUTH_TOKEN",
+	"COLORTERM",
 ]);
 // The test harness's own controls inside those families pass through: runner and
 // test knobs (`OMP_TEST_*`, `PI_TEST_*`), live E2E targets (`OMP_E2E_*`), and the
 // variables that opt a developer into suites that are skipped by default.
+// `SSH_AUTH_SOCK` passes too: tests that `git commit` inherit the developer's git
+// config, which may sign through the agent, and no tested behavior reads it.
 const PASSED_ENV_PREFIXES = ["OMP_TEST_", "PI_TEST_", "OMP_E2E_"];
-const PASSED_ENV_NAMES = new Set(["PI_PYTHON_INTEGRATION", "PI_LOCAL_LLM", "PI_SHELL_PERSIST"]);
+const PASSED_ENV_NAMES = new Set(["PI_PYTHON_INTEGRATION", "PI_LOCAL_LLM", "PI_SHELL_PERSIST", "SSH_AUTH_SOCK"]);
 
 function isScrubbedEnvVar(key: string): boolean {
 	if (PASSED_ENV_NAMES.has(key) || PASSED_ENV_PREFIXES.some(prefix => key.startsWith(prefix))) {
@@ -452,8 +470,8 @@ async function runTestCommand(testCommand: TestCommand): Promise<void> {
 }
 
 // Child env shared by every spawned test process: the parent env with every
-// credential / cloud-config / omp-configuration variable scrubbed (see
-// SCRUBBED_ENV_* above), then the runner's own values set:
+// credential / cloud-config / omp-configuration / terminal-session variable
+// scrubbed (see SCRUBBED_ENV_* above), then the runner's own values set:
 // - `PI_TEST_RUNTIME=1`, the private test-runtime marker.
 // - `GITHUB_ACTIONS` cleared.
 // - `AWS_EC2_METADATA_DISABLED=true`. The `AWS_` scrub also drops a parent's

@@ -22,7 +22,7 @@ Run from `packages/coding-agent/` (or add `--cwd=packages/coding-agent`):
 | Autofix: lint + format prompts | `bun run fix` |
 | Build the `dist/omp` binary | `bun run build` |
 
-`bun run test` runs the suites through `scripts/ci-test-ts.ts`, which is the hermetic boundary: it strips credentials and omp configuration variables (`PI_*`, `OMP_*`, …) and skips dotenv files. A direct `bun test <file>` inherits your shell's environment and the HOME dotenv files (`~/.env`, `~/.omp/.env`, `~/.omp/agent/.env`).
+`bun run test` runs the suites through `scripts/ci-test-ts.ts`, which is the hermetic boundary: it strips credentials, omp configuration variables (`PI_*`, `OMP_*`, …) and terminal-session variables (`SSH_*`, `TMUX*`, `TERM_PROGRAM*`, `COLORTERM`), and skips dotenv files. A direct `bun test <file>` inherits your shell's environment and the HOME dotenv files (`~/.env`, `~/.omp/.env`, `~/.omp/agent/.env`).
 
 Never invoke `tsc`/`npx tsc` directly — `bun run check` is the typecheck gate. After
 changing the React tool renderers under `collab-web/src/tool-render/`, rebuild them

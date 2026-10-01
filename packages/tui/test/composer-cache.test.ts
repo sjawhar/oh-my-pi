@@ -137,6 +137,8 @@ describe("composer startup cache", () => {
 				PI_CODING_AGENT_DIR: undefined,
 				OMP_PROFILE: undefined,
 				PI_PROFILE: undefined,
+				// The test runner disables dotenv loading; this probe is about it.
+				PI_NO_DOTENV: undefined,
 			},
 			stdout: "pipe",
 			stderr: "pipe",
