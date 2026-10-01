@@ -1959,9 +1959,10 @@ export class Agent {
 				: err instanceof Error
 					? err.message
 					: String(err);
-			// Same classification a provider stream error carries, so structured
-			// flags on the thrown error (e.g. Transient) reach turn recovery.
-			const errorId = stoppedForAbort ? undefined : AIError.classify(err, model.api) || undefined;
+			// A credential source that produced no key keeps its Transient flag so
+			// turn recovery retries it; other thrown errors stay classified by text.
+			const errorId =
+				!stoppedForAbort && err instanceof AIError.CredentialUnavailableError ? AIError.classify(err) : undefined;
 			const shouldEmitVisibleError = !stoppedForAbort;
 			const assistantPartial = partial?.role === "assistant" ? partial : undefined;
 			const hadAssistantStart = assistantPartial !== undefined;

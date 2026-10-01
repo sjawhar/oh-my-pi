@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `CredentialUnavailableError`, a transient error for a configured credential source that produced no key (unlike `MissingApiKeyError`, a retry may succeed).
+
 ## [18.6.0] - 2026-10-03
 
 ### Fixed
