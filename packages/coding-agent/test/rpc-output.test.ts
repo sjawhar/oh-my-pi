@@ -11,8 +11,13 @@ afterEach(() => {
 });
 
 it("drains RPC command responses after stdin EOF while the real stdout pipe is backpressured", async () => {
+	await using spoolDir = await TempDir.create("@rpc-output-pipe-");
 	const child = Bun.spawn(
 		[
+			"sh",
+			"-c",
+			// The reader takes the ready line, then stops reading for 2 s: a real stalled pipe.
+			'exec "$0" "$@" | { head -n 1; sleep 2; cat; }',
 			process.execPath,
 			path.join(import.meta.dir, "../src/cli.ts"),
 			"--mode",
@@ -28,7 +33,7 @@ it("drains RPC command responses after stdin EOF while the real stdout pipe is b
 		],
 		{
 			cwd: import.meta.dir,
-			env: { ...process.env, PI_NO_TITLE: "1" },
+			env: { ...process.env, PI_NO_TITLE: "1", TMPDIR: spoolDir.path() },
 			stdin: "pipe",
 			stdout: "pipe",
 			stderr: "pipe",
@@ -41,12 +46,17 @@ it("drains RPC command responses after stdin EOF while the real stdout pipe is b
 		const ready = await reader.read();
 		if (ready.done) throw new Error(`RPC exited before ready: ${await stderr}`);
 		chunks.push(ready.value);
-		for (let id = 0; id < 128; id++) {
+		for (let id = 0; id < 320; id++) {
 			child.stdin.write(`${JSON.stringify({ type: "get_state", id: `${id}:${"x".repeat(32768)}` })}\n`);
 		}
 		await child.stdin.flush();
 		child.stdin.end();
-		await Bun.sleep(300);
+		// ~10 MiB of replies against the 8 MiB in-flight budget: the writer must spill.
+		let spooled = false;
+		for (let attempt = 0; attempt < 40 && !spooled; attempt++) {
+			spooled = fs.readdirSync(spoolDir.path()).some(name => name.startsWith("omp-rpc-output-"));
+			if (!spooled) await Bun.sleep(50);
+		}
 		while (true) {
 			const next = await reader.read();
 			if (next.done) break;
@@ -58,8 +68,9 @@ it("drains RPC command responses after stdin EOF while the real stdout pipe is b
 			.split("\n")
 			.map(line => JSON.parse(line));
 		expect(replies.filter(reply => reply.type === "response").map(reply => reply.id.split(":")[0])).toEqual(
-			Array.from({ length: 128 }, (_, id) => String(id)),
+			Array.from({ length: 320 }, (_, id) => String(id)),
 		);
+		expect(spooled).toBe(true);
 		expect(await child.exited).toBe(0);
 	} finally {
 		reader.releaseLock();
@@ -157,9 +168,9 @@ it("reports a truncated spool during delivery instead of completing a partial pr
 });
 
 it("keeps a large-frame burst in memory while the reader keeps up", async () => {
-	// Regression: one frame over the pipe's 16 KiB high-water mark made every
-	// later frame of the burst spill to disk even though the reader drained
-	// promptly — a 50 KB streamed reply wrote ~10 MB of spool.
+	// Regression: v18.4.7 spilled every frame written while a sink write was
+	// pending, so a large-frame burst went through the disk even though the
+	// reader drained promptly — a 50 KB streamed reply wrote ~10 MB of spool.
 	const createSpool = spyOn(TempDir, "createSync");
 	const chunks: Buffer[] = [];
 	const sink = new Writable({
@@ -191,3 +202,91 @@ it("keeps a large-frame burst in memory while the reader keeps up", async () => 
 	expect(actual).toEqual(expected);
 	expect(errors).toEqual([]);
 });
+
+/** Run the stdout-writer fixture on a real pipe; `stallMs` delays the first stdout read past the child's whole burst. */
+async function runStdoutWriter(args: {
+	frames: number;
+	frameBytes: number;
+	budget: number;
+	paced: boolean;
+	stallMs: number;
+}) {
+	await using tmp = await TempDir.create("@rpc-output-stdout-");
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			path.join(import.meta.dir, "fixtures/rpc-output-stdout-writer.ts"),
+			String(args.frames),
+			String(args.frameBytes),
+			String(args.budget),
+			args.paced ? "paced" : "burst",
+		],
+		{ env: { ...process.env, TMPDIR: tmp.path() }, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+	);
+	const stderr = child.stderr.getReader();
+	const readReport = async (): Promise<{ spooled: boolean; retainedBytes: number }> => {
+		let text = "";
+		while (!text.includes("\n")) {
+			const next = await stderr.read();
+			if (next.done) throw new Error(`fixture exited without a report: ${text}`);
+			text += new TextDecoder().decode(next.value);
+		}
+		return JSON.parse(text.slice(0, text.indexOf("\n")));
+	};
+	const stdout = args.stallMs > 0 ? undefined : new Response(child.stdout).text();
+	const report = await readReport();
+	if (args.stallMs > 0) await Bun.sleep(args.stallMs);
+	const output = await (stdout ?? new Response(child.stdout).text());
+	stderr.releaseLock();
+	expect(await child.exited).toBe(0);
+	const order = output
+		.trimEnd()
+		.split("\n")
+		.map(line => (JSON.parse(line) as { i: number }).i);
+	return { report, order };
+}
+
+it("spills to disk with bounded memory when a real stdout reader stalls", async () => {
+	// Regression: Bun's process.stdout never charges writableLength, so a
+	// budget read from the stream never fired — a stalled reader grew the
+	// writer's queue without bound and nothing spilled.
+	const { report, order } = await runStdoutWriter({
+		frames: 512,
+		frameBytes: 256 * 1024,
+		budget: 4 * 1024 * 1024,
+		paced: false,
+		stallMs: 2000,
+	});
+	expect(report.spooled).toBe(true);
+	// 128 MiB of frames pass through; only the 4 MiB budget may stay queued in memory.
+	expect(report.retainedBytes).toBeLessThan(80 * 1024 * 1024);
+	expect(order).toEqual(Array.from({ length: 512 }, (_, i) => i));
+}, 60_000);
+
+it("writes straight to a real stdout pipe while its reader keeps up", async () => {
+	const { report, order } = await runStdoutWriter({
+		frames: 64,
+		frameBytes: 64 * 1024,
+		budget: 4 * 1024 * 1024,
+		paced: true,
+		stallMs: 0,
+	});
+	expect(report.spooled).toBe(false);
+	expect(order).toEqual(Array.from({ length: 64 }, (_, i) => i));
+}, 60_000);
+
+it("delivers a spool opened while the sink still accepts writes", async () => {
+	// A budget below the sink's high-water mark spills after a write() that
+	// returned true, so no `drain` follows; close() used to wait forever.
+	const chunks: Buffer[] = [];
+	const sink = new Writable({
+		write(chunk, _encoding, callback) {
+			chunks.push(Buffer.from(chunk));
+			queueMicrotask(() => callback());
+		},
+	});
+	const writer = new RpcOutputWriter(sink, () => {}, 1);
+	writer.write(["first\n", "second\n", "third\n"]);
+	await writer.close();
+	expect(Buffer.concat(chunks).toString()).toBe("first\nsecond\nthird\n");
+}, 5_000);

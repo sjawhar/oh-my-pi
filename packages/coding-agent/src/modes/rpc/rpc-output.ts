@@ -6,10 +6,16 @@ import type { BunFile } from "bun";
 const READ_BYTES = 64 * 1024;
 
 /**
- * Output the sink may hold in memory before frames spill to disk. `write()`
- * reports backpressure as soon as one frame exceeds the stream's high-water
- * mark (16 KiB on a pipe), even while the reader keeps up; spilling on that
- * signal sent every later frame of a large-message burst through the disk.
+ * Bytes handed to the sink and not yet flushed before frames spill to disk.
+ * The writer counts these itself: Bun's `process.stdout` on a pipe or socket
+ * never charges `writableLength`, and `write()` returns false whenever a native
+ * write is pending, so neither signal measures how far the reader is behind.
+ *
+ * 8 MiB keeps ordinary streamed replies off the disk while a client reads.
+ * Queued output memory is bounded by the budget plus the frame that crosses it
+ * (at most MAX_RPC_FRAME_BYTES, 1 MiB) plus one 64 KiB pump block: about 9 MiB
+ * per RPC process, ~128x the old ~64 KiB high-water bound, so N RPC children
+ * may hold about N x 9 MiB before spilling.
  */
 const RPC_OUTPUT_MEMORY_BACKLOG_BYTES = 8 * 1024 * 1024;
 
@@ -27,6 +33,7 @@ export class RpcOutputWriter {
 	#blocked = false;
 	#pumping = false;
 	#pendingWrites = 0;
+	#queuedBytes = 0;
 	#failure: Error | undefined;
 	#closing = false;
 	#completion: { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void } | undefined;
@@ -46,7 +53,7 @@ export class RpcOutputWriter {
 		if (this.#failure || this.#closing) return;
 		try {
 			for (const line of frames) {
-				if (this.#pumping || this.#spool || this.sink.writableLength >= this.memoryBacklogBytes) this.#append(line);
+				if (this.#pumping || this.#spool || this.#queuedBytes >= this.memoryBacklogBytes) this.#append(line);
 				else this.#write(line);
 			}
 		} catch (error) {
@@ -68,15 +75,19 @@ export class RpcOutputWriter {
 	}
 
 	#write(bytes: string | Uint8Array): void {
+		const size = typeof bytes === "string" ? Buffer.byteLength(bytes) : bytes.byteLength;
 		this.#pendingWrites++;
+		this.#queuedBytes += size;
 		this.#blocked = !this.sink.write(bytes, error => {
 			this.#pendingWrites--;
+			this.#queuedBytes -= size;
 			if (error) this.#fail(error);
 			else this.#settle();
 		});
 	}
 
 	#append(line: string): void {
+		const created = !this.#spool;
 		if (!this.#spool) {
 			const dir = TempDir.createSync("@omp-rpc-output-");
 			try {
@@ -99,6 +110,8 @@ export class RpcOutputWriter {
 			offset += written;
 			spool.written += written;
 		}
+		// A spool opened while the last write() succeeded gets no `drain`; deliver it now.
+		if (created && !this.#blocked) void this.#pump();
 	}
 
 	#onDrain = (): void => {
