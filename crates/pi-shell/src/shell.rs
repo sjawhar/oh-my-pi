@@ -2929,28 +2929,58 @@ mod tests {
 		let pid = i32::try_from(child.id().expect("child pid")).expect("pid fits i32");
 		wait_for_process_name(pid, &name).await;
 
-		// The test, not a fixed child lifetime, decides when the process exits:
-		// a child that exits on its own can be gone before a loaded host has
-		// seen it start. pidwait gets a window in which it must keep waiting on
-		// the live process; then the process is killed and pidwait must return.
-		let mut pidwait = tokio::spawn(execute_captured(format!("pidwait -x -p {pid} {name}")));
-		let joined = match time::timeout(Duration::from_secs(1), &mut pidwait).await {
-			Ok(joined) => joined,
-			Err(_) => {
-				let _ = child.start_kill();
-				time::timeout(Duration::from_secs(30), pidwait)
-					.await
-					.expect("pidwait did not return after its matching process exited")
-			},
-		};
-		let (result, output) = joined.expect("pidwait task");
+		// `-e` reports selection before pidwait starts its exit wait. Seeing this
+		// line proves it selected the still-live child, so the test can release
+		// the child without a wall-clock race.
+		let (tx, rx) = flume::unbounded();
+		let waiting_for = format!("waiting for {name} (pid {pid})\n");
+		let pidwait_command = format!("pidwait -e -x -p {pid} {name}");
+		let mut pidwait = tokio::spawn(async move {
+			execute_shell(
+				ShellExecuteOptions { command: pidwait_command, ..Default::default() },
+				Some(tx),
+				CancelToken::default(),
+			)
+			.await
+			.expect("pidwait execution")
+		});
+		let mut output = String::new();
+		time::timeout(Duration::from_secs(30), async {
+			while !output.contains(&waiting_for) {
+				output.push_str(
+					&rx.recv_async()
+						.await
+						.expect("pidwait output closed before it selected the child"),
+				);
+			}
+		})
+		.await
+		.expect("pidwait did not select the child");
+		tokio::task::yield_now().await;
+		assert!(
+			!pidwait.is_finished(),
+			"pidwait returned while its matching process was still running"
+		);
+		assert!(
+			child.try_wait().expect("waited child status").is_none(),
+			"pidwait selected a child that already exited"
+		);
+
+		let _ = child.start_kill();
+		let result = time::timeout(Duration::from_secs(30), &mut pidwait)
+			.await
+			.expect("pidwait did not return after its matching process exited")
+			.expect("pidwait task");
+		while let Ok(chunk) = rx.recv_async().await {
+			output.push_str(&chunk);
+		}
 		let status = child.try_wait().expect("waited child status");
 		if status.is_none() {
 			let _ = child.start_kill();
 			let _ = child.wait().await;
 		}
 		assert_eq!(result.exit_code, Some(0));
-		assert_eq!(output, "");
+		assert_eq!(output, waiting_for);
 		assert!(status.is_some(), "pidwait returned while its matching process was still running");
 	}
 
@@ -3505,6 +3535,17 @@ mod tests {
 	#[cfg(unix)]
 	#[tokio::test(flavor = "multi_thread")]
 	async fn child_wait_reports_a_stop_that_precedes_the_wait() {
+		const MARKER: &str = "PI_SHELL_TEST_CHILD_STOP_BEFORE_WAIT";
+		if std::env::var_os(MARKER).is_none() {
+			run_isolated_kill_test(
+				"shell::tests::child_wait_reports_a_stop_that_precedes_the_wait",
+				MARKER,
+				false,
+			)
+			.await;
+			return;
+		}
+
 		let mut command = Command::new("sh");
 		command.args(["-c", "kill -STOP $$"]).kill_on_drop(true);
 		let child = command.spawn().expect("self-stopping child");
@@ -3526,6 +3567,73 @@ mod tests {
 			.expect("wait missed a stop that happened before it began")
 			.expect("child wait");
 		assert!(matches!(result, brush_core::processes::ProcessWaitResult::Stopped));
+	}
+
+	/// A stopped background process must not make the next foreground process
+	/// look stopped. The inner run is isolated: after the background child
+	/// stops, the foreground command is the only new child that could report
+	/// status to the shell.
+	#[cfg(unix)]
+	#[tokio::test(flavor = "multi_thread")]
+	async fn stopped_background_job_does_not_stop_foreground_process() {
+		const MARKER: &str = "PI_SHELL_TEST_STOPPED_BACKGROUND_JOB";
+		if std::env::var_os(MARKER).is_none() {
+			run_isolated_kill_test(
+				"shell::tests::stopped_background_job_does_not_stop_foreground_process",
+				MARKER,
+				false,
+			)
+			.await;
+			return;
+		}
+
+		let (mut session, params) = kill_test_context().await;
+		let source_info = SourceInfo::from("pi-natives:test");
+		let background = session
+			.shell
+			.run_string("sh -c 'kill -STOP $$' &", &source_info, &params)
+			.await
+			.expect("start stopped background process");
+		assert_eq!(exit_code(&background), 0);
+		let background_pid = session
+			.shell
+			.jobs()
+			.current_job()
+			.expect("background job")
+			.process_ids()
+			.next()
+			.expect("background process");
+		time::timeout(Duration::from_secs(20), async {
+			while !pi_builtins::ProcInfo::all()
+				.into_iter()
+				.any(|process| process.pid() == background_pid && process.state() == 'T')
+			{
+				time::sleep(Duration::from_millis(10)).await;
+			}
+		})
+		.await
+		.expect("background process did not stop");
+
+		let foreground = session
+			.shell
+			.run_string("/bin/sleep 1", &source_info, &params)
+			.await
+			.expect("foreground sleep");
+		assert_eq!(
+			exit_code(&foreground),
+			0,
+			"a stopped background process must not stop the foreground sleep"
+		);
+		assert_eq!(
+			session.shell.jobs().jobs.len(),
+			1,
+			"foreground sleep must not become a stopped job"
+		);
+
+		let _ = session
+			.shell
+			.run_string("kill -CONT %1; kill %1; wait %1", &source_info, &params)
+			.await;
 	}
 
 	/// A failed target makes `kill` return non-zero without preventing later

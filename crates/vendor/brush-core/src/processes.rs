@@ -87,6 +87,15 @@ impl ChildProcess {
 			Some(CompletionMarker { output, end_marker_prefix, end_marker_suffix });
 	}
 
+	/// Checks whether this process, or a stage in its pipeline, stopped.
+	fn poll_for_stop(&self) -> Result<bool, error::Error> {
+		let Some(pid) = self.pid else {
+			return Ok(false);
+		};
+		sys::signal::poll_for_stopped_child(pid, self.pgid)
+	}
+
+
 	/// Waits for the process to exit.
 	///
 	/// If a cancellation token is provided and triggered, the process will be killed.
@@ -101,10 +110,10 @@ impl ChildProcess {
 
 		// A SIGCHLD delivered before the subscription above never reaches
 		// `sigchld`. Pipeline stages are all spawned before the first is
-		// waited on, so a stage can stop before this point; check once for
-		// children that already stopped. Exits need no such check: the child's
-		// exec future registered for them when it was spawned.
-		if sys::signal::poll_for_stopped_children()? {
+		// waited on, so this process or one in its pipeline can stop before
+		// this point. Exits need no such check: the child's exec future
+		// registered for them when it was spawned.
+		if self.poll_for_stop()? {
 			return Ok(ProcessWaitResult::Stopped);
 		}
 
@@ -135,7 +144,7 @@ impl ChildProcess {
 					break Ok(ProcessWaitResult::Stopped)
 				},
 				_ = sigchld.recv() => {
-					if sys::signal::poll_for_stopped_children()? {
+					if self.poll_for_stop()? {
 						break Ok(ProcessWaitResult::Stopped);
 					}
 				},
