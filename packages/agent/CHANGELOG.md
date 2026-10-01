@@ -8,7 +8,7 @@
 
 ### Added
 
-- Added `PruneResult.pruned`, which lists each blanked tool result's entry id, notice, and `prunedAt`, and `blankToolResult()`, which applies one of those entries to a loaded copy of its tool result.
+- Added `PruneResult.pruned`, a list of exported `ToolResultPrune` records (each blanked tool result's entry id, notice, and `prunedAt`), and `blankToolResult()`, which applies one record to a loaded copy of its tool result.
 
 ## [18.8.1] - 2026-10-07
 
