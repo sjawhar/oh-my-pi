@@ -2434,6 +2434,53 @@ mod tests {
 		(session, params)
 	}
 
+	#[cfg(unix)]
+	fn pseudo_terminal_input() -> (std::os::fd::OwnedFd, OpenFile) {
+		use std::os::fd::{FromRawFd as _, OwnedFd};
+
+		let mut master = -1;
+		let mut slave = -1;
+		// SAFETY: openpty initializes two new owned file descriptors on success;
+		// the null name, termios, and winsize pointers request defaults.
+		assert_eq!(
+			unsafe {
+				libc::openpty(
+					&mut master,
+					&mut slave,
+					std::ptr::null_mut(),
+					std::ptr::null(),
+					std::ptr::null(),
+				)
+			},
+			0,
+			"openpty"
+		);
+		// SAFETY: openpty returned unique descriptors on success.
+		let master = unsafe { OwnedFd::from_raw_fd(master) };
+		// SAFETY: openpty returned unique descriptors on success.
+		let slave = unsafe { fs::File::from_raw_fd(slave) };
+		(master, OpenFile::from(slave))
+	}
+
+	#[cfg(unix)]
+	async fn interactive_kill_test_context()
+	-> (ShellSessionCore, ExecutionParameters, std::os::fd::OwnedFd) {
+		let config = ShellConfig {
+			session_env:   None,
+			snapshot_path: None,
+			minimizer:     None,
+			filesystem:    Fs::native(),
+		};
+		let mut session = create_session(&config).await.expect("create_session");
+		session.shell.options_mut().enable_job_control = true;
+		let mut params = session.shell.default_exec_params();
+		let (pty_master, pty_slave) = pseudo_terminal_input();
+		params.set_fd(OpenFiles::STDIN_FD, pty_slave);
+		params.set_fd(OpenFiles::STDOUT_FD, null_file().expect("null stdout"));
+		params.set_fd(OpenFiles::STDERR_FD, null_file().expect("null stderr"));
+		(session, params, pty_master)
+	}
+
 	/// Shell-quotes an argument when building a command string for a test.
 	///
 	/// Mirrors what the `timeout`/`nohup` builtins do when they rebuild a
@@ -3601,6 +3648,48 @@ mod tests {
 		)
 		.await
 		.expect("pipeline did not report its stopped later stage")
+		.expect("stopped pipeline");
+		assert_eq!(exit_code(&result), 148);
+		assert_eq!(
+			session
+				.shell
+				.jobs()
+				.current_job()
+				.expect("stopped pipeline job")
+				.process_ids()
+				.count(),
+			2,
+			"stopped pipeline must retain every external stage"
+		);
+	}
+
+	/// Interactive job control can give the first stage a process group while
+	/// a pipe-input later stage still detaches into its own session. The later
+	/// stop must cover the pipeline despite that partial group membership.
+	#[cfg(unix)]
+	#[tokio::test(flavor = "multi_thread")]
+	async fn stopped_later_interactive_detached_stage_stops_pipeline() {
+		const MARKER: &str = "PI_SHELL_TEST_STOPPED_LATER_INTERACTIVE_STAGE";
+		if std::env::var_os(MARKER).is_none() {
+			run_isolated_kill_test(
+				"shell::tests::stopped_later_interactive_detached_stage_stops_pipeline",
+				MARKER,
+				false,
+			)
+			.await;
+			return;
+		}
+
+		let (mut session, params, _pty_master) = interactive_kill_test_context().await;
+		let source_info = SourceInfo::from("pi-natives:test");
+		let result = time::timeout(
+			Duration::from_secs(20),
+			session
+				.shell
+				.run_string("/usr/bin/yes | sh -c 'kill -STOP $$'", &source_info, &params),
+		)
+		.await
+		.expect("interactive pipeline did not report its stopped later stage")
 		.expect("stopped pipeline");
 		assert_eq!(exit_code(&result), 148);
 		assert_eq!(
