@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- A turn that fails with a thrown error now records that error's classification (`errorId`), so retryable failures raised before or outside the provider stream are auto-retried like provider stream errors.
+- A turn that fails with a thrown `CredentialUnavailableError` now carries its transient classification (`errorId`) on the error message, so a host's turn retry can treat it as retryable.
 
 ## [18.4.6] - 2026-10-01
 
