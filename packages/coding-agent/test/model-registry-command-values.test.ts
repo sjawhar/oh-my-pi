@@ -408,8 +408,11 @@ describe("ModelRegistry command-resolved models.yml values", () => {
 		expect(AIError.retriable(AIError.classify(error))).toBe(false);
 	});
 
-	/** Prompt a real AgentSession whose provider key is a helper that fails on its first run. */
-	async function runCommandKeyedTurn(maxRetries: number, helperRecovers: boolean) {
+	/**
+	 * Prompt a real AgentSession whose provider key is a helper that fails on its
+	 * first run; with `manualRetry`, `/retry` the failed turn once it settles.
+	 */
+	async function runCommandKeyedTurn(maxRetries: number, helperRecovers: boolean, manualRetry = false) {
 		const tokenFile = path.join(tempDir, "token.txt");
 		const counterFile = path.join(tempDir, "counter.txt");
 		fs.writeFileSync(tokenFile, "FAIL");
@@ -480,13 +483,20 @@ describe("ModelRegistry command-resolved models.yml values", () => {
 		try {
 			await session.prompt("Use the command-keyed provider.");
 			await session.waitForIdle();
+			const firstRun = { retries, helperRuns: fs.readFileSync(counterFile, "utf8").length };
+			if (manualRetry) {
+				expect(await session.retry()).toBe(true);
+				await session.waitForIdle();
+			}
+			const helperRuns = fs.readFileSync(counterFile, "utf8").length;
 			return {
 				lastMessage: agent.state.messages.at(-1),
 				sentKeys,
 				retries,
 				retryEnds,
-				helperRuns: fs.readFileSync(counterFile, "utf8").length,
+				helperRuns,
 				elapsedMs: Date.now() - wallStart,
+				manualRetry: { retries: retries - firstRun.retries, helperRuns: helperRuns - firstRun.helperRuns },
 			};
 		} finally {
 			await session.dispose();
@@ -529,6 +539,18 @@ describe("ModelRegistry command-resolved models.yml values", () => {
 			stopReason: "error",
 			errorMessage: expect.stringContaining("The apiKey command for provider custom-proxy produced no key"),
 		});
+	});
+
+	test("/retry after a turn whose apiKey command used up retry.maxRetries gets a fresh key-command budget", async () => {
+		const run = await runCommandKeyedTurn(2, false, true);
+
+		expect(run.sentKeys).toEqual([]);
+		// The retried turn gets its own 2 retries, and each runs the helper again.
+		expect(run.manualRetry).toEqual({ retries: 2, helperRuns: 2 });
+		expect(run.retryEnds).toEqual([
+			expect.objectContaining({ success: false }),
+			expect.objectContaining({ success: false }),
+		]);
 	});
 
 	test("a provider that runs without a key still dispatches keyless when its apiKey command fails", async () => {
