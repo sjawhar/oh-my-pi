@@ -18,15 +18,16 @@ export interface ApiKeyResolverOptions {
 
 /**
  * A provider's configured `!command` apiKey ran but produced no key (failed,
- * timed out, or printed nothing). Transient, unlike a missing key, so turn
- * auto-retry backs off and resolves again. The message never includes the
- * command, which can carry credentials.
+ * timed out, or printed nothing). Transient, so turn auto-retry resolves again;
+ * `retryAfterMs` (the command's remaining failure backoff) rides on the message
+ * as the standard `retry-after-ms` hint, so each retry re-runs the command. The
+ * message never includes the command, which can carry credentials.
  */
-export class ApiKeyCommandError extends Error {
-	constructor(provider: string) {
-		super(`The apiKey command for provider ${provider} produced no key`);
+export class ApiKeyCommandError extends AIError.CredentialUnavailableError {
+	constructor(provider: string, retryAfterMs: number | undefined) {
+		const hint = retryAfterMs ? ` retry-after-ms=${retryAfterMs}` : "";
+		super(`The apiKey command for provider ${provider} produced no key${hint}`);
 		this.name = "ApiKeyCommandError";
-		AIError.attach(this, AIError.create(AIError.Flag.Transient));
 	}
 }
 
