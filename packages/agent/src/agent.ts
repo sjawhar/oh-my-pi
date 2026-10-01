@@ -23,6 +23,7 @@ import {
 	type ToolResultMessage,
 } from "@oh-my-pi/pi-ai";
 import type { Dialect } from "@oh-my-pi/pi-ai/dialect";
+import * as AIError from "@oh-my-pi/pi-ai/error";
 import { openAIResponsesReplaysNativeHistory } from "@oh-my-pi/pi-ai/providers/openai-responses";
 import type { HarmonyAuditEvent } from "@oh-my-pi/pi-ai/utils/harmony-leak";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
@@ -2100,6 +2101,9 @@ export class Agent {
 				: err instanceof Error
 					? err.message
 					: String(err);
+			// Same classification a provider stream error carries, so structured
+			// flags on the thrown error (e.g. Transient) reach turn recovery.
+			const errorId = stoppedForAbort ? undefined : AIError.classify(err, model.api) || undefined;
 			const shouldEmitVisibleError = !stoppedForAbort;
 			const assistantPartial = partial?.role === "assistant" ? partial : undefined;
 			const hadAssistantStart = assistantPartial !== undefined;
@@ -2127,6 +2131,7 @@ export class Agent {
 							),
 							stopReason: "error",
 							errorMessage,
+							errorId,
 						}
 					: {
 							role: "assistant",
@@ -2144,6 +2149,7 @@ export class Agent {
 							},
 							stopReason: stoppedForAbort ? "aborted" : "error",
 							errorMessage,
+							errorId,
 							timestamp: Date.now(),
 						};
 
