@@ -36,7 +36,7 @@ pub struct ChildProcess {
 	pid:         Option<sys::process::ProcessId>,
 	/// If available, the shared process group ID of the pipeline.
 	pgid:        Option<sys::process::ProcessId>,
-	/// Every external process in this pipeline when no process group is shared.
+	/// Every external process in this pipeline.
 	stop_pids:   Option<Arc<[sys::process::ProcessId]>>,
 	/// Windows handle duplicated from the child process for safe termination.
 	#[cfg(windows)]
@@ -76,8 +76,7 @@ impl ChildProcess {
 		self.pgid
 	}
 
-	/// Sets the external process IDs that form this pipeline without a shared
-	/// process group.
+	/// Sets the external process IDs that form this pipeline's stop scope.
 	pub(crate) fn set_stop_pids(&mut self, pids: Arc<[sys::process::ProcessId]>) {
 		self.stop_pids = Some(pids);
 	}
