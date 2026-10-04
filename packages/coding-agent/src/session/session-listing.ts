@@ -853,7 +853,7 @@ async function newestSessionFiles(
 
 /** Header-level {@link SessionInfo} with status for one session file; undefined when unreadable or not a session. */
 export function readSessionInfo(file: string): Promise<SessionInfo | undefined> {
-	return scanSessionFile(file, new FileSessionStorage(), true);
+	return scanSessionFile(file, defaultSessionStorage(), true);
 }
 
 /** Selects which session files {@link listRecentSessions} considers. */
@@ -873,7 +873,7 @@ export interface RecentSessionsQuery {
  * {@link listAllSessions} scans everything.
  */
 export async function listRecentSessions(query: RecentSessionsQuery): Promise<SessionInfo[]> {
-	const storage = new FileSessionStorage();
+	const storage = defaultSessionStorage();
 	const files = query.sessionDir
 		? await newestSessionFiles(query.sessionDir, "*.jsonl", storage)
 		: await newestSessionFiles(query.sessionsRoot ?? getSessionsDir(), "*/*.jsonl", storage);
@@ -906,7 +906,7 @@ export async function listRecentProjects(
 	limit: number,
 	sessionsRoot: string = getSessionsDir(),
 ): Promise<ProjectSummary[]> {
-	const storage = new FileSessionStorage();
+	const storage = defaultSessionStorage();
 	// Insertion order follows the newest-first file order, so directories come
 	// out ordered by their newest session file.
 	const byDir = new Map<string, StatedSessionFile[]>();

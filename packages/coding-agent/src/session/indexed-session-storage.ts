@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { toError } from "@oh-my-pi/pi-utils";
 import {
-	directChildKeyName,
+	childKeyName,
 	SessionWriteConflictError,
 	type SessionStorage,
 	type SessionStorageStat,
@@ -261,8 +261,9 @@ export class IndexedSessionStorage implements SessionStorage {
 	listFilesSync(dir: string, pattern: string): string[] {
 		const resolvedDir = path.resolve(dir);
 		const out: string[] = [];
+		const segments = pattern.split("/").length;
 		for (const key of this.#index.keys()) {
-			const name = directChildKeyName(resolvedDir, key);
+			const name = childKeyName(resolvedDir, key, segments);
 			if (name === undefined || !matchesGlob(name, pattern)) continue;
 			out.push(key);
 		}

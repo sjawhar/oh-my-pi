@@ -1927,9 +1927,9 @@ export async function runRootCommand(
 		// Process-lifetime: broker/account-policy edits reconfigure the shared credential store.
 		createAuthStorageSettingsSync(settingsInstance, authStorage);
 		// Install the configured session storage before anything lists or opens a
-		// session — the startup composer's recent-sessions load and every
-		// SessionManager below read through this default. A refusal names only the
-		// variable or setting and the path; it never echoes the connection string.
+		// session — every session listing and SessionManager below reads through
+		// this default. A refusal names only the variable or setting and the path;
+		// it never echoes the connection string.
 		try {
 			setDefaultSessionStorage(
 				await logger.time("resolveSessionStorage", resolveSessionStorage, {
