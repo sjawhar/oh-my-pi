@@ -3084,16 +3084,31 @@ export class ModelRegistry {
 	 * from the model. Callers that need the initial key for a guard can call
 	 * `resolveApiKeyOnce(resolver)`.
 	 *
-	 * The initial resolve settles as soon as the request's signal aborts.
+	 * For a provider whose apiKey is a `!command`, the initial resolve settles as
+	 * soon as the request's signal aborts instead of waiting on the command. Other
+	 * providers resolve as before: a request already scheduled when its signal
+	 * aborts still gets its key.
 	 */
 	resolver(provider: string, options?: ApiKeyResolverOptions): ApiKeyResolver;
 	resolver(model: ApiKeyResolverModel, sessionId?: string): ApiKeyResolver;
 	resolver(target: string | ApiKeyResolverModel, optionsOrSessionId?: ApiKeyResolverOptions | string): ApiKeyResolver {
 		const options = typeof optionsOrSessionId === "string" ? { sessionId: optionsOrSessionId } : optionsOrSessionId;
+		const provider = typeof target === "string" ? target : target.provider;
 		const resolve =
 			typeof target === "string"
 				? createApiKeyResolver(this, target, options)
 				: createApiKeyResolver(this, target.provider, { ...options, baseUrl: target.baseUrl, modelId: target.id });
+		return this.settleCommandKeyOnAbort(provider, resolve);
+	}
+
+	/**
+	 * `resolve` with {@link resolver}'s abort handling: for a provider whose apiKey
+	 * is a `!command`, the initial resolve settles as soon as the request's signal
+	 * aborts instead of waiting on the command. Other providers get `resolve`
+	 * itself. A registry view that builds its own resolvers wraps them with this.
+	 */
+	settleCommandKeyOnAbort(provider: string, resolve: ApiKeyResolver): ApiKeyResolver {
+		if (!this.hasCommandBackedApiKey(provider)) return resolve;
 		return async ctx => (ctx.error === undefined ? untilAborted(ctx.signal, async () => resolve(ctx)) : resolve(ctx));
 	}
 
@@ -3105,17 +3120,26 @@ export class ModelRegistry {
 	 * keep {@link resolver}, where such a request fails at once as a missing key.
 	 */
 	turnResolver(model: ApiKeyResolverModel, sessionId?: string): ApiKeyResolver {
-		const resolve = this.resolver(model, sessionId);
+		return this.failCommandKeyRetryably(model.provider, this.resolver(model, sessionId));
+	}
+
+	/**
+	 * `resolve` as {@link turnResolver} hands it out: an initial resolve that
+	 * returns no key throws {@link ApiKeyCommandError} when the provider's apiKey
+	 * is a `!command`. A registry view that builds its own resolvers wraps them
+	 * with this.
+	 */
+	failCommandKeyRetryably(provider: string, resolve: ApiKeyResolver): ApiKeyResolver {
 		return async ctx => {
 			const resolved = await resolve(ctx);
 			if (
 				ctx.error === undefined &&
 				resolvedApiKeyBearer(resolved) === undefined &&
-				this.retriesFailedCommandKey(model.provider)
+				this.retriesFailedCommandKey(provider)
 			) {
 				throw new ApiKeyCommandError(
-					model.provider,
-					commandFailureRetryAfterMs(this.#customProviderApiKeys.get(model.provider)),
+					provider,
+					commandFailureRetryAfterMs(this.#customProviderApiKeys.get(provider)),
 				);
 			}
 			return resolved;
