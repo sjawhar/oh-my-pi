@@ -997,7 +997,9 @@ export class MCPManager {
 							this.#tools.some(tool => tool.mcpServerName === name)
 						) {
 							this.#replaceServerTools(name, []);
-							void this.#onToolsChanged?.(this.#tools);
+							this.#notifyOwnerToolsChanged().catch(error =>
+								logger.debug("MCP tools-changed handler failed", { error }),
+							);
 						}
 						return;
 					}
