@@ -7,7 +7,6 @@ import {
 	type AgentTelemetryConfig,
 	type AgentTool,
 	AppendOnlyContextManager,
-	filterProviderReplayMessages,
 	resolveTelemetry,
 	type StreamFn,
 	type ThinkingLevel,
@@ -199,6 +198,7 @@ import {
 	resolveRetryFallbackChainKey,
 } from "./session/retry-fallback-chains";
 import { describeUsageFallback } from "./session/retry-fallback-reason";
+import { filterSessionReplayMessages } from "./session/provider-replay";
 import { getRestorableSessionModels } from "./session/session-context";
 import { SessionManager } from "./session/session-manager";
 import {
@@ -4066,11 +4066,13 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			return converted;
 		};
 
-		// Final convertToLlm: live provider replay applies the refusal replay policy
-		// (refused replies never resend, nor does a refused step's input once later
-		// input supersedes it), then applies secret obfuscation to the outbound context.
+		// Final convertToLlm: live provider replay applies the session's refusal
+		// replay policy (refused replies never resend, nor does a refused step's
+		// input once later input supersedes it), then secret obfuscation. The
+		// policy must run before conversion: conversion drops the refused-turn
+		// marker it keys on, so a filter after it would resend the refused input.
 		const convertToLlmFinal = (messages: AgentMessage[]): Message[] => {
-			const converted = convertToLlmWithBlockImages(filterProviderReplayMessages(messages));
+			const converted = convertToLlmWithBlockImages(filterSessionReplayMessages(messages));
 			if (!obfuscator?.hasSecrets()) return converted;
 			return obfuscateMessages(obfuscator, converted);
 		};

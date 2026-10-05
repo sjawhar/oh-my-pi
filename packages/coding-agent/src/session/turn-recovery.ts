@@ -3,6 +3,7 @@ import {
 	AgentBusyError,
 	type AgentMessage,
 	createRefusedTurnMessage,
+	isProviderRefusalMessage,
 	isSyntheticToolResultMessage,
 	REFUSED_TURN_MESSAGE_TYPE,
 	type ThinkingLevel,
@@ -1655,11 +1656,9 @@ export class TurnRecovery {
 		);
 	}
 
-	/** Checks whether a provider error represents a classifier refusal. */
+	/** Checks whether a provider error represents a classifier refusal (one definition with the replay policy). */
 	isClassifierRefusal(message: AssistantMessage): boolean {
-		if (message.stopReason !== "error") return false;
-		const stopType = message.stopDetails?.type;
-		return stopType === "refusal" || stopType === "sensitive";
+		return isProviderRefusalMessage(message);
 	}
 
 	#getRetryFallbackResolutionContext(): RetryFallbackResolutionContext {

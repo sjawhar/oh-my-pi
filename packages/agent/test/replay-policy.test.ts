@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { type AgentMessage, filterProviderReplayMessages } from "@oh-my-pi/pi-agent-core";
+import { type AgentMessage, createRefusedTurnMessage, filterProviderReplayMessages } from "@oh-my-pi/pi-agent-core";
 import { createCompactionSummaryMessage } from "@oh-my-pi/pi-agent-core/compaction";
 import type { AssistantMessage, ToolResultMessage } from "@oh-my-pi/pi-ai";
 import { createAssistantMessage, createUserMessage } from "./helpers";
@@ -120,5 +120,45 @@ describe("filterProviderReplayMessages", () => {
 		];
 
 		expect(filterProviderReplayMessages(history)).toEqual([summary, history[3]]);
+	});
+
+	// Regression: an interrupted or errored attempt counted as an accepted reply,
+	// so the refused prompt before it kept being resent while each newer prompt
+	// was dropped instead; a reload (which drops such turns) sent something else.
+	it("does not end a step at an aborted or errored reply", () => {
+		const prompt = createUserMessage("PAYLOAD");
+		const next = createUserMessage("Reply with the single word OK.");
+
+		expect(
+			filterProviderReplayMessages([
+				prompt,
+				createAssistantMessage([], "aborted"),
+				createUserMessage("next question"),
+				createRefusedTurnMessage(2),
+				next,
+			]),
+		).toEqual([next]);
+		expect(
+			filterProviderReplayMessages([
+				prompt,
+				createRefusedTurnMessage(2),
+				{ ...createAssistantMessage([{ type: "text", text: "boom" }], "error"), errorMessage: "boom" },
+				next,
+			]),
+		).toEqual([next]);
+	});
+
+	// Regression: with a refusal still in history while recovery retries it, a
+	// steer queued during the refused request made the retry drop the prompt.
+	it("strips only at markers when asked, keeping input a retry still needs", () => {
+		const call = { type: "toolCall" as const, id: "call-refused", name: "read", arguments: { path: "a.txt" } };
+		const prompt = createUserMessage("PAYLOAD");
+		const steer = createUserMessage("STEER also check b.txt");
+		const history: AgentMessage[] = [prompt, refusal([call]), toolResult("call-refused", "not executed"), steer];
+
+		expect(filterProviderReplayMessages(history, { stripOnlyAtMarkers: true })).toEqual([prompt, steer]);
+		expect(
+			filterProviderReplayMessages([prompt, createRefusedTurnMessage(2), steer], { stripOnlyAtMarkers: true }),
+		).toEqual([steer]);
 	});
 });

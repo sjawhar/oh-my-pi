@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { type AgentMessage, createRefusedTurnMessage, filterProviderReplayMessages } from "@oh-my-pi/pi-agent-core";
+import { type AgentMessage, createRefusedTurnMessage } from "@oh-my-pi/pi-agent-core";
 import type { ImageContent, Message, TextContent } from "@oh-my-pi/pi-ai";
 import { inferCopilotInitiator } from "@oh-my-pi/pi-ai/providers/github-copilot-headers";
 import {
@@ -90,15 +90,6 @@ describe("assistant refusal replay policy", () => {
 
 		expect(converted.map(message => message.role)).toEqual(["user", "assistant", "user"]);
 		expect(JSON.stringify(converted)).toContain("Refusal (bio)");
-	});
-
-	// Regression: provider replay dropped the refusal but resent the prompt that
-	// drew it, so every later request was refused too.
-	it("leaves the refused prompt and the refusal out of provider replay once a later prompt follows", () => {
-		const replayed = convertToLlm(filterProviderReplayMessages(refusedTurn));
-
-		expect(replayed).toHaveLength(1);
-		expect(replayed[0]).toMatchObject({ role: "user", content: [{ type: "text", text: "recover" }] });
 	});
 
 	// The marker a session leaves after giving up on a refusal has no content; a

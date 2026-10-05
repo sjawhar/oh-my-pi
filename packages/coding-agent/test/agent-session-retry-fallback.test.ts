@@ -3812,6 +3812,90 @@ describe("AgentSession retry fallback", () => {
 		expect(sentTurns(reloadedMock.calls[0]?.context.messages ?? [])).toEqual(liveRequest);
 	});
 
+	// Regression: an errored attempt after the refused prompt counted as an
+	// accepted reply, so live requests kept resending the prompt (and dropped the
+	// newer one) while a reload, which drops errored turns, sent something else.
+	it("leaves out a refused step's input past an errored attempt, live and after a reload", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		if (!primaryModel) {
+			throw new Error("Expected bundled test model to exist");
+		}
+		const settings = Settings.isolated({ "compaction.enabled": false, "retry.enabled": false });
+		settings.setModelRole("default", `${primaryModel.provider}/${primaryModel.id}`);
+		const sessionDir = path.join(tempDir.path(), "refused-errored-sessions");
+		const sentTurns = (messages: Message[]) =>
+			JSON.parse(JSON.stringify(messages.map(message => ({ role: message.role, content: message.content }))));
+		const mock = createMockModel({
+			responses: [
+				{ content: ["partial"], stopReason: "error", errorMessage: "upstream connection reset" },
+				{
+					content: ["I can't help with that."],
+					stopReason: "error",
+					stopDetails: { type: "refusal", category: "cyber", explanation: "Classifier declined this turn." },
+					errorMessage: "Refusal (cyber): Classifier declined this turn.",
+				},
+				{ content: ["OK"] },
+				{ content: ["Continuing."] },
+			],
+		});
+		const sessionManager = SessionManager.create(tempDir.path(), sessionDir);
+		session = new AgentSession({
+			agent: new Agent({
+				getApiKey: model => `${model.provider}-test-key`,
+				initialState: { model: primaryModel, systemPrompt: ["Test"], tools: [], messages: [] },
+				streamFn: (model, context, options) => mock.stream(model, context, options),
+			}),
+			sessionManager,
+			settings,
+			modelRegistry,
+		});
+
+		for (const text of ["PAYLOAD the classifier refuses", "Next question", "Reply with the single word OK."]) {
+			await session.prompt(text);
+			await session.waitForIdle();
+		}
+		expect(sentTurns(mock.calls[2]?.context.messages ?? [])).toEqual([
+			{ role: "user", content: [{ type: "text", text: "Reply with the single word OK." }] },
+		]);
+
+		await sessionManager.flush();
+		const sessionFile = sessionManager.getSessionFile();
+		if (!sessionFile) {
+			throw new Error("Expected the session to persist a file");
+		}
+		const reloadedManager = await SessionManager.open(sessionFile, sessionDir, undefined, {
+			suppressBreadcrumb: true,
+		});
+		const reloadedMock = createMockModel({ responses: [{ content: ["Continuing."] }] });
+		const reloadedSession = new AgentSession({
+			agent: new Agent({
+				getApiKey: model => `${model.provider}-test-key`,
+				initialState: {
+					model: primaryModel,
+					systemPrompt: ["Test"],
+					tools: [],
+					messages: reloadedManager.buildSessionContext().messages,
+				},
+				streamFn: (model, context, options) => reloadedMock.stream(model, context, options),
+			}),
+			sessionManager: reloadedManager,
+			settings,
+			modelRegistry,
+		});
+		try {
+			await session.prompt("Continue.");
+			await session.waitForIdle();
+			await reloadedSession.prompt("Continue.");
+			await reloadedSession.waitForIdle();
+		} finally {
+			await reloadedSession.dispose();
+		}
+
+		const liveRequest = sentTurns(mock.calls[3]?.context.messages ?? []);
+		expect(JSON.stringify(liveRequest)).not.toContain("PAYLOAD");
+		expect(sentTurns(reloadedMock.calls[0]?.context.messages ?? [])).toEqual(liveRequest);
+	});
+
 	it("keeps the pruned refusal visible to getLastAssistantMessage until the next run", async () => {
 		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
 		if (!primaryModel) {
