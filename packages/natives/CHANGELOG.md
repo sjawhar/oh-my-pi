@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a command backgrounded inside a subshell, such as `( yes > /dev/null & )`, running forever after the shell that started it ended. Its job was recorded only in the subshell, so nothing owned it: a builtin kept a thread busy until the host process exited, and an external command was killed the moment the subshell closed. Both now behave as in bash, and end with the session.
+
 ## [18.5.1] - 2026-10-03
 
 ### Fixed

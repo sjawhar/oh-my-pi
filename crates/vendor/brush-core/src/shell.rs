@@ -614,6 +614,25 @@ impl<SE: extensions::ShellExtensions> Shell<SE> {
 			self.jobs.add_as_current(job);
 		}
 	}
+
+	/// Takes over the jobs a subshell still had running when it ended.
+	///
+	/// A subshell runs in a copy of this shell, and [`Self::clone`] gives that
+	/// copy an empty job table, so a `&` inside the subshell records its job
+	/// only there. Dropping the copy would drop the job with it: an external
+	/// child dies with its [`processes::ChildProcess`], and an internal task is
+	/// detached and keeps running on the host's runtime, owned by nothing and
+	/// invisible to `jobs`. Moving the live jobs here instead matches bash,
+	/// where `( cmd & )` outlives its subshell, and keeps them owned by a shell
+	/// that is still reachable, so teardown and `jobs` both see them.
+	pub(crate) fn adopt_jobs_from(&mut self, subshell: &mut Self) {
+		for job in std::mem::take(&mut subshell.jobs).jobs {
+			if matches!(job.state, jobs::JobState::Done) {
+				continue;
+			}
+			self.jobs.add_as_current(job);
+		}
+	}
 }
 
 #[cfg(feature = "serde")]
