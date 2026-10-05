@@ -93,9 +93,9 @@ export function filterProviderReplayMessages<T extends AgentMessage>(messages: T
 		isRefusedTurnBoundary(message) ||
 		(message.role === "toolResult" && refusedCallIds?.has(message.toolCallId) === true);
 
-	const fates: Array<"drop" | "withhold" | undefined> = [];
+	// Per index: "drop", a withheld stand-in to send instead, or undefined to keep.
+	const fates: Array<"drop" | T | undefined> = [];
 	let stepStart = 0;
-	let strippedThrough = 0;
 	for (let index = 0; index < messages.length; index++) {
 		const message: AgentMessage = messages[index];
 		if (message.role === "assistant" && !isProviderRefusalMessage(message)) {
@@ -108,22 +108,21 @@ export function filterProviderReplayMessages<T extends AgentMessage>(messages: T
 		let next = index + 1;
 		while (next < messages.length && isRefusedReply(messages[next])) next++;
 		if (next === messages.length || messages[next].role === "assistant") continue;
-		for (let inputIndex = Math.max(stepStart, strippedThrough); inputIndex < index; inputIndex++) {
+		for (let inputIndex = stepStart; inputIndex < index; inputIndex++) {
 			const input: AgentMessage = messages[inputIndex];
 			if (fates[inputIndex] !== undefined || input.role === "compactionSummary" || input.role === "branchSummary") {
 				continue;
 			}
-			fates[inputIndex] = input.role === "toolResult" ? "withhold" : "drop";
+			fates[inputIndex] = input.role === "toolResult" ? (withholdToolResult(input) as T) : "drop";
 		}
-		strippedThrough = index;
+		stepStart = index + 1;
 	}
 
 	const replayed: T[] = [];
 	for (let index = 0; index < messages.length; index++) {
 		const fate = fates[index];
 		if (fate === "drop") continue;
-		const message = messages[index];
-		replayed.push(fate === "withhold" ? (withholdToolResult(message as ToolResultMessage) as T) : message);
+		replayed.push(fate ?? messages[index]);
 	}
 	return replayed;
 }
