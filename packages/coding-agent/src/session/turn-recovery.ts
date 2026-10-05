@@ -141,6 +141,11 @@ function conversationEnd(messages: readonly AgentMessage[]): number {
 	return end;
 }
 
+/** `auto_retry_end.kind` for a failed retry: the error's `AIError` label, absent when the message carries no error id. */
+function retryFailureKind(errorId: number | undefined): string | undefined {
+	return errorId ? AIError.stringify(errorId) : undefined;
+}
+
 function syntheticToolResultTailStart(messages: readonly AgentMessage[]): number {
 	let index = conversationEnd(messages);
 	while (index > 0 && isSyntheticToolResultMessage(messages[index - 1])) {
@@ -592,6 +597,7 @@ export class TurnRecovery {
 			success: false,
 			attempt,
 			finalError: message.errorMessage,
+			kind: retryFailureKind(message.errorId),
 		});
 		this.#clearPendingRetryErrors();
 	}
@@ -2839,12 +2845,19 @@ export class TurnRecovery {
 			}
 		}
 
+		// Authoritative provider timing: a parsed reset hint from the error text,
+		// or a complete usage-report window. Without either, a usage-limit wait is
+		// the 30-minute heuristic guess and names no reset time.
+		const providerTimedWait =
+			parsedRetryAfterMs !== undefined || recordedUsageLimitOutcome?.reportResetAtMs !== undefined;
+		const retryAtMs = providerTimedWait ? Math.ceil(Date.now() + delayMs) : undefined;
+
 		if (retryBudgetExhausted) {
 			if (!switchedModel && !switchedCredential) {
 				const attempt = this.#retryAttempt - 1;
 				message.errorMessage = `Retry budget exhausted after ${attempt} ${attempt === 1 ? "retry" : "retries"}: ${errorMessage}`;
 				await this.#closeRetrySaga(
-					{ success: false, attempt, finalError: errorMessage },
+					{ success: false, attempt, finalError: errorMessage, kind: retryFailureKind(id), retryAtMs },
 					{ terminalTurn: message, retryErrors: { status: "superseded" } },
 				);
 				return false;
@@ -2864,7 +2877,12 @@ export class TurnRecovery {
 			// an announcement that never resolves.
 			if (this.#retryAttempt > 1) {
 				await this.#closeRetrySaga(
-					{ success: false, attempt: this.#retryAttempt - 1, finalError: errorMessage },
+					{
+						success: false,
+						attempt: this.#retryAttempt - 1,
+						finalError: errorMessage,
+						kind: retryFailureKind(id),
+					},
 					{ terminalTurn: message },
 				);
 			}
@@ -2885,7 +2903,12 @@ export class TurnRecovery {
 			// Same auto_retry_end backstop as the classifier-refusal branch above.
 			if (this.#retryAttempt > 1) {
 				await this.#closeRetrySaga(
-					{ success: false, attempt: this.#retryAttempt - 1, finalError: errorMessage },
+					{
+						success: false,
+						attempt: this.#retryAttempt - 1,
+						finalError: errorMessage,
+						kind: retryFailureKind(id),
+					},
 					{ terminalTurn: message },
 				);
 			}
@@ -2916,7 +2939,7 @@ export class TurnRecovery {
 		const waitForUsageReset =
 			retrySettings.waitForUsageReset === true &&
 			recordedUsageLimitOutcome !== undefined &&
-			(parsedRetryAfterMs !== undefined || recordedUsageLimitOutcome.reportResetAtMs !== undefined) &&
+			providerTimedWait &&
 			effectiveUsageLimitWaitMs !== undefined &&
 			delayMs <= effectiveUsageLimitWaitMs;
 		if (maxDelayMs > 0 && delayMs > maxDelayMs && !switchedCredential && !switchedModel && !waitForUsageReset) {
@@ -2927,6 +2950,8 @@ export class TurnRecovery {
 					success: false,
 					attempt,
 					finalError: `Provider requested ${Math.ceil(delayMs)}ms wait, exceeds retry.maxDelayMs (${maxDelayMs}ms). Original error: ${errorMessage}`,
+					kind: retryFailureKind(id),
+					retryAtMs,
 				},
 				{ terminalTurn: message },
 			);

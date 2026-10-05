@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- A subagent that stops on a usage limit now tells the parent the limit and when it resets: the task result shows `<retry-failure kind="usage-limit" retry-at="…"/>`, and `auto_retry_end` carries `kind` and `retryAtMs` for extensions and RPC clients
+
 ### Fixed
 
 - Fixed `read` middle-eliding large file pages into an artifact; a page past the output spill threshold now stops at a line boundary with an exact `:N` continuation ([#16277](https://github.com/can1357/oh-my-pi/issues/16277))

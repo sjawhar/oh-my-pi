@@ -2408,6 +2408,10 @@ export interface AgentProgress {
 	retryFailure?: {
 		attempt: number;
 		errorMessage: string;
+		/** `AIError.stringify` label of the final error, e.g. `usage-limit`. */
+		kind?: string;
+		/** Epoch ms when the subagent's provider accepts requests again; set only when the provider reported that time. */
+		retryAtMs?: number;
 	};
 	/**
 	 * Snapshot of the most recent `task` tool call's in-flight `TaskToolDetails`,
@@ -2510,6 +2514,10 @@ export interface SingleResult {
 	retryFailure?: {
 		attempt: number;
 		errorMessage: string;
+		/** `AIError.stringify` label of the final error, e.g. `usage-limit`. */
+		kind?: string;
+		/** Epoch ms when the subagent's provider accepts requests again; set only when the provider reported that time. */
+		retryAtMs?: number;
 	};
 	/** Output metadata for agent:// URL integration */
 	outputMeta?: { lineCount: number; charCount: number };
