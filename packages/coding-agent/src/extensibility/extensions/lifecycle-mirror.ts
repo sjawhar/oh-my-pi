@@ -208,7 +208,7 @@ export function extensionEventFromSessionEvent(
 				attempt: event.attempt,
 				finalError: event.finalError,
 				kind: event.kind,
-				retryAtMs: event.retryAtMs,
+				resetAtMs: event.resetAtMs,
 				retryErrors: event.retryErrors,
 			};
 		case "retry_fallback_applied":

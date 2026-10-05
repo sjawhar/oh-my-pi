@@ -1429,7 +1429,7 @@ function createCustomToolsExtension(tools: CustomTool[], sourcePaths?: ReadonlyM
 					attempt: event.attempt,
 					finalError: event.finalError,
 					kind: event.kind,
-					retryAtMs: event.retryAtMs,
+					resetAtMs: event.resetAtMs,
 					retryErrors: event.retryErrors,
 				},
 				ctx,
