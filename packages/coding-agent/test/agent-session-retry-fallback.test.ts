@@ -16,7 +16,7 @@ import {
 	type ToolCall,
 } from "@oh-my-pi/pi-ai";
 import * as AIError from "@oh-my-pi/pi-ai/error";
-import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
+import { createMockModel, type MockResponse } from "@oh-my-pi/pi-ai/providers/mock";
 import { buildParams } from "@oh-my-pi/pi-ai/providers/openai-responses";
 import { AssistantMessageEventStream } from "@oh-my-pi/pi-ai/utils/event-stream";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
@@ -2725,65 +2725,95 @@ describe("AgentSession retry fallback", () => {
 		},
 	);
 
-	// A retry turn the user aborts leaves the saga's attempt counter running, so
-	// the next prompt's first failure would otherwise count as a repeat of the
-	// aborted saga's account and skip a genuine switch.
-	it("trusts a credential switch in the next prompt after the user aborts the retried request", async () => {
-		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
-		const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
-		if (!primaryModel || !fallbackModel) {
-			throw new Error("Expected bundled test models to exist");
-		}
-		const primary = `${primaryModel.provider}/${primaryModel.id}`;
-		const requestedModels: string[] = [];
-		const retryStreamStarted = Promise.withResolvers<void>();
-		let primaryRequests = 0;
-		const mock = createMockModel();
-		const agent = new Agent({
-			getApiKey: model => `${model.provider}-test-key`,
-			initialState: { model: primaryModel, systemPrompt: ["Test"], tools: [], messages: [] },
-			streamFn: (model, context, options) => {
-				requestedModels.push(`${model.provider}/${model.id}`);
-				primaryRequests += model.id === primaryModel.id ? 1 : 0;
-				if (model.id !== primaryModel.id || primaryRequests === 4) {
-					mock.push({ content: [`ok:${model.provider}/${model.id}`] });
-					return mock.stream(model, context, options);
-				}
-				if (primaryRequests === 2) {
-					// The retried request streams until the abort lands.
-					mock.push({ content: ["never finishes"], delayMs: 60_000 });
-					retryStreamStarted.resolve();
-					return mock.stream(model, context, options);
-				}
-				mock.push({ throw: "429 usage_limit_reached" });
-				return servedByCredential(mock.stream(model, context, options), 1);
-			},
-		});
-		vi.spyOn(modelRegistry.authStorage.limits, "markReached").mockResolvedValue({ switched: true });
-		session = new AgentSession({
-			agent,
-			sessionManager: SessionManager.inMemory(),
-			settings: Settings.isolated({
-				"compaction.enabled": false,
-				"retry.baseDelayMs": 5,
-				"retry.fallbackChains": { [primary]: [`${fallbackModel.provider}/${fallbackModel.id}`] },
-			}),
-			modelRegistry,
-		});
+	// A retry turn that ends aborted leaves the saga's attempt counter running,
+	// so the next turn's first failure would otherwise count as a repeat of the
+	// aborted saga's account and skip a genuine switch. After a user abort
+	// followed by an agent-initiated turn only the `abortRetry()` clear runs;
+	// after an aborted settle the user never cancelled, only the
+	// `resetForNewPrompt()` clear runs.
+	it.each([
+		{
+			ending: "the user aborts the retried request, then prompts again",
+			retriedResponse: { content: ["never finishes"], delayMs: 60_000 } satisfies MockResponse,
+			userAborts: true,
+			nextTurn: (next: AgentSession): Promise<unknown> => next.prompt("Hit the limit again"),
+		},
+		{
+			ending: "the user aborts the retried request, then an agent-initiated turn runs",
+			retriedResponse: { content: ["never finishes"], delayMs: 60_000 } satisfies MockResponse,
+			userAborts: true,
+			nextTurn: (next: AgentSession): Promise<unknown> =>
+				next.sendCustomMessage(
+					{ customType: "background-result", content: "background result", display: false },
+					{ triggerTurn: true },
+				),
+		},
+		{
+			ending: "the retried request settles aborted with partial content, then the user prompts again",
+			retriedResponse: { content: ["partial"], stopReason: "aborted" } satisfies MockResponse,
+			userAborts: false,
+			nextTurn: (next: AgentSession): Promise<unknown> => next.prompt("Hit the limit again"),
+		},
+	])(
+		"trusts a credential switch in the next turn after $ending",
+		async ({ retriedResponse, userAborts, nextTurn }) => {
+			const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+			const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
+			if (!primaryModel || !fallbackModel) {
+				throw new Error("Expected bundled test models to exist");
+			}
+			const primary = `${primaryModel.provider}/${primaryModel.id}`;
+			const requestedModels: string[] = [];
+			const retryStreamStarted = Promise.withResolvers<void>();
+			let primaryRequests = 0;
+			const mock = createMockModel();
+			const agent = new Agent({
+				getApiKey: model => `${model.provider}-test-key`,
+				initialState: { model: primaryModel, systemPrompt: ["Test"], tools: [], messages: [] },
+				streamFn: (model, context, options) => {
+					requestedModels.push(`${model.provider}/${model.id}`);
+					primaryRequests += model.id === primaryModel.id ? 1 : 0;
+					if (model.id !== primaryModel.id || primaryRequests === 4) {
+						mock.push({ content: [`ok:${model.provider}/${model.id}`] });
+						return mock.stream(model, context, options);
+					}
+					if (primaryRequests === 2) {
+						mock.push(retriedResponse);
+						retryStreamStarted.resolve();
+						return mock.stream(model, context, options);
+					}
+					mock.push({ throw: "429 usage_limit_reached" });
+					return servedByCredential(mock.stream(model, context, options), 1);
+				},
+			});
+			vi.spyOn(modelRegistry.authStorage.limits, "markReached").mockResolvedValue({ switched: true });
+			session = new AgentSession({
+				agent,
+				sessionManager: SessionManager.inMemory(),
+				settings: Settings.isolated({
+					"compaction.enabled": false,
+					"retry.baseDelayMs": 5,
+					"retry.fallbackChains": { [primary]: [`${fallbackModel.provider}/${fallbackModel.id}`] },
+				}),
+				modelRegistry,
+			});
 
-		const firstPrompt = session.prompt("Hit the limit, then abort the retry");
-		await retryStreamStarted.promise;
-		await session.abort();
-		await firstPrompt;
-		await session.waitForIdle();
-		await session.prompt("Hit the limit again");
-		await session.waitForIdle();
+			const firstPrompt = session.prompt("Hit the limit, then end the retry aborted");
+			if (userAborts) {
+				await retryStreamStarted.promise;
+				await session.abort();
+			}
+			await firstPrompt;
+			await session.waitForIdle();
+			await nextTurn(session);
+			await session.waitForIdle();
 
-		// The second prompt's failure on row 1 starts a new saga: its claimed
-		// switch is trusted and the retry stays on the primary.
-		expect(requestedModels).toEqual([primary, primary, primary, primary]);
-		expect(session.model?.id).toBe(primaryModel.id);
-	});
+			// The next turn's failure on row 1 starts a new saga: its claimed switch
+			// is trusted and the retry stays on the primary.
+			expect(requestedModels).toEqual([primary, primary, primary, primary]);
+			expect(session.model?.id).toBe(primaryModel.id);
+		},
+	);
 
 	it("trusts a credential switch on a same-provider fallback the usage preflight applies mid-saga", async () => {
 		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
