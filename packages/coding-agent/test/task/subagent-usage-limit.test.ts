@@ -21,6 +21,7 @@ import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry
 import { AuthStorage, SqliteAuthCredentialStore } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { runSubprocess } from "@oh-my-pi/pi-coding-agent/task/executor";
 import { formatTaskResultSummary } from "@oh-my-pi/pi-coding-agent/task/result-summary";
+import type { SingleResult } from "@oh-my-pi/pi-tui/tools/task";
 import { __resetDirsFromEnvForTests, removeWithRetries, setAgentDir } from "@oh-my-pi/pi-utils";
 
 const MOCK_API_SOURCE = "test/subagent-usage-limit";
@@ -38,8 +39,8 @@ function restoreEnvValue(key: string, value: string | undefined): void {
 	Bun.env[key] = value;
 }
 
-/** One OpenCode Go key whose usage report says the weekly window is spent until `weeklyResetAtMs`. */
-async function storageWithExhaustedWeeklyWindow(weeklyResetAtMs: number): Promise<AuthStorage> {
+/** OpenCode Go keys sharing one usage report; `weeklyResetAtMs` marks the weekly window spent until then. */
+async function storageWithUsage(keys: string[], weeklyResetAtMs?: number): Promise<AuthStorage> {
 	const storage = new AuthStorage(new SqliteAuthCredentialStore(new Database(":memory:")), {
 		usageProviderResolver: provider => (provider === "opencode-go" ? opencodeGoUsageProvider : undefined),
 		usageFetch: (async () =>
@@ -51,7 +52,14 @@ async function storageWithExhaustedWeeklyWindow(weeklyResetAtMs: number): Promis
 							percent: 12,
 							resetsAt: new Date(Date.now() + 300_000).toISOString(),
 						},
-						weekly: { status: "rate-limited", percent: 100, resetsAt: new Date(weeklyResetAtMs).toISOString() },
+						weekly:
+							weeklyResetAtMs === undefined
+								? {
+										status: "ok",
+										percent: 20,
+										resetsAt: new Date(Date.now() + 5 * 24 * 3_600_000).toISOString(),
+									}
+								: { status: "rate-limited", percent: 100, resetsAt: new Date(weeklyResetAtMs).toISOString() },
 						monthly: {
 							status: "ok",
 							percent: 8,
@@ -63,8 +71,50 @@ async function storageWithExhaustedWeeklyWindow(weeklyResetAtMs: number): Promis
 			)) as unknown as typeof fetch,
 	});
 	await storage.credentials.reload();
-	await storage.credentials.set("opencode-go", { type: "api_key", key: "opencode-go-usage-key" });
+	await storage.credentials.set(
+		"opencode-go",
+		keys.map(key => ({ type: "api_key" as const, key })),
+	);
 	return storage;
+}
+
+/** Runs one subagent whose every request fails with `errorText`. */
+async function runSubagentFailingWith(authStorage: AuthStorage, errorText: string): Promise<SingleResult> {
+	const cwd = path.join(root, "work");
+	const artifactsDir = path.join(root, "artifacts");
+	await fs.mkdir(cwd, { recursive: true });
+	await fs.mkdir(artifactsDir, { recursive: true });
+	const modelRegistry = new ModelRegistry(authStorage, path.join(root, "models.yml"));
+	const mock = createMockModel({
+		provider: "opencode-go",
+		id: "usage-limit-probe",
+		handler: () => ({ throw: errorText }),
+	});
+	const catalogAvailable = modelRegistry.getAvailable.bind(modelRegistry);
+	vi.spyOn(modelRegistry, "getAvailable").mockImplementation(kind => [mock, ...catalogAvailable(kind)]);
+	return runSubprocess({
+		cwd,
+		artifactsDir,
+		agent: { name: "task", description: "test", systemPrompt: "test", tools: ["read"], source: "bundled" },
+		task: "report done",
+		index: 0,
+		id: "QuotaSpent",
+		modelOverride: "opencode-go/usage-limit-probe",
+		authStorage,
+		modelRegistry,
+		settings: Settings.isolated({
+			"async.enabled": false,
+			"compaction.enabled": false,
+			"retry.modelFallback": false,
+			"todo.enabled": false,
+			"todo.reminders": false,
+			"advisor.enabled": false,
+			modelRoles: { default: "opencode-go/usage-limit-probe" },
+		}),
+		enableLsp: false,
+		enableMCP: false,
+		enableIrc: false,
+	});
 }
 
 beforeEach(async () => {
@@ -95,59 +145,44 @@ afterEach(async () => {
 
 it("tells the parent a subagent stopped on a usage limit and when that limit resets", async () => {
 	const weeklyResetAtMs = Date.now() + 7_200_000;
-	const authStorage = await storageWithExhaustedWeeklyWindow(weeklyResetAtMs);
+	const authStorage = await storageWithUsage(["opencode-go-usage-key"], weeklyResetAtMs);
 	try {
-		const cwd = path.join(root, "work");
-		const artifactsDir = path.join(root, "artifacts");
-		await fs.mkdir(cwd, { recursive: true });
-		await fs.mkdir(artifactsDir, { recursive: true });
-		const modelRegistry = new ModelRegistry(authStorage, path.join(root, "models.yml"));
 		// Codex's limit wording names no reset: the reset time lives only in the usage report.
-		const mock = createMockModel({
-			provider: "opencode-go",
-			id: "usage-limit-probe",
-			handler: () => ({
-				throw: "Codex error event: The usage limit has been reached (code=usage_limit_reached)",
-			}),
-		});
-		const catalogAvailable = modelRegistry.getAvailable.bind(modelRegistry);
-		vi.spyOn(modelRegistry, "getAvailable").mockImplementation(kind => [mock, ...catalogAvailable(kind)]);
-
-		const result = await runSubprocess({
-			cwd,
-			artifactsDir,
-			agent: { name: "task", description: "test", systemPrompt: "test", tools: ["read"], source: "bundled" },
-			task: "report done",
-			index: 0,
-			id: "QuotaSpent",
-			modelOverride: "opencode-go/usage-limit-probe",
+		const result = await runSubagentFailingWith(
 			authStorage,
-			modelRegistry,
-			settings: Settings.isolated({
-				"async.enabled": false,
-				"compaction.enabled": false,
-				"retry.modelFallback": false,
-				"todo.enabled": false,
-				"todo.reminders": false,
-				"advisor.enabled": false,
-				modelRoles: { default: "opencode-go/usage-limit-probe" },
-			}),
-			enableLsp: false,
-			enableMCP: false,
-			enableIrc: false,
-		});
+			"Codex error event: The usage limit has been reached (code=usage_limit_reached)",
+		);
 
 		expect(result.exitCode).toBe(1);
 		expect(result.retryFailure?.kind).toBe("usage-limit");
-		const retryAtMs = result.retryFailure?.retryAtMs ?? Number.NaN;
-		// The recorded reset, give or take the milliseconds recovery spent deciding.
-		expect(retryAtMs - weeklyResetAtMs).toBeGreaterThanOrEqual(0);
-		expect(retryAtMs - weeklyResetAtMs).toBeLessThan(1_000);
+		expect(result.retryFailure?.retryAtMs).toBe(weeklyResetAtMs);
 
 		const summary = formatTaskResultSummary(result, { totalDurationMs: result.durationMs });
 		const shown = /<retry-failure kind="([^"]+)" retry-at="([^"]+)" \/>/.exec(summary);
 		expect(shown?.[1]).toBe("usage-limit");
-		expect(Date.parse(shown?.[2] ?? "")).toBe(retryAtMs);
+		expect(Date.parse(shown?.[2] ?? "")).toBe(weeklyResetAtMs);
+	} finally {
+		authStorage.close();
+	}
+}, 30_000);
+
+it("reports the provider's stated reset, not a sibling account's guessed block", async () => {
+	// Another session's hintless limit left a 30-minute heuristic block on the
+	// first key, so recovery would retry when that sibling frees up. That guess
+	// is not when the provider accepts the subagent's account again.
+	const authStorage = await storageWithUsage(["opencode-go-key-1", "opencode-go-key-2"]);
+	try {
+		await authStorage.keys.get("opencode-go", "other-session");
+		await authStorage.limits.markReached("opencode-go", "other-session", { retryAfterMs: 1_800_000 });
+
+		const startedAtMs = Date.now();
+		const result = await runSubagentFailingWith(authStorage, "Weekly usage limit reached. retry-after-ms=7200000");
+		const settledAtMs = Date.now();
+
+		expect(result.exitCode).toBe(1);
+		const retryAtMs = result.retryFailure?.retryAtMs ?? Number.NaN;
+		expect(retryAtMs).toBeGreaterThanOrEqual(startedAtMs + 7_200_000);
+		expect(retryAtMs).toBeLessThanOrEqual(settledAtMs + 7_200_000);
 	} finally {
 		authStorage.close();
 	}
