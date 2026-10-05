@@ -1463,6 +1463,8 @@ function createCustomToolsExtension(tools: CustomTool[], sourcePaths?: ReadonlyM
 					success: event.success,
 					attempt: event.attempt,
 					finalError: event.finalError,
+					kind: event.kind,
+					retryAtMs: event.retryAtMs,
 					retryErrors: event.retryErrors,
 				},
 				ctx,

@@ -880,6 +880,10 @@ export interface AutoRetryEndEvent {
 	success: boolean;
 	attempt: number;
 	finalError?: string;
+	/** Error kind of the failure that ended the retry, e.g. `usage-limit` (`|`-joined when several apply). */
+	kind?: string;
+	/** Epoch ms when the provider accepts requests again; set only when the provider reported that time. */
+	retryAtMs?: number;
 	/** Persisted retry errors whose presentation changed when the retry settled. */
 	retryErrors?: Record<string, unknown>[];
 }

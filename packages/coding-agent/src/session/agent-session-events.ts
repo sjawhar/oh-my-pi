@@ -57,6 +57,10 @@ export type AgentSessionEvent =
 			success: boolean;
 			attempt: number;
 			finalError?: string;
+			/** `AIError.stringify` label of the error that ended a failed retry, e.g. `usage-limit`. */
+			kind?: string;
+			/** Epoch ms when the provider accepts requests again; set only when the provider reported that time. */
+			retryAtMs?: number;
 			retryErrors?: RetryErrorUpdate[];
 	  }
 	| ({ type: "cache_warming_start" } & CacheWarmingRefreshStart)
