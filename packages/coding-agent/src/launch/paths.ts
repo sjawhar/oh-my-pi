@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { ipcEndpoint } from "@oh-my-pi/pi-natives";
+import { IpcConnection, ipcEndpoint } from "@oh-my-pi/pi-natives";
 import { getDaemonRuntimeDir, hasFsCode, isEacces, isEisdir, isEnoent } from "@oh-my-pi/pi-utils";
 
 /** Resolve the private runtime directory shared by omp processes in one project directory. */
@@ -21,6 +21,8 @@ export const DAEMON_META_FILE = "meta.json";
  * still accept that layout and broker recovery migrates it.
  */
 export const DAEMON_SPEC_FILE = "spec.json";
+/** Connect budget for the endpoint probe that answers "is a broker serving this scope?". */
+const ENDPOINT_PROBE_TIMEOUT_MS = 250;
 
 /**
  * Canonicalize a project directory the same way every broker client does, so
@@ -85,4 +87,22 @@ export async function readStoredDaemonRecord(dir: string): Promise<StoredDaemonR
 /** Resolve the Unix socket or Windows named pipe used by one daemon broker scope. */
 export function daemonBrokerEndpoint(runtimeDir: string): string {
 	return ipcEndpoint(runtimeDir, "broker");
+}
+
+/**
+ * Whether a broker is accepting connections on the scope endpoint right now.
+ * Unlike a recorded pid, this answers the same in every PID namespace that
+ * shares the runtime directory.
+ */
+export async function probeBrokerEndpoint(endpoint: string): Promise<boolean> {
+	try {
+		const connection = await IpcConnection.connect(endpoint, {
+			framing: "lines",
+			timeoutMs: ENDPOINT_PROBE_TIMEOUT_MS,
+		});
+		connection.destroy();
+		return true;
+	} catch {
+		return false;
+	}
 }
