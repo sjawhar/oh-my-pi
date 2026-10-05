@@ -105,14 +105,20 @@ export function filterProviderReplayMessages<T extends AgentMessage>(
 	let hasRefusal = false;
 	const refusedCallIds = new Set<string>();
 	const failedCallIds = new Set<string>();
+	// Calls an accepted reply made: only their results can be withheld, since a
+	// withheld result still needs its call on the wire. Any other result in a
+	// superseded step drops, including one whose call is not in history (an
+	// unpersisted refusal's placeholder on reload).
+	const acceptedCallIds = new Set<string>();
 	for (const message of history) {
 		if (isRefusedTurnMarker(message)) hasRefusal = true;
-		if (message.role !== "assistant" || isAcceptedReply(message)) continue;
-		const refusal = isProviderRefusalMessage(message);
+		if (message.role !== "assistant") continue;
+		const accepted = isAcceptedReply(message);
+		const refusal = !accepted && isProviderRefusalMessage(message);
 		if (refusal) hasRefusal = true;
 		for (const block of message.content) {
 			if (block.type !== "toolCall") continue;
-			failedCallIds.add(block.id);
+			(accepted ? acceptedCallIds : failedCallIds).add(block.id);
 			if (refusal) refusedCallIds.add(block.id);
 		}
 	}
@@ -154,7 +160,7 @@ export function filterProviderReplayMessages<T extends AgentMessage>(
 				continue;
 			}
 			fates[inputIndex] =
-				input.role === "toolResult" && !failedCallIds.has(input.toolCallId)
+				input.role === "toolResult" && acceptedCallIds.has(input.toolCallId)
 					? (withholdToolResult(input) as T)
 					: "drop";
 		}
