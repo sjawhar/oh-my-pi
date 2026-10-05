@@ -2430,6 +2430,7 @@ export class TurnRecovery {
 		const accountPolicyDenial = AIError.is(id, AIError.Flag.AccountPolicy);
 		const recordedUsageLimitOutcome = await this.#usageLimitOutcomes.get(message);
 		const parsedRetryAfterMs = this.#parseRetryAfterMsFromError(errorMessage);
+		const parsedRetryAtMs = parsedRetryAfterMs === undefined ? undefined : Date.now() + parsedRetryAfterMs;
 		let delayMs = staleOpenAIResponsesReplayError
 			? 0
 			: calculateRetryBackoffDelayMs(retrySettings.baseDelayMs, this.#retryAttempt);
@@ -2670,12 +2671,15 @@ export class TurnRecovery {
 			}
 		}
 
-		// Authoritative provider timing: a parsed reset hint from the error text,
-		// or a complete usage-report window. Without either, a usage-limit wait is
-		// the 30-minute heuristic guess and names no reset time.
-		const providerTimedWait =
-			parsedRetryAfterMs !== undefined || recordedUsageLimitOutcome?.reportResetAtMs !== undefined;
-		const retryAtMs = providerTimedWait ? Math.ceil(Date.now() + delayMs) : undefined;
+		// The reset a failed retry reports: the latest deadline the provider
+		// stated, never `delayMs`, which also folds in a sibling's block, merged
+		// heuristic blocks and our own backoff.
+		const providerDeadlines = [
+			parsedRetryAtMs,
+			recordedUsageLimitOutcome?.reportResetAtMs,
+			recordedUsageLimitOutcome?.priorBlockedUntilTimed ? recordedUsageLimitOutcome.priorBlockedUntilMs : undefined,
+		].filter((deadlineMs): deadlineMs is number => deadlineMs !== undefined);
+		const retryAtMs = providerDeadlines.length > 0 ? Math.ceil(Math.max(...providerDeadlines)) : undefined;
 
 		if (retryBudgetExhausted) {
 			if (!switchedModel && !switchedCredential) {
@@ -2774,7 +2778,7 @@ export class TurnRecovery {
 		const waitForUsageReset =
 			retrySettings.waitForUsageReset === true &&
 			recordedUsageLimitOutcome !== undefined &&
-			providerTimedWait &&
+			(parsedRetryAfterMs !== undefined || recordedUsageLimitOutcome.reportResetAtMs !== undefined) &&
 			effectiveUsageLimitWaitMs !== undefined &&
 			delayMs <= effectiveUsageLimitWaitMs;
 		if (maxDelayMs > 0 && delayMs > maxDelayMs && !switchedCredential && !switchedModel && !waitForUsageReset) {

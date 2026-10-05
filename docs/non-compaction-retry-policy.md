@@ -251,7 +251,7 @@ Final failure surfacing:
 
 - On max-exceeded, max-delay failure, or cancellation, `auto_retry_end.success === false`
 - A failure that ended on a classified provider error carries `kind`, its `AIError.stringify` label (e.g. `usage-limit`, or `|`-joined labels such as `transient|usage-limit`); cancellation, the empty-stop cap and local continuation failures carry none
-- The max-exceeded and max-delay failures also carry `retryAtMs`, the epoch ms at which recovery would have retried, when the wait is provider-timed (a parsed reset hint or a complete usage-report window); the 30-minute heuristic guess yields none
+- The max-exceeded and max-delay failures also carry `retryAtMs`, the latest reset the provider stated: a parsed reset hint from the error text, a complete usage-report window, or an earlier provider-timed block on the same credential. It is never the wait recovery computed, so a sibling account's block, a merged heuristic block and the retry backoff do not set it; with no provider-stated reset it is absent
 - A subagent copies `kind` and `retryAtMs` into its task result's `retryFailure`, and the parent's `<task-result>` shows them as `<retry-failure kind="…" retry-at="…"/>`
 - TUI shows: `Retry failed after N attempts: <finalError>`
 - Extensions/hooks receive `auto_retry_end` with same fields
