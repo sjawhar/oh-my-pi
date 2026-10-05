@@ -971,6 +971,10 @@ class AutoRetryEndEvent:
     success: bool
     attempt: int
     final_error: str | None = None
+    kind: str | None = None
+    """Error kind of the failure that ended the retry, e.g. `usage-limit` (`|`-joined when several apply)."""
+    retry_at_ms: int | None = None
+    """Epoch ms when the provider accepts requests again; set only when the provider reported that time."""
     retry_errors: tuple[JsonObject, ...] = ()
     """Persisted retry errors whose presentation changed when the retry settled."""
 
@@ -2198,6 +2202,8 @@ def parse_auto_retry_end_event(value: object, path: str = "AutoRetryEndEvent") -
         success=required(payload, "success", decode_bool, path),
         attempt=required(payload, "attempt", decode_int, path),
         final_error=optional(payload, "finalError", decode_str, path),
+        kind=optional(payload, "kind", decode_str, path),
+        retry_at_ms=optional(payload, "retryAtMs", decode_int, path),
         retry_errors=defaulted(payload, "retryErrors", array(decode_json_object), path, ()),
     )
 

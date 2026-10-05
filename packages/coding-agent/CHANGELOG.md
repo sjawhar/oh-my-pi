@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- A subagent that stops on a usage limit now tells the parent the limit and when it resets: the task result shows `<retry-failure kind="usage-limit" retry-at="…"/>`, and `auto_retry_end` carries `kind` and `retryAtMs` for extensions and RPC clients
+
 ## [18.6.0] - 2026-10-03
 
 ### Added
