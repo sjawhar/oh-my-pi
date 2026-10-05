@@ -89,20 +89,25 @@ export function daemonBrokerEndpoint(runtimeDir: string): string {
 	return ipcEndpoint(runtimeDir, "broker");
 }
 
+/** What a connect to a scope endpoint says about its broker. */
+export type BrokerEndpointState = "live" | "dead" | "unknown";
+
 /**
  * Whether a broker is accepting connections on the scope endpoint right now.
- * Unlike a recorded pid, this answers the same in every PID namespace that
- * shares the runtime directory.
+ * `dead` only when nothing listens there (ENOENT, ECONNREFUSED); any other
+ * error or the timeout is `unknown`, since a busy or unreachable listener may
+ * still be alive. Unlike a recorded pid, this answers the same in every PID
+ * namespace that shares the runtime directory.
  */
-export async function probeBrokerEndpoint(endpoint: string): Promise<boolean> {
+export async function probeBrokerEndpoint(endpoint: string): Promise<BrokerEndpointState> {
 	try {
 		const connection = await IpcConnection.connect(endpoint, {
 			framing: "lines",
 			timeoutMs: ENDPOINT_PROBE_TIMEOUT_MS,
 		});
 		connection.destroy();
-		return true;
-	} catch {
-		return false;
+		return "live";
+	} catch (error) {
+		return hasFsCode(error, "ENOENT") || hasFsCode(error, "ECONNREFUSED") ? "dead" : "unknown";
 	}
 }
