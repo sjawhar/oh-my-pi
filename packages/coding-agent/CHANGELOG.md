@@ -83,6 +83,7 @@
 - Fixed `grep` showing only the first 512 bytes of a long matching line, so a match further in never appeared; it now shows the part around the match, with `...` on cut sides and the match's `[col N]` ([#15278](https://github.com/can1357/oh-my-pi/pull/15278) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed snapcompact archives being sized from the context window, which could leave the context over a low compaction trigger right after compacting; archives now take half the room left under the trigger ([#14345](https://github.com/can1357/oh-my-pi/pull/14345) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed a usage-limited session with an account pool (such as a task agent under `task.agentAccountPools`) spending a saved reset to restore an account outside its pool, which it cannot use; resets about to expire are still salvaged on every account ([#15135](https://github.com/can1357/oh-my-pi/pull/15135) by [@will-bogusz](https://github.com/will-bogusz))
+- Fixed a usage limit retrying the same exhausted account until the retry budget ran out when the other stored account can't serve the model; recovery now moves to the fallback chain after one try per account
 
 ## [18.8.9] - 2026-10-10
 
