@@ -316,6 +316,13 @@ export class TurnRecovery {
 	#usageReserveApprovedSelector: string | undefined;
 	#pendingRetryErrors: PendingRetryError[] = [];
 	#usageLimitOutcomes = new WeakMap<AssistantMessage, Promise<UsageLimitOutcome>>();
+	/**
+	 * Credential rows that failed with a usage limit in the current retry saga.
+	 * A claimed credential switch is trusted only when the failure came from a
+	 * row not in this set. Cleared when a saga starts and when recovery switches
+	 * the model.
+	 */
+	#usageLimitFailedCredentialIds = new Set<number>();
 	#emptyStopRetryCount = 0;
 	#unexpectedStopRetryCount = 0;
 	#malformedFunctionCallRetryCount = 0;
@@ -2396,6 +2403,7 @@ export class TurnRecovery {
 
 		const generation = this.#host.promptGeneration();
 		this.#retryAttempt++;
+		if (this.#retryAttempt === 1) this.#usageLimitFailedCredentialIds.clear();
 
 		// Create retry promise on first attempt so waitForRetry() can await it
 		// Ensure only one promise exists (avoid orphaned promises from concurrent calls)
@@ -2463,7 +2471,16 @@ export class TurnRecovery {
 		// hits its quota. Past the budget only a confirmed reset may continue: a
 		// rotation that keeps claiming a usable sibling would otherwise retry forever.
 		if (!staleOpenAIResponsesReplayError && recordedUsageLimitOutcome) {
-			const rotated = recordedUsageLimitOutcome.switchedCredential && !retryBudgetExhausted;
+			// A claimed switch reached a new account only if this failure came from a
+			// row that has not failed yet in this saga. Selection can refuse a sibling
+			// the rotation check calls free (a per-account model list, a plan gate)
+			// and serve the failed row again; trusting that claim would retry the
+			// same row with no delay until the budget runs out.
+			const failedCredentialId = message.credentialId;
+			const repeatedCredential =
+				failedCredentialId !== undefined && this.#usageLimitFailedCredentialIds.has(failedCredentialId);
+			if (failedCredentialId !== undefined) this.#usageLimitFailedCredentialIds.add(failedCredentialId);
+			const rotated = recordedUsageLimitOutcome.switchedCredential && !retryBudgetExhausted && !repeatedCredential;
 			let restored = false;
 			if (!rotated) {
 				const resetAbortController = new AbortController();
@@ -2654,6 +2671,7 @@ export class TurnRecovery {
 				switchedModel = await this.#tryFireworksFastFallback(currentSelector);
 			}
 			if (switchedModel) {
+				this.#usageLimitFailedCredentialIds.clear();
 				delayMs = 0;
 			} else if (usageLimitWaitMs === undefined && parsedRetryAfterMs && parsedRetryAfterMs > delayMs) {
 				delayMs = parsedRetryAfterMs;
