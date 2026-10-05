@@ -23,21 +23,12 @@ import { runSubprocess } from "@oh-my-pi/pi-coding-agent/task/executor";
 import { formatTaskResultSummary } from "@oh-my-pi/pi-coding-agent/task/result-summary";
 import type { SingleResult } from "@oh-my-pi/pi-tui/tools/task";
 import { __resetDirsFromEnvForTests, removeWithRetries, setAgentDir } from "@oh-my-pi/pi-utils";
+import { restoreEnvValue } from "../helpers/settings-test-state";
 
 const MOCK_API_SOURCE = "test/subagent-usage-limit";
 const ENV_KEYS = ["HOME", "PI_CODING_AGENT_DIR", "OMP_PROFILE", "PI_PROFILE"] as const;
 let savedEnv: Record<string, string | undefined> = {};
 let root: string;
-
-function restoreEnvValue(key: string, value: string | undefined): void {
-	if (value === undefined) {
-		delete process.env[key];
-		delete Bun.env[key];
-		return;
-	}
-	process.env[key] = value;
-	Bun.env[key] = value;
-}
 
 /** OpenCode Go keys sharing one usage report; `weeklyResetAtMs` marks the weekly window spent until then. */
 async function storageWithUsage(keys: string[], weeklyResetAtMs?: number): Promise<AuthStorage> {
@@ -155,12 +146,11 @@ it("tells the parent a subagent stopped on a usage limit and when that limit res
 
 		expect(result.exitCode).toBe(1);
 		expect(result.retryFailure?.kind).toBe("usage-limit");
-		expect(result.retryFailure?.retryAtMs).toBe(weeklyResetAtMs);
+		expect(result.retryFailure?.resetAtMs).toBe(weeklyResetAtMs);
 
 		const summary = formatTaskResultSummary(result, { totalDurationMs: result.durationMs });
-		const shown = /<retry-failure kind="([^"]+)" retry-at="([^"]+)" \/>/.exec(summary);
-		expect(shown?.[1]).toBe("usage-limit");
-		expect(Date.parse(shown?.[2] ?? "")).toBe(weeklyResetAtMs);
+		expect(summary).toContain('kind="usage-limit"');
+		expect(summary).toContain(`reset-at="${new Date(weeklyResetAtMs).toISOString()}"`);
 	} finally {
 		authStorage.close();
 	}
@@ -180,9 +170,30 @@ it("reports the provider's stated reset, not a sibling account's guessed block",
 		const settledAtMs = Date.now();
 
 		expect(result.exitCode).toBe(1);
-		const retryAtMs = result.retryFailure?.retryAtMs ?? Number.NaN;
-		expect(retryAtMs).toBeGreaterThanOrEqual(startedAtMs + 7_200_000);
-		expect(retryAtMs).toBeLessThanOrEqual(settledAtMs + 7_200_000);
+		const resetAtMs = result.retryFailure?.resetAtMs ?? Number.NaN;
+		expect(resetAtMs).toBeGreaterThanOrEqual(startedAtMs + 7_200_000);
+		expect(resetAtMs).toBeLessThanOrEqual(settledAtMs + 7_200_000);
+	} finally {
+		authStorage.close();
+	}
+}, 30_000);
+
+it("still delivers the parent's task result when the provider states an impossible reset", async () => {
+	// A hint past the `Date` range used to crash the envelope and overflow the SDKs' int64 field.
+	const authStorage = await storageWithUsage(["opencode-go-usage-key"]);
+	try {
+		const result = await runSubagentFailingWith(
+			authStorage,
+			"Weekly usage limit reached. retry-after-ms=99999999999999999999",
+		);
+
+		expect(result.exitCode).toBe(1);
+		expect(result.retryFailure?.kind).toBe("usage-limit");
+		expect(result.retryFailure?.resetAtMs).toBeUndefined();
+		const summary = formatTaskResultSummary(result, { totalDurationMs: result.durationMs });
+		expect(summary).toContain('status="failed (exit 1)"');
+		expect(summary).toContain('kind="usage-limit"');
+		expect(summary).not.toContain("reset-at=");
 	} finally {
 		authStorage.close();
 	}

@@ -3833,11 +3833,11 @@
 				},
 				"kind": {
 					"type": "string",
-					"description": "Error kind of the failure that ended the retry, e.g. `usage-limit` (`|`-joined when several apply)."
+					"description": "Error kind of the failure that ended the retry: kind labels joined by `|` (e.g. `usage-limit`, `transient|usage-limit`), or `status:<code>` for an error known only by its HTTP status; test membership, not equality."
 				},
-				"retryAtMs": {
+				"resetAtMs": {
 					"type": "integer",
-					"description": "Epoch ms when the provider accepts requests again; set only when the provider reported that time."
+					"description": "Epoch ms when the failing credential's limit resets, as the provider stated it; absent when the provider stated no time. Covers only the account this run used; another stored account may become usable sooner."
 				},
 				"retryErrors": {
 					"type": "array",
