@@ -222,7 +222,7 @@ Client helpers:
 Session-level retry events:
 
 - `auto_retry_start { attempt, maxAttempts, delayMs, errorMessage, errorId? }`
-- `auto_retry_end { success, attempt, finalError?, retryErrors? }`
+- `auto_retry_end { success, attempt, finalError?, kind?, retryAtMs?, retryErrors? }`
 - `retry_fallback_applied { from, to, role, reason? }`
 - `retry_fallback_succeeded { model, role }`
 
@@ -250,6 +250,9 @@ Propagation:
 Final failure surfacing:
 
 - On max-exceeded, max-delay failure, or cancellation, `auto_retry_end.success === false`
+- A failure that ended on a classified provider error carries `kind`, its `AIError.stringify` label (e.g. `usage-limit`, or `|`-joined labels such as `transient|usage-limit`); cancellation, the empty-stop cap and local continuation failures carry none
+- The max-exceeded and max-delay failures also carry `retryAtMs`, the epoch ms at which recovery would have retried, when the wait is provider-timed (a parsed reset hint or a complete usage-report window); the 30-minute heuristic guess yields none
+- A subagent copies `kind` and `retryAtMs` into its task result's `retryFailure`, and the parent's `<task-result>` shows them as `<retry-failure kind="…" retry-at="…"/>`
 - TUI shows: `Retry failed after N attempts: <finalError>`
 - Extensions/hooks receive `auto_retry_end` with same fields
 - RPC consumers receive same event object on stdout stream

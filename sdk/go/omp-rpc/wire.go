@@ -3934,6 +3934,10 @@ type AutoRetryEndEvent struct {
 	Success    bool    `json:"success"`
 	Attempt    int64   `json:"attempt"`
 	FinalError *string `json:"finalError,omitempty"`
+	// Error kind of the failure that ended the retry, e.g. `usage-limit` (`|`-joined when several apply).
+	Kind *string `json:"kind,omitempty"`
+	// Epoch ms when the provider accepts requests again; set only when the provider reported that time.
+	RetryAtMs *int64 `json:"retryAtMs,omitempty"`
 	// Persisted retry errors whose presentation changed when the retry settled.
 	RetryErrors []map[string]json.RawMessage `json:"retryErrors"`
 }
@@ -3949,6 +3953,8 @@ func (v *AutoRetryEndEvent) decodeFrom(raw map[string]json.RawMessage) error {
 	d.required("success", &out.Success)
 	d.required("attempt", &out.Attempt)
 	d.optional("finalError", &out.FinalError)
+	d.optional("kind", &out.Kind)
+	d.optional("retryAtMs", &out.RetryAtMs)
 	d.defaulted("retryErrors", &out.RetryErrors, `[]`)
 	if d.err != nil {
 		return d.err

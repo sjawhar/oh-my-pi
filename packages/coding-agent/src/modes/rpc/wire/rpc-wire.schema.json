@@ -3831,6 +3831,14 @@
 				"finalError": {
 					"type": "string"
 				},
+				"kind": {
+					"type": "string",
+					"description": "Error kind of the failure that ended the retry, e.g. `usage-limit` (`|`-joined when several apply)."
+				},
+				"retryAtMs": {
+					"type": "integer",
+					"description": "Epoch ms when the provider accepts requests again; set only when the provider reported that time."
+				},
 				"retryErrors": {
 					"type": "array",
 					"items": {
