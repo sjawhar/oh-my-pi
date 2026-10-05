@@ -63,10 +63,10 @@ export function formatTaskResultSummary(
 		failed && result.retryFailure?.kind
 			? {
 					kind: result.retryFailure.kind,
-					retryAt:
-						result.retryFailure.retryAtMs === undefined
+					resetAt:
+						result.retryFailure.resetAtMs === undefined
 							? undefined
-							: new Date(result.retryFailure.retryAtMs).toISOString(),
+							: new Date(result.retryFailure.resetAtMs).toISOString(),
 				}
 			: undefined;
 	const outputCharCount = result.outputMeta?.charCount ?? output.length;

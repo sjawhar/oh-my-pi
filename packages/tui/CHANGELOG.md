@@ -11,7 +11,7 @@
 - Added `ChartPlan` fields a planner can set — row naming (`qualifiers`, `group`), `shading`, `reference`, `order`, `polarity`, `rivals`, `focus`, `title`, `normalize` — and `shouldJudge`, which picks the tables `smart` mode sends to a model
 - Added an optional `assistantMessageText` theme token that colors assistant reply paragraph prose; unset or empty keeps the terminal default foreground ([#11204](https://github.com/can1357/oh-my-pi/issues/11204), [#11260](https://github.com/can1357/oh-my-pi/pull/11260) by [@oleg494](https://github.com/oleg494)).
 - Added optional `StatusLineHost.classifyResetExpiry` and `resetExpiryNotice` plus `StatusLineComponent.setResetExpiryNoticeHandler`: the usage segment marks saved resets expiring within 7 days (`▲ N exp …`), and the handler gets one pool-wide warning per conversation for resets expiring within 24 hours ([#15134](https://github.com/can1357/oh-my-pi/pull/15134) by [@will-bogusz](https://github.com/will-bogusz))
-- A subagent's task result `retryFailure` now records the error kind (e.g. `usage-limit`) and, when the provider reported it, the time the limit resets (`retryAtMs`)
+- A subagent's task result `retryFailure` (now the exported `TaskRetryFailure`) records the error kind (e.g. `usage-limit`) and, when the provider stated it, when the failing account's limit resets (`resetAtMs`)
 
 ### Changed
 
