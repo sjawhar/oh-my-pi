@@ -8,14 +8,15 @@
  *
  * Everything between the session and the network is real: AgentSession, the
  * Agent loop, the in-stream auth-retry driver, the openai-codex provider,
- * AuthStorage on SQLite and the Codex usage provider. Only the network is
- * fake: `/responses` answers the Codex usage-limit error event (which carries
- * no reset hint) and `/wham/usage` answers each account's report.
+ * AuthStorage on SQLite and the Codex usage provider. Only the network and
+ * the fallback model are fake: `/responses` answers the Codex usage-limit
+ * error event (which carries no reset hint), `/wham/usage` answers each
+ * account's report, and the fallback is a scripted mock stream.
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from "bun:test";
 import * as path from "node:path";
 import { Agent } from "@oh-my-pi/pi-agent-core";
-import { type Api, type Model, streamSimple } from "@oh-my-pi/pi-ai";
+import { streamSimple } from "@oh-my-pi/pi-ai";
 import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
 import { planRequirementFor } from "@oh-my-pi/pi-catalog/compat/behavior";
 import { writeModelCache } from "@oh-my-pi/pi-catalog/model-cache";
@@ -28,6 +29,7 @@ import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import { TempDir } from "@oh-my-pi/pi-utils";
+import { asGlobalFetch, type FetchInput, mockFetch } from "./helpers/fetch-mock";
 import { getTestModel } from "./helpers/model-fixtures";
 
 const PROVIDER = "openai-codex";
@@ -84,27 +86,25 @@ function usageResponse(mode: UsageMode): Response {
 	});
 }
 
-function requestPath(input: string | URL | Request): string {
+function requestPath(input: FetchInput): string {
 	const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 	return new URL(url).pathname;
 }
 
-function accountHeader(input: string | URL | Request, init: RequestInit | undefined): string {
+function accountHeader(input: FetchInput, init: RequestInit | undefined): string {
 	const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
 	return headers.get("chatgpt-account-id") ?? "none";
 }
 
 async function runUsageLimitSaga(scenario: Scenario): Promise<SagaResult> {
 	using tempDir = TempDir.createSync("@usage-limit-rotation-");
-	// Nothing in this flow may reach the network: OAuth refresh and model
-	// discovery see an offline host.
-	vi.spyOn(globalThis, "fetch").mockImplementation(
-		(async () => new Response("offline", { status: 503 })) as unknown as typeof fetch,
-	);
-	const usageFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+	// Any stray global fetch (an OAuth refresh) gets an offline 503; model
+	// discovery is already offline under bun test.
+	vi.spyOn(globalThis, "fetch").mockImplementation(asGlobalFetch(() => new Response("offline", { status: 503 })));
+	const usageFetch = asGlobalFetch((input, init) => {
 		if (!requestPath(input).endsWith("/wham/usage")) return new Response("not found", { status: 404 });
 		return usageResponse(scenario.usage[accountHeader(input, init) as Account]);
-	}) as unknown as typeof fetch;
+	});
 
 	const authStorage = await AuthStorage.create(path.join(tempDir.path(), "agent.db"), { usageFetch });
 	let session: AgentSession | undefined;
@@ -128,9 +128,9 @@ async function runUsageLimitSaga(scenario: Scenario): Promise<SagaResult> {
 				.map(row => [row.id, row.credential.type === "oauth" ? row.credential.accountId : undefined]),
 		);
 
-		const bundled = getBundledModel(PROVIDER, scenario.modelId) as Model<Api> | undefined;
-		const fallback = getBundledModel("anthropic", "claude-sonnet-4-5") as Model<Api> | undefined;
-		if (!bundled || !fallback) throw new Error("Expected bundled test models to exist");
+		const primary = getBundledModel(PROVIDER, scenario.modelId);
+		const fallback = getBundledModel("anthropic", "claude-sonnet-4-5");
+		if (!primary || !fallback) throw new Error("Expected bundled test models to exist");
 		if (scenario.accountAccess) {
 			// What Codex discovery caches when it ran before the other account was
 			// stored: the model lists only the accounts whose catalog returned it.
@@ -138,7 +138,7 @@ async function runUsageLimitSaga(scenario: Scenario): Promise<SagaResult> {
 			writeModelCache(
 				resolveModelCacheProviderId(PROVIDER),
 				Date.now(),
-				(getBundledModels(PROVIDER) as Model<Api>[]).map(model =>
+				getBundledModels(PROVIDER).map(model =>
 					model.id === scenario.modelId ? { ...model, accountAccess } : model,
 				),
 				true,
@@ -147,24 +147,23 @@ async function runUsageLimitSaga(scenario: Scenario): Promise<SagaResult> {
 			);
 		}
 		const modelRegistry = new ModelRegistry(authStorage, path.join(tempDir.path(), "models.yml"));
-		const primary = { ...bundled, preferWebsockets: false } as Model<Api>;
 
 		const codexRequests: string[] = [];
-		const codexFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+		const codexFetch = mockFetch((input, init) => {
 			if (!requestPath(input).endsWith("/responses")) return new Response("not found", { status: 404 });
 			codexRequests.push(accountHeader(input, init));
 			return new Response(`data: ${JSON.stringify(CODEX_USAGE_LIMIT_EVENT)}\n\n`, {
 				status: 200,
 				headers: { "content-type": "text/event-stream" },
 			});
-		}) as unknown as typeof fetch;
+		});
 		const mock = createMockModel();
 		const agent = new Agent({
 			getApiKey: model => modelRegistry.resolver(model, session?.sessionId),
 			initialState: { model: primary, systemPrompt: ["Test"], tools: [], messages: [] },
 			streamFn: (model, context, options) => {
 				if (model.provider === PROVIDER) {
-					return streamSimple({ ...model, preferWebsockets: false } as Model<Api>, context, {
+					return streamSimple({ ...model, preferWebsockets: false }, context, {
 						...options,
 						fetch: codexFetch,
 					});
