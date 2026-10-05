@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a usage limit retrying the same exhausted account until the retry budget ran out when the other stored account can't serve the model; recovery now moves to the fallback chain after one try per account
+
 ## [18.7.0] - 2026-10-06
 
 ### Added

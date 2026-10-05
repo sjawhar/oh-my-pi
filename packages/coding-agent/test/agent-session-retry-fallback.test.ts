@@ -2639,73 +2639,93 @@ describe("AgentSession retry fallback", () => {
 		]);
 	});
 
-	it("falls back to the chain when credential rotation exhausts the retry budget", async () => {
+	it("spends the retry budget only on credential switches that reach a new account", async () => {
 		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
 		const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
 		if (!primaryModel || !fallbackModel) {
 			throw new Error("Expected bundled test models to exist");
 		}
+		const primary = `${primaryModel.provider}/${primaryModel.id}`;
+		const fallback = `${fallbackModel.provider}/${fallbackModel.id}`;
 
-		const requestedModels: string[] = [];
-		const mock = createMockModel();
-		const agent = new Agent({
-			getApiKey: model => `${model.provider}-test-key`,
-			initialState: {
-				model: primaryModel,
-				systemPrompt: ["Test"],
-				tools: [],
-				messages: [],
+		// Rotation always claims a sibling credential is available; `servedBy`
+		// names the stored credential row that served the n-th failed request.
+		for (const { servedBy, expectedModels, expectedAttempts } of [
+			// Every switch reaches a new account: rotation spends the whole budget,
+			// then the exhausted attempt consults the chain instead of giving up,
+			// and the fallback model gets a fresh retry budget (attempt resets to 1).
+			{
+				servedBy: (request: number) => request,
+				expectedModels: [primary, primary, primary, fallback],
+				expectedAttempts: [1, 2, 1],
 			},
-			streamFn: (model, context, options) => {
-				requestedModels.push(`${model.provider}/${model.id}`);
-				if (model.provider === primaryModel.provider && model.id === primaryModel.id) {
+			// The switch lands on the capped account again, as when selection refuses
+			// the sibling the rotation check called free: the repeat goes to the chain
+			// instead of spending the rest of the budget on that account.
+			{ servedBy: () => 1, expectedModels: [primary, primary, fallback], expectedAttempts: [1, 2] },
+		]) {
+			modelRegistry.clearSuppressedSelectors();
+			const requestedModels: string[] = [];
+			let primaryRequests = 0;
+			const mock = createMockModel();
+			const agent = new Agent({
+				getApiKey: model => `${model.provider}-test-key`,
+				initialState: {
+					model: primaryModel,
+					systemPrompt: ["Test"],
+					tools: [],
+					messages: [],
+				},
+				streamFn: (model, context, options) => {
+					requestedModels.push(`${model.provider}/${model.id}`);
+					if (model.provider !== primaryModel.provider || model.id !== primaryModel.id) {
+						mock.push({ content: [`ok:${model.provider}/${model.id}`] });
+						return mock.stream(model, context, options);
+					}
 					mock.push({ throw: "429 usage_limit_reached" });
-				} else {
-					mock.push({ content: [`ok:${model.provider}/${model.id}`] });
-				}
-				return mock.stream(model, context, options);
-			},
-		});
+					const credentialId = servedBy(++primaryRequests);
+					const served = new AssistantMessageEventStream();
+					void (async () => {
+						for await (const event of mock.stream(model, context, options)) {
+							if (event.type === "error") event.error.credentialId = credentialId;
+							served.push(event);
+						}
+					})();
+					return served;
+				},
+			});
 
-		// Rotation always claims a sibling credential is available — the shape
-		// of a multi-account pool where the sibling check passes but every
-		// subsequent request keeps failing on the same capped account.
-		vi.spyOn(modelRegistry.authStorage.limits, "markReached").mockResolvedValue({ switched: true });
+			vi.spyOn(modelRegistry.authStorage.limits, "markReached").mockResolvedValue({ switched: true });
 
-		const settings = Settings.isolated({
-			"compaction.enabled": false,
-			"retry.baseDelayMs": 5,
-			"retry.maxRetries": 2,
-			"retry.fallbackChains": {
-				[`${primaryModel.provider}/${primaryModel.id}`]: [`${fallbackModel.provider}/${fallbackModel.id}`],
-			},
-		});
+			const settings = Settings.isolated({
+				"compaction.enabled": false,
+				"retry.baseDelayMs": 5,
+				"retry.maxRetries": 2,
+				"retry.fallbackChains": {
+					[primary]: [fallback],
+				},
+			});
 
-		session = new AgentSession({
-			agent,
-			sessionManager: SessionManager.inMemory(),
-			settings,
-			modelRegistry,
-		});
-		const { retryStartEvents, retryEndEvents } = trackRetryEvents(session);
+			session = new AgentSession({
+				agent,
+				sessionManager: SessionManager.inMemory(),
+				settings,
+				modelRegistry,
+			});
+			const { retryStartEvents, retryEndEvents } = trackRetryEvents(session);
 
-		await session.prompt("Exhaust rotation, then fail over");
-		await session.waitForIdle();
+			await session.prompt("Exhaust rotation, then fail over");
+			await session.waitForIdle();
 
-		// Two rotation retries burn the budget on the primary; the exhausted
-		// attempt consults the chain instead of giving up.
-		expect(requestedModels).toEqual([
-			`${primaryModel.provider}/${primaryModel.id}`,
-			`${primaryModel.provider}/${primaryModel.id}`,
-			`${primaryModel.provider}/${primaryModel.id}`,
-			`${fallbackModel.provider}/${fallbackModel.id}`,
-		]);
-		expect(session.model?.provider).toBe(fallbackModel.provider);
-		expect(session.model?.id).toBe(fallbackModel.id);
-		// The fallback model gets a fresh retry budget (attempt resets to 1).
-		expect(retryStartEvents.map(event => event.attempt)).toEqual([1, 2, 1]);
-		expect(retryEndEvents).toHaveLength(1);
-		expect(retryEndEvents[0]).toMatchObject({ success: true });
+			expect(requestedModels).toEqual(expectedModels);
+			expect(session.model?.provider).toBe(fallbackModel.provider);
+			expect(session.model?.id).toBe(fallbackModel.id);
+			expect(retryStartEvents.map(event => event.attempt)).toEqual(expectedAttempts);
+			expect(retryEndEvents).toHaveLength(1);
+			expect(retryEndEvents[0]).toMatchObject({ success: true });
+			await session.dispose();
+			session = undefined;
+		}
 	});
 	it("rotates sibling credentials on 402 Payment is required and status-only 402 without invoking model fallback", async () => {
 		const primaryModel = getBundledModel("openai", "gpt-4o") ?? getBundledModel("anthropic", "claude-sonnet-4-5");
