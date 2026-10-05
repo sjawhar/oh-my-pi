@@ -96,6 +96,14 @@ export const eventDefs = {
 		success: "boolean",
 		attempt: "number.integer",
 		"finalError?": "string",
+		"kind?": doc(
+			"string",
+			"Error kind of the failure that ended the retry, e.g. `usage-limit` (`|`-joined when several apply).",
+		),
+		"retryAtMs?": doc(
+			"number.integer",
+			"Epoch ms when the provider accepts requests again; set only when the provider reported that time.",
+		),
 		retryErrors: absentAs(
 			doc(`${JSON_OBJECT}[]`, "Persisted retry errors whose presentation changed when the retry settled."),
 			[],

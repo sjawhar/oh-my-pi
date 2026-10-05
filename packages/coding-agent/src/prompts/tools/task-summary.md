@@ -6,6 +6,9 @@
 {{#if error}}
 <error>{{error}}</error>
 {{/if}}
+{{#if retryFailure}}
+<retry-failure kind="{{retryFailure.kind}}"{{#if retryFailure.retryAt}} retry-at="{{retryFailure.retryAt}}"{{/if}} />
+{{/if}}
 {{#if truncated}}
 <preview full-output="agent://{{id}}">
 {{preview}}

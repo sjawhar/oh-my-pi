@@ -17,6 +17,7 @@
 - On macOS the `computer` tool keeps the display awake while the agent acts, and says when the screen is locked or the display asleep: in `capabilities()`, on screenshots, on errors and at the top of the run result, instead of passing off lock-screen or failed captures ([#15188](https://github.com/can1357/oh-my-pi/pull/15188) by [@will-bogusz](https://github.com/will-bogusz))
 - Inside Tern, `browser.open({ app: { target } })` drives a browser block the user already has open (matched by block id or URL/title substring; no match lists the window's blocks) instead of opening a picture-in-picture; closing the tab hands the block back without closing it
 - Inside Tern, the browser open result says when the page is not on screen (the user hid pictures in picture, or an older Tern shows them only in omp's tab), so the agent can tell the user where to look
+- A subagent that stops on a usage limit now tells the parent the limit and when it resets: the task result shows `<retry-failure kind="usage-limit" retry-at="…"/>`, and `auto_retry_end` carries `kind` and `retryAtMs` for extensions and RPC clients
 
 ### Changed
 
