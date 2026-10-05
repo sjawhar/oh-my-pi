@@ -38,7 +38,7 @@ import {
 	unpairedToolCallTail,
 } from "./agent-loop";
 import type { AppendOnlyContextManager } from "./append-only-context";
-import { isProviderRefusalMessage } from "./replay-policy";
+import { filterProviderReplayMessages } from "./replay-policy";
 import { SentToolDefinitions } from "./sent-tool-definitions";
 import { Tokenizer, tokenizerEncodingForModel } from "./tokenizer";
 import {
@@ -68,13 +68,14 @@ import { isSoftToolRequirement } from "./types";
 import { EventLoopKeepalive } from "./utils/yield";
 
 /**
- * Default convertToLlm: Keep only LLM-compatible replay messages.
+ * Default convertToLlm: apply the provider replay policy, then keep only
+ * LLM-compatible messages.
  */
 function defaultConvertToLlm(messages: AgentMessage[]): Message[] {
-	return messages.filter((m): m is Message => {
-		if (m.role === "assistant") return !isProviderRefusalMessage(m);
-		return m.role === "user" || m.role === "developer" || m.role === "toolResult";
-	});
+	return filterProviderReplayMessages(messages).filter(
+		(m): m is Message =>
+			m.role === "user" || m.role === "developer" || m.role === "toolResult" || m.role === "assistant",
+	);
 }
 
 function refreshToolChoiceForActiveTools(

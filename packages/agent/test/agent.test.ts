@@ -609,7 +609,9 @@ describe("Agent", () => {
 		expect(agent.state.messages[agent.state.messages.length - 1].role).toBe("assistant");
 	});
 
-	it("keeps Anthropic refusal errors out of the next provider context", async () => {
+	// Regression: the next request resent the refused prompt, so the provider
+	// refused every later turn of the conversation as well.
+	it("leaves a refused prompt and its refusal out of the next provider request", async () => {
 		const mock = createMockModel({
 			responses: [
 				{
@@ -631,9 +633,8 @@ describe("Agent", () => {
 
 		expect(mock.calls).toHaveLength(2);
 		const replayedMessages = mock.calls[1].context.messages;
-		expect(replayedMessages.map(message => message.role)).toEqual(["user", "user"]);
-		expect(JSON.stringify(replayedMessages)).not.toContain("Refusal (bio)");
-		expect(JSON.stringify(replayedMessages)).not.toContain("I can't assist");
+		expect(replayedMessages).toHaveLength(1);
+		expect(replayedMessages[0]).toMatchObject({ role: "user", content: [{ type: "text", text: "next request" }] });
 	});
 
 	it("prompt() emits assistant error lifecycle for Anthropic output-blocked stream errors before assistant start", async () => {

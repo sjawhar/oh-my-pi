@@ -7,6 +7,7 @@ import type {
 	ToolResultMessage,
 } from "@oh-my-pi/pi-ai";
 import { prompt } from "@oh-my-pi/pi-utils";
+import { REFUSED_TURN_MESSAGE_TYPE } from "../replay-policy";
 import type { AgentMessage } from "../types";
 import branchSummaryContextPrompt from "./prompts/branch-summary-context.md" with { type: "text" };
 import compactionSummaryContextPrompt from "./prompts/compaction-summary-context.md" with { type: "text" };
@@ -215,6 +216,9 @@ export function convertMessageToLlm(message: AgentMessage): Message | undefined 
 		switch (message.role) {
 			case "custom":
 			case "hookMessage": {
+				// The refused-turn marker carries nothing for the model; it only
+				// tells the replay policy where a refused step ended.
+				if (message.role === "custom" && message.customType === REFUSED_TURN_MESSAGE_TYPE) return undefined;
 				const content =
 					typeof message.content === "string"
 						? [{ type: "text" as const, text: message.content }]

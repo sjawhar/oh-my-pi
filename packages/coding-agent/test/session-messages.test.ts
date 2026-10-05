@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { type AgentMessage, filterProviderReplayMessages } from "@oh-my-pi/pi-agent-core";
+import { type AgentMessage, createRefusedTurnMessage, filterProviderReplayMessages } from "@oh-my-pi/pi-agent-core";
 import type { ImageContent, Message, TextContent } from "@oh-my-pi/pi-ai";
 import { inferCopilotInitiator } from "@oh-my-pi/pi-ai/providers/github-copilot-headers";
 import {
@@ -61,39 +61,53 @@ describe("convertToLlm compaction summary", () => {
 });
 
 describe("assistant refusal replay policy", () => {
-	it("preserves API-level Anthropic refusals for summaries but drops them from provider replay", () => {
-		const messages: AgentMessage[] = [
-			{ role: "user", content: [{ type: "text", text: "trigger" }], timestamp: 1 },
-			{
-				role: "assistant",
-				content: [{ type: "text", text: "I can't assist with that request." }],
-				stopReason: "error",
-				stopDetails: { type: "refusal", category: "bio", explanation: "policy refusal" },
-				errorMessage: "Refusal (bio): policy refusal",
-				api: "anthropic",
-				provider: "anthropic",
-				model: "claude-opus-4",
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
-				timestamp: 2,
+	const refusedTurn: AgentMessage[] = [
+		{ role: "user", content: [{ type: "text", text: "trigger" }], timestamp: 1 },
+		{
+			role: "assistant",
+			content: [{ type: "text", text: "I can't assist with that request." }],
+			stopReason: "error",
+			stopDetails: { type: "refusal", category: "bio", explanation: "policy refusal" },
+			errorMessage: "Refusal (bio): policy refusal",
+			api: "anthropic",
+			provider: "anthropic",
+			model: "claude-opus-4",
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			{ role: "user", content: [{ type: "text", text: "recover" }], timestamp: 3 },
-		];
+			timestamp: 2,
+		},
+		{ role: "user", content: [{ type: "text", text: "recover" }], timestamp: 3 },
+	];
 
-		const converted = convertToLlm(messages);
+	it("keeps a refused turn for summaries", () => {
+		const converted = convertToLlm(refusedTurn);
 
 		expect(converted.map(message => message.role)).toEqual(["user", "assistant", "user"]);
 		expect(JSON.stringify(converted)).toContain("Refusal (bio)");
+	});
 
-		const replayed = filterProviderReplayMessages(converted);
-		expect(replayed.map(message => message.role)).toEqual(["user", "user"]);
-		expect(JSON.stringify(replayed)).not.toContain("Refusal (bio)");
+	// Regression: provider replay dropped the refusal but resent the prompt that
+	// drew it, so every later request was refused too.
+	it("leaves the refused prompt and the refusal out of provider replay once a later prompt follows", () => {
+		const replayed = convertToLlm(filterProviderReplayMessages(refusedTurn));
+
+		expect(replayed).toHaveLength(1);
+		expect(replayed[0]).toMatchObject({ role: "user", content: [{ type: "text", text: "recover" }] });
+	});
+
+	// The marker a session leaves after giving up on a refusal has no content; a
+	// summary request carrying it as an empty developer message would be rejected.
+	it("keeps the refused input but sends nothing for the refused-turn marker in summaries", () => {
+		const converted = convertToLlm([refusedTurn[0], createRefusedTurnMessage(2), refusedTurn[2]]);
+
+		expect(converted.map(message => message.role)).toEqual(["user", "user"]);
+		expect(JSON.stringify(converted)).toContain("trigger");
 	});
 });
 

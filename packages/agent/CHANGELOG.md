@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- A provider refusal no longer makes every later turn refuse: once a new message follows the refused turn, `Agent`'s default conversion and `filterProviderReplayMessages` leave that turn's input out of the request (a refused tool result keeps its call with a short notice instead of its output).
+
 ## [18.6.0] - 2026-10-03
 
 ### Fixed
