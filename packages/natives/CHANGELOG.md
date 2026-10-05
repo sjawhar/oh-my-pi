@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a command backgrounded inside a subshell, such as `( yes > /dev/null & )`, running forever after the shell that started it ended ([#14394](https://github.com/can1357/oh-my-pi/pull/14394) by [@sjawhar](https://github.com/sjawhar)).
+
 ## [18.7.0] - 2026-10-06
 
 ### Breaking Changes
