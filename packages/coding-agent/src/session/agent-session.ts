@@ -4159,8 +4159,11 @@ export class AgentSession implements SettingsScope {
 					return;
 				}
 			}
-			// Classifier refusals are persisted-skipped above; also prune the trailing
-			// stub from active context so the next turn's prompt does not replay it.
+			// Recovery has given up on a classifier refusal: it is persisted-skipped
+			// above, so prune the trailing stub from active context and leave the
+			// refused-turn marker in its place. Once new input follows, requests leave
+			// out the refused step's input too (live and after a reload), so the
+			// refusal costs only this turn.
 			// Keep a reference for post-settle readers (print mode, task executor via
 			// getLastAssistantMessage) — pruning made the terminal error invisible to
 			// anything inspecting agent state after prompt() resolved.
@@ -4170,6 +4173,7 @@ export class AgentSession implements SettingsScope {
 			if (this.#recovery.isClassifierRefusal(msg)) {
 				this.#prunedTerminalFailure = msg;
 				this.#recovery.removeAssistantMessageFromActiveContext(msg);
+				await this.#recovery.markRefusedTurn(msg);
 			} else if (!AIError.isContextOverflow(msg, this.model?.contextWindow ?? 0)) {
 				// No retry, fallback, or compaction continuation fired: this errored
 				// turn ends the run. #persistSessionMessageIfMissing dropped it as an

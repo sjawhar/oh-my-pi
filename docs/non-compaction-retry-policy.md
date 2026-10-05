@@ -103,6 +103,10 @@ Flow (`#handleRetryableError`):
 
 The retry promise resolves and clears whenever the chain ends.
 
+### When recovery gives up on a classifier refusal
+
+Every retry and fallback in the chain still sends the refused step's input. Once the chain ends without a retry, the session removes the refusal from active context and leaves a hidden `refused-turn` marker in its place, also recorded as a `custom` session entry so a reloaded session rebuilds it. Provider replay (`filterProviderReplayMessages`, applied to every live request) never resends a refusal. As soon as new input follows the marker (a prompt, a steer, a hook continuation), it also leaves out the refused step's input: everything after the last accepted assistant reply, except compaction and branch summaries. User, developer, and custom messages are dropped; tool results keep their call ids with a short notice instead of their output. A continuation that adds nothing new (such as `/retry`, where it applies) still resends the input. The session file and summary requests (compaction, advisors, branch summaries) keep the refused step as it happened.
+
 ## Backoff and max-attempt semantics
 
 Settings:

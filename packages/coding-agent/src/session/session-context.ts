@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
+import { type AgentMessage, createRefusedTurnMessage, REFUSED_TURN_MESSAGE_TYPE } from "@oh-my-pi/pi-agent-core";
 import { customMessageEntryMessage, isUserRequestEntry } from "@oh-my-pi/pi-tui/chat/transcript-entry";
 import { getAnthropicCompactionPayload, isTurnStartEntry } from "@oh-my-pi/pi-agent-core/compaction";
 import {
@@ -409,6 +409,10 @@ export function buildSessionContext(
 			if (message) pushMessage(message);
 		} else if (entry.type === "branch_summary" && entry.summary) {
 			pushMessage(createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp));
+		} else if (entry.type === "custom" && entry.customType === REFUSED_TURN_MESSAGE_TYPE && !options?.transcript) {
+			// Model context only: the marker shapes provider replay of the refused
+			// step and has nothing to display.
+			pushMessage(createRefusedTurnMessage(new Date(entry.timestamp).getTime()));
 		}
 	};
 

@@ -4066,10 +4066,11 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			return converted;
 		};
 
-		// Final convertToLlm: live provider replay drops API-level refusal errors,
-		// then applies secret obfuscation to the remaining outbound context.
+		// Final convertToLlm: live provider replay applies the refusal replay policy
+		// (refused replies never resend, nor does a refused step's input once later
+		// input supersedes it), then applies secret obfuscation to the outbound context.
 		const convertToLlmFinal = (messages: AgentMessage[]): Message[] => {
-			const converted = filterProviderReplayMessages(convertToLlmWithBlockImages(messages));
+			const converted = convertToLlmWithBlockImages(filterProviderReplayMessages(messages));
 			if (!obfuscator?.hasSecrets()) return converted;
 			return obfuscateMessages(obfuscator, converted);
 		};

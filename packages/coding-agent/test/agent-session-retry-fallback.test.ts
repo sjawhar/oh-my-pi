@@ -3462,6 +3462,8 @@ describe("AgentSession retry fallback", () => {
 			`${primaryModel.provider}/${primaryModel.id}`,
 			`${fallbackModel.provider}/${fallbackModel.id}`,
 		]);
+		// The fallback retries the refused step, so it must still receive the input.
+		expect(JSON.stringify(mock.calls[1]?.context.messages)).toContain("Recover from classifier refusal");
 		expect(fallbackAppliedEvents).toEqual([
 			{
 				type: "retry_fallback_applied",
@@ -3603,6 +3605,10 @@ describe("AgentSession retry fallback", () => {
 			`${primaryModel.provider}/${primaryModel.id}`,
 			`${fallbackModel.provider}/${fallbackModel.id}`,
 		]);
+		// Credit redemption retries the refused step, so it must still receive the input.
+		expect(JSON.stringify(mock.calls[2]?.context.messages)).toContain(
+			"Recover from classifier refusal with signed thinking",
+		);
 		expect(fallbackAppliedEvents).toHaveLength(1);
 		expect(fallbackAppliedEvents[0].to).toBe(`${fallbackModel.provider}/${fallbackModel.id}`);
 		expect(session.model?.id).toBe(fallbackModel.id);
@@ -3709,6 +3715,103 @@ describe("AgentSession retry fallback", () => {
 		});
 	});
 
+	// Regression: after recovery gave up on a refusal, every later request
+	// resent the refused prompt and drew the same refusal, even for a prompt as
+	// harmless as "Reply with the single word OK." A reloaded session did the same.
+	it("leaves a refused prompt out of later requests, live and after a reload", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		if (!primaryModel) {
+			throw new Error("Expected bundled test model to exist");
+		}
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.baseDelayMs": 5,
+			"retry.maxRetries": 1,
+			"retry.modelFallback": false,
+		});
+		settings.setModelRole("default", `${primaryModel.provider}/${primaryModel.id}`);
+		const sessionDir = path.join(tempDir.path(), "refused-turn-sessions");
+		const sentTurns = (messages: Message[]) =>
+			JSON.parse(JSON.stringify(messages.map(message => ({ role: message.role, content: message.content }))));
+
+		const mock = createMockModel({
+			responses: [
+				{
+					content: ["I can't help with that."],
+					stopReason: "error",
+					stopDetails: { type: "refusal", category: "cyber", explanation: "Classifier declined this turn." },
+					errorMessage: "Refusal (cyber): Classifier declined this turn.",
+				},
+				{ content: ["OK"] },
+				{ content: ["Continuing."] },
+			],
+		});
+		const sessionManager = SessionManager.create(tempDir.path(), sessionDir);
+		session = new AgentSession({
+			agent: new Agent({
+				getApiKey: model => `${model.provider}-test-key`,
+				initialState: { model: primaryModel, systemPrompt: ["Test"], tools: [], messages: [] },
+				streamFn: (model, context, options) => mock.stream(model, context, options),
+			}),
+			sessionManager,
+			settings,
+			modelRegistry,
+		});
+
+		await session.prompt("PAYLOAD the classifier refuses");
+		await session.waitForIdle();
+		await session.prompt("Reply with the single word OK.");
+		await session.waitForIdle();
+
+		expect(sentTurns(mock.calls[1]?.context.messages ?? [])).toEqual([
+			{ role: "user", content: [{ type: "text", text: "Reply with the single word OK." }] },
+		]);
+
+		await sessionManager.flush();
+		const sessionFile = sessionManager.getSessionFile();
+		if (!sessionFile) {
+			throw new Error("Expected the session to persist a file");
+		}
+		const reloadedManager = await SessionManager.open(sessionFile, sessionDir, undefined, {
+			suppressBreadcrumb: true,
+		});
+		// The session file keeps the refused prompt; only what is sent changes.
+		expect(
+			reloadedManager
+				.getEntries()
+				.some(entry => entry.type === "message" && JSON.stringify(entry.message).includes("PAYLOAD")),
+		).toBe(true);
+
+		const reloadedMock = createMockModel({ responses: [{ content: ["Continuing."] }] });
+		const reloadedSession = new AgentSession({
+			agent: new Agent({
+				getApiKey: model => `${model.provider}-test-key`,
+				initialState: {
+					model: primaryModel,
+					systemPrompt: ["Test"],
+					tools: [],
+					messages: reloadedManager.buildSessionContext().messages,
+				},
+				streamFn: (model, context, options) => reloadedMock.stream(model, context, options),
+			}),
+			sessionManager: reloadedManager,
+			settings,
+			modelRegistry,
+		});
+		try {
+			await session.prompt("Continue.");
+			await session.waitForIdle();
+			await reloadedSession.prompt("Continue.");
+			await reloadedSession.waitForIdle();
+		} finally {
+			await reloadedSession.dispose();
+		}
+
+		const liveRequest = sentTurns(mock.calls[2]?.context.messages ?? []);
+		expect(JSON.stringify(liveRequest)).not.toContain("PAYLOAD");
+		expect(sentTurns(reloadedMock.calls[0]?.context.messages ?? [])).toEqual(liveRequest);
+	});
+
 	it("keeps the pruned refusal visible to getLastAssistantMessage until the next run", async () => {
 		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
 		if (!primaryModel) {
@@ -3754,8 +3857,9 @@ describe("AgentSession retry fallback", () => {
 		await session.prompt("Trigger classifier refusal");
 		await session.waitForIdle();
 
-		// The refusal turn is pruned from active context (no assistant tail)…
-		expect(session.agent.state.messages.at(-1)?.role).toBe("user");
+		// The refusal turn is pruned from active context, leaving no assistant
+		// tail, so Agent.continue() can still resume (e.g. `/retry`)…
+		expect(session.agent.state.messages.at(-1)?.role).not.toBe("assistant");
 		// …but terminal-outcome consumers (print mode, task executor) must still
 		// see the settled error instead of a silently successful-looking state.
 		const settled = session.getLastAssistantMessage();

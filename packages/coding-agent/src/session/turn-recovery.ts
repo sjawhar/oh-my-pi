@@ -2,7 +2,9 @@ import {
 	type Agent,
 	AgentBusyError,
 	type AgentMessage,
+	createRefusedTurnMessage,
 	isSyntheticToolResultMessage,
+	REFUSED_TURN_MESSAGE_TYPE,
 	type ThinkingLevel,
 } from "@oh-my-pi/pi-agent-core";
 import type {
@@ -551,6 +553,19 @@ export class TurnRecovery {
 	/** Persists an otherwise skipped terminal empty error turn. */
 	persistTerminalEmptyErrorTurn(message: AssistantMessage): Promise<void> {
 		return this.#persistTerminalEmptyErrorTurn(message);
+	}
+
+	/**
+	 * Marks a classifier refusal recovery gave up on. The marker stands where the
+	 * refused reply was, in the live history and (as a `custom` entry) on reload,
+	 * so later requests leave out the refused step's input once new input
+	 * follows (`filterProviderReplayMessages`). The session file keeps the input.
+	 */
+	async markRefusedTurn(message: AssistantMessage): Promise<void> {
+		// A fresh array: agent_end listeners hold the settled one.
+		this.#host.agent.replaceMessages([...this.#host.agent.state.messages, createRefusedTurnMessage(Date.now())]);
+		await this.#host.waitForSessionMessagePersistence(message);
+		this.#host.sessionManager.appendCustomEntry(REFUSED_TURN_MESSAGE_TYPE);
 	}
 
 	/** Handles empty terminal assistant turns and schedules bounded recovery. */

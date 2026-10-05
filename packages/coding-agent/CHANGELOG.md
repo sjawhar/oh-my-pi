@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- A provider refusal no longer makes every later turn refuse: after retries give up, the next message leaves out the refused prompt or tool output instead of resending it, also after reopening the session; the session history still keeps it.
+
 ## [18.6.0] - 2026-10-03
 
 ### Added
