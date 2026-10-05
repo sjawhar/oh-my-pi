@@ -2342,14 +2342,7 @@ export interface AgentProgress {
 	 * the final error so the parent UI can render "blocked: rate-limited"
 	 * instead of waiting for a status that never arrives.
 	 */
-	retryFailure?: {
-		attempt: number;
-		errorMessage: string;
-		/** `AIError.stringify` label of the final error, e.g. `usage-limit`. */
-		kind?: string;
-		/** Epoch ms when the subagent's provider accepts requests again; set only when the provider reported that time. */
-		retryAtMs?: number;
-	};
+	retryFailure?: TaskRetryFailure;
 	/**
 	 * Snapshot of the most recent `task` tool call's in-flight `TaskToolDetails`,
 	 * captured from `tool_execution_update`. Lets the parent UI surface live
@@ -2358,6 +2351,24 @@ export interface AgentProgress {
 	 * `extractedToolData.task` after that.
 	 */
 	inflightTaskDetails?: TaskToolDetails;
+}
+
+/** How a subagent's auto-retry gave up: copied from its failing `auto_retry_end`. */
+export interface TaskRetryFailure {
+	attempt: number;
+	errorMessage: string;
+	/**
+	 * `AIError.stringify` of the final error id: kind labels joined by `|` (e.g. `usage-limit`,
+	 * `transient|usage-limit`), or `status:<code>` for an error known only by its HTTP status;
+	 * test membership, not equality.
+	 */
+	kind?: string;
+	/**
+	 * Epoch ms when the failing credential's limit resets, as the provider stated it; absent when
+	 * the provider stated no time. Covers only the account this run used; another stored account
+	 * may become usable sooner.
+	 */
+	resetAtMs?: number;
 }
 
 /** Result from a single agent execution */
@@ -2448,14 +2459,7 @@ export interface SingleResult {
 	 * Lets the parent task tool surface a "blocked: rate-limited" outcome
 	 * instead of a generic failure.
 	 */
-	retryFailure?: {
-		attempt: number;
-		errorMessage: string;
-		/** `AIError.stringify` label of the final error, e.g. `usage-limit`. */
-		kind?: string;
-		/** Epoch ms when the subagent's provider accepts requests again; set only when the provider reported that time. */
-		retryAtMs?: number;
-	};
+	retryFailure?: TaskRetryFailure;
 	/** Output metadata for agent:// URL integration */
 	outputMeta?: { lineCount: number; charCount: number };
 }

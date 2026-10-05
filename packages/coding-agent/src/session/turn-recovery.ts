@@ -131,6 +131,28 @@ function retryFailureKind(errorId: number | undefined): string | undefined {
 	return errorId ? AIError.stringify(errorId) : undefined;
 }
 
+/**
+ * `auto_retry_end.resetAtMs`: the latest reset the provider stated for the
+ * failing credential (error-text hint, complete usage-report window, or an
+ * earlier provider-timed block), never the wait recovery computed, which also
+ * folds in sibling blocks, merged heuristic blocks and our own backoff. A value
+ * outside the `Date` range (an absurd provider hint) is dropped; that bound
+ * also keeps it a safe integer and within int64.
+ */
+function providerStatedResetAtMs(
+	parsedRetryAtMs: number | undefined,
+	outcome: UsageLimitOutcome | undefined,
+): number | undefined {
+	const deadlines = [
+		parsedRetryAtMs,
+		outcome?.reportResetAtMs,
+		outcome?.priorBlockedUntilTimed ? outcome.priorBlockedUntilMs : undefined,
+	].filter((deadlineMs): deadlineMs is number => deadlineMs !== undefined);
+	if (deadlines.length === 0) return undefined;
+	const resetAtMs = Math.ceil(Math.max(...deadlines));
+	return Number.isNaN(new Date(resetAtMs).getTime()) ? undefined : resetAtMs;
+}
+
 function syntheticToolResultTailStart(messages: readonly AgentMessage[]): number {
 	let index = messages.length;
 	while (index > 0 && isSyntheticToolResultMessage(messages[index - 1])) {
@@ -2485,10 +2507,9 @@ export class TurnRecovery {
 				this.#retryAbortController?.abort();
 				this.#retryAbortController = resetAbortController;
 				const startedAtMs = Date.now();
-				const unblockAtMs = parsedRetryAfterMs === undefined ? undefined : startedAtMs + parsedRetryAfterMs;
 				try {
 					for (let attempt = 0; ; attempt++) {
-						const result = await this.#host.maybeAutoRedeemReset(unblockAtMs);
+						const result = await this.#host.maybeAutoRedeemReset(parsedRetryAtMs);
 						resetAbortController.signal.throwIfAborted();
 						if (result.restored) {
 							restored = true;
@@ -2682,16 +2703,6 @@ export class TurnRecovery {
 			}
 		}
 
-		// The reset a failed retry reports: the latest deadline the provider
-		// stated, never `delayMs`, which also folds in a sibling's block, merged
-		// heuristic blocks and our own backoff.
-		const providerDeadlines = [
-			parsedRetryAtMs,
-			recordedUsageLimitOutcome?.reportResetAtMs,
-			recordedUsageLimitOutcome?.priorBlockedUntilTimed ? recordedUsageLimitOutcome.priorBlockedUntilMs : undefined,
-		].filter((deadlineMs): deadlineMs is number => deadlineMs !== undefined);
-		const retryAtMs = providerDeadlines.length > 0 ? Math.ceil(Math.max(...providerDeadlines)) : undefined;
-
 		if (retryBudgetExhausted) {
 			if (!switchedModel && !switchedCredential) {
 				const attempt = this.#retryAttempt - 1;
@@ -2704,7 +2715,7 @@ export class TurnRecovery {
 					attempt,
 					finalError: errorMessage,
 					kind: retryFailureKind(id),
-					retryAtMs,
+					resetAtMs: providerStatedResetAtMs(parsedRetryAtMs, recordedUsageLimitOutcome),
 					retryErrors,
 				});
 				this.#clearPendingRetryErrors();
@@ -2802,7 +2813,7 @@ export class TurnRecovery {
 				attempt,
 				finalError: `Provider requested ${Math.ceil(delayMs)}ms wait, exceeds retry.maxDelayMs (${maxDelayMs}ms). Original error: ${errorMessage}`,
 				kind: retryFailureKind(id),
-				retryAtMs,
+				resetAtMs: providerStatedResetAtMs(parsedRetryAtMs, recordedUsageLimitOutcome),
 			});
 			this.#clearPendingRetryErrors();
 			this.resolveRetry();
