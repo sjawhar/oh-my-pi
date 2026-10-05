@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a usage limit spending the whole retry budget on back-to-back requests to the same exhausted account when no other stored account can serve the model; the session now moves to the fallback chain after one retry
+
 ## [18.13.2] - 2026-10-27
 
 ### Added
