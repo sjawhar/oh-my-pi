@@ -7,7 +7,7 @@
 <error>{{error}}</error>
 {{/if}}
 {{#if retryFailure}}
-<retry-failure kind="{{retryFailure.kind}}"{{#if retryFailure.retryAt}} retry-at="{{retryFailure.retryAt}}"{{/if}} />
+<retry-failure kind="{{retryFailure.kind}}"{{#if retryFailure.resetAt}} reset-at="{{retryFailure.resetAt}}"{{/if}} />
 {{/if}}
 {{#if truncated}}
 <preview full-output="agent://{{id}}">

@@ -5,7 +5,7 @@
 ### Added
 
 - `AutocompleteItem.descriptionMatch` marks a slash command matched only through its description; `Editor` Enter no longer applies such a row unless the user moved the selection onto it ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
-- A subagent's task result `retryFailure` now records the error kind (e.g. `usage-limit`) and, when the provider reported it, the time the limit resets (`retryAtMs`)
+- A subagent's task result `retryFailure` (now the exported `TaskRetryFailure`) records the error kind (e.g. `usage-limit`) and, when the provider stated it, when the failing account's limit resets (`resetAtMs`)
 
 ### Fixed
 
