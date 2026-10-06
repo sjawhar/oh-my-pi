@@ -89,17 +89,21 @@ export function daemonBrokerEndpoint(runtimeDir: string): string {
 	return ipcEndpoint(runtimeDir, "broker");
 }
 
-/** What a connect to a scope endpoint says about its broker. */
-export type BrokerEndpointState = "live" | "dead" | "unknown";
+/**
+ * What a connect to a scope endpoint says about its broker. `absent` (ENOENT):
+ * no socket exists there, so nothing can serve the scope. `refused`
+ * (ECONNREFUSED): normally nothing listens on the socket, but a live broker can
+ * be refused too: between its bind and listen, or where a full accept queue is
+ * reported this way (Bun's `node:net` does on Linux). `unknown`: any other
+ * error (EACCES, say, or the EAGAIN this transport gets from a full accept
+ * queue on Linux) or the timeout, after which the listener may still be alive.
+ */
+export type BrokerEndpointState = "live" | "absent" | "refused" | "unknown";
 
 /**
- * Whether a broker is accepting connections on the scope endpoint right now.
- * `dead` on ENOENT or ECONNREFUSED, which normally mean nothing listens there;
- * Bun also reports a live listener's full accept queue as ECONNREFUSED, so
- * that case reads as dead too. Any other error (EACCES, say) or the timeout is
- * `unknown`, since such a listener may still be alive. Unlike a recorded pid,
- * this answers the same in every PID namespace that shares the runtime
- * directory.
+ * Whether a broker is accepting connections on the scope endpoint right now
+ * (see {@link BrokerEndpointState}). Unlike a recorded pid, this answers the
+ * same in every PID namespace that shares the runtime directory.
  */
 export async function probeBrokerEndpoint(endpoint: string): Promise<BrokerEndpointState> {
 	try {
@@ -110,6 +114,8 @@ export async function probeBrokerEndpoint(endpoint: string): Promise<BrokerEndpo
 		connection.destroy();
 		return "live";
 	} catch (error) {
-		return hasFsCode(error, "ENOENT") || hasFsCode(error, "ECONNREFUSED") ? "dead" : "unknown";
+		if (hasFsCode(error, "ENOENT")) return "absent";
+		if (hasFsCode(error, "ECONNREFUSED")) return "refused";
+		return "unknown";
 	}
 }
