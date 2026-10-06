@@ -2,9 +2,13 @@
 
 ## [Unreleased]
 
-### Changed
+### Breaking Changes
 
-- `TreeRow.ancestors` on `TreeView` rows is now an accessor that object spread, `JSON.stringify` and `structuredClone` do not copy, and the new `TreeRow.branchAncestors` lists only the ancestors that have siblings.
+- Rows from `TreeView` expose `ancestors` as an accessor, so object spread, `JSON.stringify` and `structuredClone` no longer copy it; `TreeAncestor` fields are readonly, and the entries of `ancestors` are the ancestor rows themselves; `TreeRow` now requires `branchAncestors`.
+
+### Added
+
+- Added `TreeRow.branchAncestors`: the root-first ancestors that have siblings, read in time proportional to their count.
 
 ### Fixed
 

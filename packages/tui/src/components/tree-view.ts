@@ -13,10 +13,10 @@ export type TreeKey = string | number;
 
 /** An ancestor of a flattened hierarchy row. */
 export interface TreeAncestor<K extends TreeKey> {
-	key: K;
-	depth: number;
-	isLast: boolean;
-	siblingCount: number;
+	readonly key: K;
+	readonly depth: number;
+	readonly isLast: boolean;
+	readonly siblingCount: number;
 }
 
 /** Structural metadata for one item in depth-first display order. */
@@ -32,11 +32,15 @@ export interface TreeRow<T, K extends TreeKey> {
 	/**
 	 * Root-first ancestors, rebuilt from the parent chain on each read. A read
 	 * costs O(ancestor count), which can far exceed `depth` when `getChildDepth`
-	 * keeps a chain at one display depth: read it once per row.
+	 * keeps a chain at one display depth. Read it only for rows being rendered:
+	 * reading it in `filter`, `getChildren`, `isExpanded` or `getChildDepth`
+	 * costs time quadratic in chain length.
 	 *
 	 * Rows from {@link TreeView} expose it as an accessor: object spread,
 	 * `JSON.stringify` and `structuredClone` do not copy it, and each read
 	 * returns a new array. A row derived by copying must set it, as json-tree.ts does.
+	 * Entries are the ancestor rows themselves: treat them as read-only and do
+	 * not serialize them, since each carries its `item`.
 	 */
 	readonly ancestors: readonly TreeAncestor<K>[];
 	/**
@@ -46,7 +50,9 @@ export interface TreeRow<T, K extends TreeKey> {
 	 *
 	 * An accessor like `ancestors`: object spread, `JSON.stringify` and
 	 * `structuredClone` do not copy it, each read returns a new array, and a
-	 * row derived by copying must set it before it is read.
+	 * row derived by copying must set it before it is read. Entries are the
+	 * ancestor rows themselves: treat them as read-only and do not serialize
+	 * them, since each carries its `item`.
 	 */
 	readonly branchAncestors: readonly TreeAncestor<K>[];
 }
