@@ -14,13 +14,14 @@ async function liveBytes(): Promise<number> {
 }
 
 function userNode(index: number, parentId: string | null): SessionTreeNode {
-	const entry = {
+	const message: AgentMessage = { role: "user", content: `turn ${index}`, timestamp: index };
+	const entry: SessionEntry = {
 		id: `e${index}`,
 		parentId,
 		timestamp: "2026-01-01T00:00:00.000Z",
 		type: "message",
-		message: { role: "user", content: `turn ${index}`, timestamp: index } as AgentMessage,
-	} as SessionEntry;
+		message,
+	};
 	return { entry, children: [] };
 }
 

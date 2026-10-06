@@ -2,8 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as path from "node:path";
 
 // Opening the tree over a 10,000-entry chain must retain memory linear in its
-// entries. Copying each row's ancestor list instead retains ~400 MB here, and
-// a real 74k-entry session needed 40 GB and 20 s before the tree appeared.
+// entries. Copying each row's ancestor list instead retains ~400 MB here.
 const MAX_RETAINED_BYTES = 32 * 1024 * 1024;
 const probePath = path.resolve(import.meta.dir, "../../fixtures", "tree-selector-long-session-probe.ts");
 
