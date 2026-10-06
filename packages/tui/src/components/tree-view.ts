@@ -29,7 +29,12 @@ export interface TreeRow<T, K extends TreeKey> {
 	siblingIndex: number;
 	siblingCount: number;
 	isLast: boolean;
-	ancestors: readonly TreeAncestor<K>[];
+	/**
+	 * Root-first ancestors. Built from the parent chain on every read, in
+	 * O(depth), so projection stays linear for deep hierarchies: read it once
+	 * per use rather than once per gutter cell.
+	 */
+	readonly ancestors: readonly TreeAncestor<K>[];
 }
 
 /** Controls the iterative hierarchy projection shared by display and interactive trees. */
@@ -49,11 +54,49 @@ export interface FlattenTreeOptions<T, K extends TreeKey> {
 
 interface PendingTreeRow<T, K extends TreeKey> {
 	item: T;
-	parentKey: K | undefined;
+	parent: ProjectedTreeRow<T, K> | undefined;
 	depth: number;
 	siblingIndex: number;
 	siblingCount: number;
-	ancestors: readonly TreeAncestor<K>[];
+}
+
+/**
+ * A projected row that links to its parent instead of copying the ancestor
+ * list, so a row costs O(1) to project at any depth.
+ */
+class ProjectedTreeRow<T, K extends TreeKey> implements TreeRow<T, K> {
+	item: T;
+	key: K;
+	parentKey: K | undefined;
+	depth: number;
+	index: number;
+	siblingIndex: number;
+	siblingCount: number;
+	isLast: boolean;
+	readonly #parent: ProjectedTreeRow<T, K> | undefined;
+	/** This row as an entry of its descendants' ancestors, shared once built. */
+	#asAncestor: TreeAncestor<K> | undefined;
+
+	constructor(pending: PendingTreeRow<T, K>, key: K, index: number) {
+		this.item = pending.item;
+		this.key = key;
+		this.parentKey = pending.parent?.key;
+		this.depth = pending.depth;
+		this.index = index;
+		this.siblingIndex = pending.siblingIndex;
+		this.siblingCount = pending.siblingCount;
+		this.isLast = pending.siblingIndex === pending.siblingCount - 1;
+		this.#parent = pending.parent;
+	}
+
+	get ancestors(): readonly TreeAncestor<K>[] {
+		const ancestors: TreeAncestor<K>[] = [];
+		for (let row = this.#parent; row !== undefined; row = row.#parent) {
+			row.#asAncestor ??= { key: row.key, depth: row.depth, isLast: row.isLast, siblingCount: row.siblingCount };
+			ancestors.push(row.#asAncestor);
+		}
+		return ancestors.reverse();
+	}
 }
 
 interface FlattenTreeResult<T, K extends TreeKey> {
@@ -73,28 +116,16 @@ function projectTree<T, K extends TreeKey>(options: FlattenTreeOptions<T, K>): F
 	for (let index = roots.length - 1; index >= 0; index--) {
 		stack.push({
 			item: roots[index],
-			parentKey: undefined,
+			parent: undefined,
 			depth: rootDepth,
 			siblingIndex: index,
 			siblingCount: roots.length,
-			ancestors: [],
 		});
 	}
 
 	while (stack.length > 0 && rows.length < maxItems) {
 		const pending = stack.pop()!;
-		const key = options.getKey(pending.item);
-		const row: TreeRow<T, K> = {
-			item: pending.item,
-			key,
-			parentKey: pending.parentKey,
-			depth: pending.depth,
-			index: rows.length,
-			siblingIndex: pending.siblingIndex,
-			siblingCount: pending.siblingCount,
-			isLast: pending.siblingIndex === pending.siblingCount - 1,
-			ancestors: pending.ancestors,
-		};
+		const row = new ProjectedTreeRow(pending, options.getKey(pending.item), rows.length);
 		rows.push(row);
 
 		if (options.isExpanded && !options.isExpanded(pending.item, row)) continue;
@@ -104,18 +135,13 @@ function projectTree<T, K extends TreeKey>(options: FlattenTreeOptions<T, K>): F
 			0,
 			Math.trunc(options.getChildDepth?.(pending.item, row, children) ?? pending.depth + 1),
 		);
-		const ancestors: readonly TreeAncestor<K>[] = [
-			...pending.ancestors,
-			{ key, depth: pending.depth, isLast: row.isLast, siblingCount: pending.siblingCount },
-		];
 		for (let index = children.length - 1; index >= 0; index--) {
 			stack.push({
 				item: children[index],
-				parentKey: key,
+				parent: row,
 				depth: childDepth,
 				siblingIndex: index,
 				siblingCount: children.length,
-				ancestors,
 			});
 		}
 	}

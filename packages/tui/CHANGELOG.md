@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `TreeView` spending time and memory proportional to each row's depth to build its rows, which made the session tree take tens of seconds and tens of gigabytes to open on long sessions; `TreeRow.ancestors` is now built when read.
+
 ## [18.6.0] - 2026-10-03
 
 ### Fixed

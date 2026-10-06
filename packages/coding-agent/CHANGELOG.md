@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the session tree (Esc Esc, `/tree`) taking tens of seconds and tens of gigabytes of memory to open on long sessions.
+
 ## [18.6.0] - 2026-10-03
 
 ### Added

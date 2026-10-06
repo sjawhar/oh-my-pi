@@ -53,7 +53,7 @@ import { shortenPath } from "../render/render-utils";
 import { canonicalizeMessage } from "../chat/thinking-display";
 import { resolveAssistantErrorPresentation } from "../chat/transcript-render-helpers";
 import { OverlayPanel, PanelDivider } from "../chrome/overlay-box";
-import { TreeView, type TreeRow } from "../components/tree-view";
+import { TreeView, type TreeAncestor, type TreeRow } from "../components/tree-view";
 import { formatKeyHint, formatKeyHints } from "../app-keybindings";
 import { boundKeys, editorKeys, interruptKey } from "../chrome/keybinding-hints";
 import type { TspPickerItem, TspPickerProps, TspSpan, TspText } from "@oh-my-pi/pi-wire";
@@ -877,23 +877,28 @@ class TreeList implements Component {
 		// Linear rows reuse their branch head's depth. Existing sibling
 		// gutters remain visible; terminal gutters remain terminated.
 
+		// An ancestor branch point draws its gutter at its own depth minus
+		// one — the level its connector occupied; the outermost such ancestor
+		// owns a level. Session roots never emit gutters; their connectors
+		// are suppressed. One root-first pass: `ancestors` costs O(depth).
+		const gutterAncestors: (TreeAncestor<string> | undefined)[] = [];
+		if (renderedIndent > 0) {
+			for (const ancestor of row.ancestors) {
+				const level = ancestor.depth - 1 - scrollOffset;
+				if (level < 0 || level >= renderedIndent || gutterAncestors[level] !== undefined) continue;
+				if (ancestor.siblingCount > 1 && !(this.#multipleRoots && this.#rootIds.has(ancestor.key))) {
+					gutterAncestors[level] = ancestor;
+				}
+			}
+		}
+
 		// Build prefix char by char, placing gutters and connector at their positions
 		const totalChars = renderedIndent * 3;
 		const prefixChars: string[] = [];
 		for (let i = 0; i < totalChars; i++) {
 			const level = Math.floor(i / 3);
-			const originalDepth = level + scrollOffset;
 			const posInLevel = i % 3;
-
-			// An ancestor branch point draws its gutter at its own depth minus
-			// one — the level its connector occupied. Session roots never emit
-			// gutters; their connectors are suppressed.
-			const gutterAncestor = row.ancestors.find(
-				ancestor =>
-					ancestor.depth - 1 === originalDepth &&
-					ancestor.siblingCount > 1 &&
-					!(this.#multipleRoots && this.#rootIds.has(ancestor.key)),
-			);
+			const gutterAncestor = gutterAncestors[level];
 			if (gutterAncestor) {
 				// Gutters follow standard tree semantics: `│` only while more
 				// siblings continue below, space below a `└─`.
