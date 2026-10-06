@@ -11,7 +11,7 @@ import { centeredViewportRange, viewportRange } from "./scroll-viewport";
 /** Stable identity accepted by {@link TreeView}. Keys must be unique within one hierarchy. */
 export type TreeKey = string | number;
 
-/** One ancestor retained on a flattened hierarchy row. */
+/** An ancestor of a flattened hierarchy row. */
 export interface TreeAncestor<K extends TreeKey> {
 	key: K;
 	depth: number;
@@ -30,11 +30,25 @@ export interface TreeRow<T, K extends TreeKey> {
 	siblingCount: number;
 	isLast: boolean;
 	/**
-	 * Root-first ancestors. Built from the parent chain on every read, in
-	 * O(depth), so projection stays linear for deep hierarchies: read it once
-	 * per use rather than once per gutter cell.
+	 * Root-first ancestors, rebuilt from the parent chain on each read. A read
+	 * costs O(ancestor count), which can far exceed `depth` when `getChildDepth`
+	 * keeps a chain at one display depth: read it once per row.
+	 *
+	 * Rows from {@link TreeView} expose it as an accessor: object spread,
+	 * `JSON.stringify` and `structuredClone` do not copy it, and each read
+	 * returns a new array. A row derived by copying must set it, as json-tree.ts does.
 	 */
 	readonly ancestors: readonly TreeAncestor<K>[];
+	/**
+	 * Root-first ancestors with `siblingCount > 1`, the only ones that can draw
+	 * a vertical gutter. A read costs O(branch ancestors), however long the
+	 * linear runs between them.
+	 *
+	 * An accessor like `ancestors`: object spread, `JSON.stringify` and
+	 * `structuredClone` do not copy it, each read returns a new array, and a
+	 * row derived by copying must set it before it is read.
+	 */
+	readonly branchAncestors: readonly TreeAncestor<K>[];
 }
 
 /** Controls the iterative hierarchy projection shared by display and interactive trees. */
@@ -61,8 +75,9 @@ interface PendingTreeRow<T, K extends TreeKey> {
 }
 
 /**
- * A projected row that links to its parent instead of copying the ancestor
- * list, so a row costs O(1) to project at any depth.
+ * A projected row. It links to its parent and to its nearest ancestor with
+ * siblings and builds `ancestors` and `branchAncestors` on read, so projecting
+ * a row is O(1) at any depth. It serves as its descendants' ancestor entry.
  */
 class ProjectedTreeRow<T, K extends TreeKey> implements TreeRow<T, K> {
 	item: T;
@@ -74,8 +89,8 @@ class ProjectedTreeRow<T, K extends TreeKey> implements TreeRow<T, K> {
 	siblingCount: number;
 	isLast: boolean;
 	readonly #parent: ProjectedTreeRow<T, K> | undefined;
-	/** This row as an entry of its descendants' ancestors, shared once built. */
-	#asAncestor: TreeAncestor<K> | undefined;
+	/** Nearest ancestor with siblings; skips linear runs. */
+	readonly #branchParent: ProjectedTreeRow<T, K> | undefined;
 
 	constructor(pending: PendingTreeRow<T, K>, key: K, index: number) {
 		this.item = pending.item;
@@ -86,15 +101,20 @@ class ProjectedTreeRow<T, K extends TreeKey> implements TreeRow<T, K> {
 		this.siblingIndex = pending.siblingIndex;
 		this.siblingCount = pending.siblingCount;
 		this.isLast = pending.siblingIndex === pending.siblingCount - 1;
-		this.#parent = pending.parent;
+		const parent = pending.parent;
+		this.#parent = parent;
+		this.#branchParent = parent && (parent.siblingCount > 1 ? parent : parent.#branchParent);
 	}
 
 	get ancestors(): readonly TreeAncestor<K>[] {
 		const ancestors: TreeAncestor<K>[] = [];
-		for (let row = this.#parent; row !== undefined; row = row.#parent) {
-			row.#asAncestor ??= { key: row.key, depth: row.depth, isLast: row.isLast, siblingCount: row.siblingCount };
-			ancestors.push(row.#asAncestor);
-		}
+		for (let row = this.#parent; row !== undefined; row = row.#parent) ancestors.push(row);
+		return ancestors.reverse();
+	}
+
+	get branchAncestors(): readonly TreeAncestor<K>[] {
+		const ancestors: TreeAncestor<K>[] = [];
+		for (let row = this.#branchParent; row !== undefined; row = row.#branchParent) ancestors.push(row);
 		return ancestors.reverse();
 	}
 }

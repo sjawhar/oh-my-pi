@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Fixed the session tree (Esc Esc, `/tree`) taking tens of seconds and tens of gigabytes of memory to open on long sessions.
+- Fixed the session tree (Esc Esc, `/tree`) taking tens of seconds and tens of gigabytes of memory to open on long sessions; it now opens at once and responds to keys at once.
 
 ## [18.6.0] - 2026-10-03
 

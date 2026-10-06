@@ -2,9 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `TreeRow.ancestors` on `TreeView` rows is now an accessor that object spread, `JSON.stringify` and `structuredClone` do not copy, and the new `TreeRow.branchAncestors` lists only the ancestors that have siblings.
+
 ### Fixed
 
-- Fixed `TreeView` spending time and memory proportional to each row's depth to build its rows, which made the session tree take tens of seconds and tens of gigabytes to open on long sessions; `TreeRow.ancestors` is now built when read.
+- Fixed the session tree taking tens of seconds and tens of gigabytes of memory to open on long sessions; it now opens at once and responds to keys at once.
 
 ## [18.6.0] - 2026-10-03
 

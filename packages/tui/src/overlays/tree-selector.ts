@@ -880,16 +880,13 @@ class TreeList implements Component {
 		// An ancestor branch point draws its gutter at its own depth minus
 		// one — the level its connector occupied; the outermost such ancestor
 		// owns a level. Session roots never emit gutters; their connectors
-		// are suppressed. One root-first pass: `ancestors` costs O(depth).
+		// are suppressed. One root-first pass over `branchAncestors`, which
+		// costs O(branch ancestors).
 		const gutterAncestors: (TreeAncestor<string> | undefined)[] = [];
-		if (renderedIndent > 0) {
-			for (const ancestor of row.ancestors) {
-				const level = ancestor.depth - 1 - scrollOffset;
-				if (level < 0 || level >= renderedIndent || gutterAncestors[level] !== undefined) continue;
-				if (ancestor.siblingCount > 1 && !(this.#multipleRoots && this.#rootIds.has(ancestor.key))) {
-					gutterAncestors[level] = ancestor;
-				}
-			}
+		for (const ancestor of row.branchAncestors) {
+			if (this.#multipleRoots && this.#rootIds.has(ancestor.key)) continue;
+			const level = ancestor.depth - 1 - scrollOffset;
+			if (level >= 0 && level < renderedIndent) gutterAncestors[level] ??= ancestor;
 		}
 
 		// Build prefix char by char, placing gutters and connector at their positions
