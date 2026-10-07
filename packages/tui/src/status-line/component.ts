@@ -1848,8 +1848,6 @@ export class StatusLineComponent<TSession extends StatusLineSession = StatusLine
 					this.#cachedGitStatusCwd = gitCwd;
 					this.#gitStatusLastFetch = this.#gitStatusGeneration === generation ? Date.now() : 0;
 					this.#gitStatusInFlightCwd = undefined;
-					// A zeroed stamp (superseded generation) is already due: refetch next frame.
-					this.#noteVcsStaleAt(this.#gitStatusLastFetch + GIT_STATUS_TTL_MS);
 					if (!this.#disposed && JSON.stringify(prev) !== JSON.stringify(nextStatus)) {
 						this.#invalidateStatusLineRenderCache();
 						this.#onBranchChange?.();
@@ -1865,6 +1863,8 @@ export class StatusLineComponent<TSession extends StatusLineSession = StatusLine
 					const sustainedMs = Math.min(elapsedMs, this.#gitStatusPrevElapsedMs);
 					this.#gitStatusPrevElapsedMs = elapsedMs;
 					this.#gitStatusTtlMs = Math.max(GIT_STATUS_TTL_MS, sustainedMs * GIT_STATUS_BACKOFF_FACTOR);
+					// A zeroed stamp (superseded generation) is already due: refetch next frame.
+					this.#noteVcsStaleAt(this.#gitStatusLastFetch + this.#gitStatusTtlMs);
 					if (elapsedMs >= GIT_STATUS_SLOW_LOG_MS && !this.#gitStatusSlowLogged) {
 						// Names the repository whose status is expensive, so a
 						// sluggish session points at its cause instead of
