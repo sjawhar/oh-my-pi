@@ -2626,14 +2626,17 @@ export class TurnRecovery {
 			(!this.#hasReplayUnsafeOutput(message) || this.#unexecutedToolCallsReplaySafe(message));
 
 		if (!staleOpenAIResponsesReplayError && !switchedCredential && currentSelector) {
-			// A refusal chain stops at the retry budget: the exhausted-attempt
-			// last resort is for provider failures, not classifier decisions.
+			// The retry budget bounds same-model retries against a failing provider. A
+			// classifier refusal is not that: retrying the same model reproduces it, and
+			// the next model in the chain is one request away and often answers. Stopping
+			// the walk at the budget ends the turn with models left untried, which is how
+			// a subagent that had already spent its retries on transient errors died on
+			// the model it started on.
 			if (
 				allowModelFallback &&
 				retrySettings.modelFallback &&
 				!thinkingLoop &&
 				!waitForSiblingCredential &&
-				!(retryBudgetExhausted && classifierRefusal) &&
 				!this.#isFirstAttemptMidStreamSocketDrop(message, id, retryBudgetExhausted)
 			) {
 				if (!classifierRefusal) {

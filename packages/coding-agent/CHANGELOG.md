@@ -5,6 +5,7 @@
 ### Fixed
 
 - Fixed follow-up hashline edits being rejected as anchored on lines "never displayed" after an earlier edit shifted those lines, when the replacement carries the anchored content; genuinely stale line numbers are still rejected ([#14254](https://github.com/can1357/oh-my-pi/pull/14254) by [@abilliontokens](https://github.com/abilliontokens)).
+- A classifier refusal now keeps walking `retry.fallbackChains` when the retry budget is already spent, instead of ending the turn on the model it started on with the rest of the chain untried.
 
 ## [18.6.0] - 2026-10-03
 
