@@ -29,6 +29,7 @@
 - A `/btw` answer promoted into the main branch, or a turn moved under another prompt, keeps whether its reasoning is a provider-written summary or the model's own trace, so a summary never reaches another host as the model's reasoning ([#15123](https://github.com/can1357/oh-my-pi/pull/15123) by [@will-bogusz](https://github.com/will-bogusz)).
 - Background Claude saved-reset salvage now lists Claude accounts only when an account's usage report shows a saved reset due for salvage, instead of every open session listing every Claude account every few minutes, which tripped Anthropic's usage rate limit ([#15129](https://github.com/can1357/oh-my-pi/pull/15129) by [@will-bogusz](https://github.com/will-bogusz))
 - Sessions with no prompt UI (`omp -p`, subagents, headless RPC, ACP clients without form elicitation) now spend a saved Codex or Claude reset under the default `autoRedeem: unset` when it expires within 5 minutes, with a notice naming the account, instead of letting it expire; `autoRedeem: no` still never spends, and other resets still wait for consent ([#15131](https://github.com/can1357/oh-my-pi/pull/15131) by [@will-bogusz](https://github.com/will-bogusz))
+- An explicit Mnemopi save through the extension `memory.save` API is now stored as `stated` rather than as `unknown`, the label automatic transcript retention writes, so it ranks as a deliberate memory ([#13824](https://github.com/can1357/oh-my-pi/pull/13824) by [@sjawhar](https://github.com/sjawhar))
 
 ### Fixed
 
