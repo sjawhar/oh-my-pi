@@ -3943,6 +3943,59 @@ describe("AgentSession retry fallback", () => {
 		}
 	});
 
+	it("terminates a refusal walk across chains that name each other", async () => {
+		// The retry budget used to be what stopped this: `retryFallbackChainKeys` consults the
+		// current model's own chain as well as the pinned one, so A -> B and B -> A alternate
+		// rather than loop in place, and every hop spent an attempt. With a refusal no longer
+		// stopped by the budget, the walk is bounded by visiting each model at most once.
+		const modelA = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const modelB = getBundledModel("openai", "gpt-4o-mini");
+		if (!modelA || !modelB) {
+			throw new Error("Expected bundled test models to exist");
+		}
+		const selectorA = `${modelA.provider}/${modelA.id}`;
+		const selectorB = `${modelB.provider}/${modelB.id}`;
+
+		const requestedModels: string[] = [];
+		const mock = createMockModel();
+		const agent = new Agent({
+			getApiKey: model => `${model.provider}-test-key`,
+			initialState: { model: modelA, systemPrompt: ["Test"], tools: [], messages: [] },
+			streamFn: (model, context, options) => {
+				requestedModels.push(`${model.provider}/${model.id}`);
+				// Every model declines, so nothing but the walk bound can end this turn.
+				mock.push({
+					content: [],
+					stopReason: "error",
+					stopDetails: { type: "refusal", category: "cyber", explanation: "Declined." },
+					errorMessage: "Refusal (cyber): Declined.",
+				});
+				return mock.stream(model, context, options);
+			},
+		});
+
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.baseDelayMs": 5,
+			"retry.maxRetries": 0,
+			"retry.fallbackChains": { [selectorA]: [selectorB], [selectorB]: [selectorA] },
+		});
+		settings.setModelRole("default", selectorA);
+
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settings,
+			modelRegistry,
+		});
+
+		await session.prompt("Both chains point at each other");
+		await session.waitForIdle();
+
+		// Each model asked exactly once, and the turn ends rather than alternating forever.
+		expect(requestedModels).toEqual([selectorA, selectorB]);
+	});
+
 	it("emits auto_retry_end when a mid-saga classifier refusal has no fallback to switch to", async () => {
 		// Regression: `#handleRetryableError`'s classifier-refusal branch used to
 		// return `false` without emitting `auto_retry_end` whenever no fallback
