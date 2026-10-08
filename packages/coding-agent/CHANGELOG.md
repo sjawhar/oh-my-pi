@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- An explicit Mnemopi save through the extension `memory.save` API is now stored as `stated` rather than as `unknown`, the label automatic transcript retention writes, so it ranks as a deliberate memory ([#13824](https://github.com/can1357/oh-my-pi/pull/13824) by [@sjawhar](https://github.com/sjawhar))
+
 ## [18.8.3] - 2026-10-07
 
 ### Fixed
