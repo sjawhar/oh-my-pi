@@ -23,6 +23,7 @@
 - Long sessions in SQL session storage no longer fail to append as they approach PostgreSQL's 1 GB field limit. ([#13416](https://github.com/can1357/oh-my-pi/pull/13416) by [@sjawhar](https://github.com/sjawhar))
 - SQL session storage on SQLite waits for another process's write instead of failing with `database is locked`. ([#13416](https://github.com/can1357/oh-my-pi/pull/13416) by [@sjawhar](https://github.com/sjawhar))
 - Starting SQL session storage on PostgreSQL no longer waits for, and holds up, other processes' session writes. ([#13416](https://github.com/can1357/oh-my-pi/pull/13416) by [@sjawhar](https://github.com/sjawhar))
+- SQL and Redis session storage no longer warn `Session persistence failed: Session file changed before rewrite` when a new session writes again before its first save lands, as every `omp -p` run and every `/btw` branch did. ([#13416](https://github.com/can1357/oh-my-pi/pull/13416) by [@sjawhar](https://github.com/sjawhar))
 
 ## [18.12.2] - 2026-10-18
 
