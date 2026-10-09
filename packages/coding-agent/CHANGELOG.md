@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a session staying busy for good, with every later message queued and never answered, when the session file could not be written as an automatic retry ended (a full disk or an unwritable transcript)
+
 ## [18.8.3] - 2026-10-07
 
 ### Fixed
