@@ -10,6 +10,7 @@
 - Fixed `read` of web pages dropping collapsed sections such as accordion and expander panels (e.g. a product page's "Item details" table); content in `<template>`, `<noscript>` and scripts stays out ([#16246](https://github.com/can1357/oh-my-pi/issues/16246))
 - Fixed a failed session-maintenance rewrite making every later turn republish its full transcript; turns with durable predecessors now keep appending normally.
 - Fixed agents continuing after a session persistence failure without context about the risk; the next prompt now receives a hidden warning to preserve critical work.
+- Fixed `omp --resume <path>` parsing an unchanged session file twice; large sessions now re-stat for freshness and reparse only after a change.
 
 ## [18.12.2] - 2026-10-18
 

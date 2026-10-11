@@ -812,6 +812,17 @@ function textMatchesLines(text: string, lines: readonly string[]): boolean {
 	return offset === text.length;
 }
 
+/** Whether `loaded` still describes the current session object without parsing it again. */
+function sessionSnapshotIsCurrent(storage: SessionStorage, filePath: string, loaded: SessionLoadResult): boolean {
+	if (loaded.sourceSize === undefined || loaded.sourceMtimeMs === undefined) return false;
+	const current = storage.statSync(filePath);
+	return (
+		current.size === loaded.sourceSize &&
+		current.mtimeMs === loaded.sourceMtimeMs &&
+		current.identity === loaded.sourceIdentity
+	);
+}
+
 /**
  * The storage may have published a write that rejected, and an authoritative
  * repair could not be proven durable. Callers must fail closed until recovery.
@@ -4222,14 +4233,15 @@ export class SessionManager {
 				: path.dirname(path.resolve(filePath)));
 		const manager = new SessionManager(cwd, dir, true, storage);
 		manager.#suppressBreadcrumb = options?.suppressBreadcrumb === true;
-		// Freshness gate for fail-closed callers (revive): the cwd probe above
-		// yields, so re-read after it and adopt only the fresh snapshot. A
-		// transcript deleted, truncated, or replaced mid-probe then fails
-		// closed here (ENOENT / holds-no-entries, without minting) instead of
-		// reviving stale history. Other callers keep the single probe read.
-		const loaded = options?.throwIfMissing
-			? await loadSessionFile(filePath, storage, { throwIfMissing: true })
-			: probed;
+		// Fail-closed callers yield while probing the recorded cwd. Re-stat the
+		// snapshot before adoption and parse again only if its bytes, mtime, or
+		// backing-object identity changed. A deleted, truncated, or replaced
+		// transcript then still fails closed without a second parse of a stable
+		// multi-gigabyte session.
+		const loaded =
+			options?.throwIfMissing && !sessionSnapshotIsCurrent(storage, filePath, probed)
+				? await loadSessionFile(filePath, storage, { throwIfMissing: true })
+				: probed;
 		await manager.#setSessionFile(filePath, loaded, {
 			throwIfMissing: options?.throwIfMissing,
 			newSession: { parentSession: options?.parentSession },

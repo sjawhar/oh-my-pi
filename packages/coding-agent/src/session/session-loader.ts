@@ -122,6 +122,9 @@ export interface SessionLoadResult {
 	malformedRecords: number;
 	/** Byte length of the snapshot actually parsed, or `null` when the path did not exist. */
 	sourceSize?: number | null;
+	/** Modification time and storage identity captured before parsing the snapshot. */
+	sourceMtimeMs?: number | null;
+	sourceIdentity?: string;
 	/** Whether non-empty session data was found without a valid leading session header. */
 	invalidHeader: boolean;
 }
@@ -476,9 +479,14 @@ export async function loadSessionFile(
 	options: LoadSessionOptions = {},
 ): Promise<SessionLoadResult> {
 	try {
-		const statSize = storage.statSync(filePath).size;
-		const { loaded, sourceSize } = await loadWithKnownSize(filePath, storage, statSize, options);
-		return { ...loaded, sourceSize };
+		const sourceStat = storage.statSync(filePath);
+		const { loaded, sourceSize } = await loadWithKnownSize(filePath, storage, sourceStat.size, options);
+		return {
+			...loaded,
+			sourceSize,
+			sourceMtimeMs: sourceStat.mtimeMs,
+			sourceIdentity: sourceStat.identity,
+		};
 	} catch (caught) {
 		// Windows reports ENOENT where POSIX reports ENOTDIR for a path running
 		// through a regular file; restore ENOTDIR so that path error is never
