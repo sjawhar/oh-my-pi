@@ -6,7 +6,11 @@ import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
 import { listSessions } from "@oh-my-pi/pi-coding-agent/session/session-listing";
 import { loadEntriesFromFile } from "@oh-my-pi/pi-coding-agent/session/session-loader";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
-import { MemorySessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
+import {
+	FileSessionStorage,
+	MemorySessionStorage,
+	type WriteTextAtomicOptions,
+} from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import * as snapcompact from "@oh-my-pi/snapcompact";
 
 class CountingMemorySessionStorage extends MemorySessionStorage {
@@ -15,6 +19,26 @@ class CountingMemorySessionStorage extends MemorySessionStorage {
 	override writeTextSync(filePath: string, content: string): void {
 		this.writeTextSyncCalls++;
 		super.writeTextSync(filePath, content);
+	}
+}
+
+class AcknowledgementLossStorage extends FileSessionStorage {
+	failNextPublish = false;
+	readTextCalls = 0;
+
+	override async writeLinesAtomic(
+		path: string,
+		lines: Iterable<string>,
+		options?: WriteTextAtomicOptions,
+	): Promise<void> {
+		await super.writeLinesAtomic(path, [...lines], options);
+		if (this.failNextPublish) throw new Error("simulated acknowledgement loss");
+	}
+
+	override async readText(path: string): Promise<string> {
+		this.readTextCalls++;
+		if (this.failNextPublish) throw new Error("full read would materialize the session");
+		return super.readText(path);
 	}
 }
 
@@ -58,6 +82,22 @@ describe("large session memory guards", () => {
 		session.flushSync();
 
 		expect(storage.writeTextSyncCalls).toBe(0);
+	});
+
+	it("keeps a published rewrite durable when its acknowledgment is lost without materializing the session", async () => {
+		const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "pi-rewrite-ack-loss-"));
+		tempDirs.push(dir);
+		const storage = new AcknowledgementLossStorage();
+		const session = SessionManager.create(dir, path.join(dir, "sessions"), storage);
+		await session.ensureOnDisk();
+		session.appendMessage(makeAssistantMessage("persisted before acknowledgement loss"));
+
+		storage.failNextPublish = true;
+		await expect(session.rewriteEntries()).resolves.toBeUndefined();
+
+		expect(storage.readTextCalls).toBe(0);
+		expect(session.captureState().onDisk).toBe(true);
+		await session.close();
 	});
 
 	it("elides superseded compactions only in the forward transcript", async () => {
