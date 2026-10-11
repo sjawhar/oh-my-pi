@@ -439,6 +439,7 @@ export interface CompiledCredentialMap {
 	accountId?: CompiledCredentialField;
 	orgId?: CompiledCredentialField;
 	orgName?: CompiledCredentialField;
+	workspaceId?: CompiledCredentialField;
 	projectId?: CompiledCredentialField;
 	apiEndpoint?: CompiledCredentialField;
 	enterpriseUrl?: CompiledCredentialField;

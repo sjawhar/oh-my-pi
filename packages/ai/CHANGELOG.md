@@ -12,6 +12,7 @@
 - Exported `matchesReplacementCredential` and `isSameOAuthAccount`, which tell whether storing a credential replaces an existing account row and whether two credentials belong to the same account ([#14901](https://github.com/can1357/oh-my-pi/pull/14901) by [@will-bogusz](https://github.com/will-bogusz))
 - Added `AuthStorage.sessions.permits(provider, sessionId, credentialId)`, which tells whether a stored account may serve a session restricted to an account pool ([#15135](https://github.com/can1357/oh-my-pi/pull/15135) by [@will-bogusz](https://github.com/will-bogusz))
 - Added `judgeQuestions()`, which loads judge questions from an imported JSON file with choice labels and answer types inferred from each question's `criteria`, and `renderQuestion()` for templated instructions
+- Added **Anthropic Console** to `/login`: sign in with a Claude Console account to use Claude models billed to your Console organization, without creating an API key. Console logins sit alongside Claude Pro/Max logins for the same organization.
 
 ### Changed
 
