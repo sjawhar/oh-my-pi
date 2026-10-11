@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added **Anthropic Console** to `/login`: sign in with a Claude Console account to use Claude models billed to your Console organization, without creating an API key. Console logins sit alongside Claude Pro/Max logins for the same organization.
+
 ### Fixed
 
 - Fixed finalized signed reasoning disappearing from displayed thinking when no deltas streamed ([#16227](https://github.com/can1357/oh-my-pi/issues/16227))
