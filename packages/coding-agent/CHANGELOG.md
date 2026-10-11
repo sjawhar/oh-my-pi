@@ -85,6 +85,7 @@
 - Fixed a usage-limited session with an account pool (such as a task agent under `task.agentAccountPools`) spending a saved reset to restore an account outside its pool, which it cannot use; resets about to expire are still salvaged on every account ([#15135](https://github.com/can1357/oh-my-pi/pull/15135) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed a failed session-maintenance rewrite making every later turn republish its full transcript; turns with durable predecessors now keep appending normally.
 - Fixed agents continuing after a session persistence failure without context about the risk; the next prompt now receives a hidden warning to preserve critical work.
+- Fixed `omp --resume <path>` parsing an unchanged session file twice; large sessions now re-stat for freshness and reparse only after a change.
 
 ## [18.8.9] - 2026-10-10
 
