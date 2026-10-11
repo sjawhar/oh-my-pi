@@ -914,6 +914,8 @@ export class SessionManager {
 	#fileIsCurrent = false;
 	/** In-memory entries diverged from disk (load-migration/sanitize) → next persist must full-rewrite. */
 	#rewriteRequired = false;
+	/** Earliest append that did not reach durable storage; later appends must rewrite it before extending the file. */
+	#firstUndurableEntryIndex: number | undefined;
 	/** Malformed records the loader skipped for the current session file; reported by `/dump anon`. */
 	#loadedMalformedRecords = 0;
 	/** Byte length this manager last loaded or durably wrote; `null` means the path was absent. */
@@ -1511,8 +1513,23 @@ export class SessionManager {
 		this.#expectedDiskSize = (this.#expectedDiskSize ?? 0) + Buffer.byteLength(line, "utf8");
 	}
 
+	#recordAppendFailure(entry: SessionEntry, errorLike: unknown): void {
+		const entryIndex = this.#entries.indexOf(entry);
+		if (
+			entryIndex >= 0 &&
+			(this.#firstUndurableEntryIndex === undefined || entryIndex < this.#firstUndurableEntryIndex)
+		) {
+			this.#firstUndurableEntryIndex = entryIndex;
+		}
+		this.#fileIsCurrent = false;
+		this.#rewriteRequired = true;
+		this.#noteDiskFailure(errorLike);
+	}
+
 	#recordFullRewrite(bytes: number): void {
 		this.#expectedDiskSize = bytes;
+		this.#firstUndurableEntryIndex = undefined;
+		this.#clearDiskError();
 	}
 
 	/**
@@ -1641,7 +1658,6 @@ export class SessionManager {
 					body = this.#serializeBody();
 				}
 			}
-			this.#clearDiskError();
 			if (this.#storage.defersSyncPublish) {
 				this.#fileIsCurrent = false;
 				this.#rewriteRequired = true;
@@ -1720,7 +1736,7 @@ export class SessionManager {
 	 * synchronous rewrite from being overwritten by the stale body serialized
 	 * before it ran.
 	 */
-	async #rewriteAtomically(): Promise<void> {
+	async #rewriteAtomically(retryAfterFailure = false): Promise<void> {
 		if (!this.#persist || !this.#sessionFile) return;
 		if (this.#released) return;
 
@@ -1734,7 +1750,7 @@ export class SessionManager {
 					this.#hasTitleSlot = true;
 				}
 			},
-			{ epoch: startEpoch },
+			{ epoch: startEpoch, ignorePriorError: retryAfterFailure },
 		);
 	}
 
@@ -1816,10 +1832,7 @@ export class SessionManager {
 			this.#atomicRewriteDirty = true;
 			return;
 		}
-		if (this.#diskFailure) {
-			// The failed entry and any later entries remain in memory. A full
-			// replacement is the writability probe and restores all of them once
-			// transient storage pressure clears.
+		if (this.#firstUndurableEntryIndex !== undefined) {
 			this.#fileIsCurrent = false;
 			this.#rewriteRequired = true;
 		}
@@ -1904,16 +1917,10 @@ export class SessionManager {
 				const confirmed = writer.appendSync ? writer.flush() : writer.append(line);
 				void confirmed
 					.then(() => this.#recordDurableAppend(line))
-					.catch(err => {
-						this.#fileIsCurrent = false;
-						this.#rewriteRequired = true;
-						this.#noteDiskFailure(err);
-					});
+					.catch(err => this.#recordAppendFailure(entry, err));
 			}
 		} catch (err) {
-			this.#fileIsCurrent = false;
-			this.#rewriteRequired = true;
-			this.#noteDiskFailure(err);
+			this.#recordAppendFailure(entry, err);
 		}
 	}
 
@@ -3601,7 +3608,7 @@ export class SessionManager {
 	async rewriteEntries(): Promise<void> {
 		this.#bodyRevision++;
 		if (!this.#persist || !this.#sessionFile) return;
-		await this.#rewriteAtomically();
+		await this.#rewriteAtomically(true);
 	}
 
 	/**

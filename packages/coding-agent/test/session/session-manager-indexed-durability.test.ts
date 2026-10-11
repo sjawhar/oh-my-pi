@@ -22,6 +22,10 @@ import { SessionWriteConflictError } from "@oh-my-pi/pi-coding-agent/session/ses
 class FakeBackend implements SessionStorageBackend {
 	readonly files = new Map<string, string>();
 	readonly mtimes = new Map<string, number>();
+	/** Number of append publishes the remote backend observed. */
+	appendCalls = 0;
+	/** Number of whole-journal publishes the remote backend observed. */
+	fullWriteCalls = 0;
 	/** Reject the next N append calls with a transient failure. */
 	failAppends = 0;
 	/** Reject the next N whole-file publishes with a transient failure. */
@@ -52,6 +56,7 @@ class FakeBackend implements SessionStorageBackend {
 	}
 
 	async append(path: string, line: string): Promise<void> {
+		this.appendCalls += 1;
 		if (this.failAppends > 0) {
 			this.failAppends -= 1;
 			throw new Error("transient backend append failure");
@@ -67,6 +72,7 @@ class FakeBackend implements SessionStorageBackend {
 		_title?: unknown,
 		expectedSize?: number | null,
 	): Promise<void> {
+		this.fullWriteCalls += 1;
 		if (this.failWrites > 0) {
 			this.failWrites -= 1;
 			throw new Error("transient backend write failure");
@@ -165,28 +171,39 @@ describe("SessionManager + indexed backend durability", () => {
 		await manager.close();
 	});
 
-	it("recovers a transient indexed append failure instead of stranding entries in memory", async () => {
+	it("continues appending after a rejected maintenance rewrite when earlier turns are durable", async () => {
 		const { backend, storage, manager } = await makeManager();
 		const sessionFile = manager.getSessionFile();
 		if (!sessionFile) throw new Error("expected a session file");
-		const before = manager.captureState().expectedDiskSize;
 
-		backend.failAppends = 1;
-		manager.appendMessage({ role: "user", content: "lost turn", timestamp: Date.now() });
-		// Let the queued publish fail and the writer latch it.
-		await manager.flush().catch(() => {});
+		manager.appendMessage({ role: "user", content: "durable turn", timestamp: Date.now() });
+		await manager.flush();
+		await storage.drain();
+		const durableEntry = manager
+			.getEntries()
+			.find(entry => entry.type === "message" && entry.message.role === "user");
+		if (!durableEntry || durableEntry.type !== "message" || durableEntry.message.role !== "user") {
+			throw new Error("expected durable user entry");
+		}
+		// Maintenance mutates a turn in place before it requests a full rewrite.
+		durableEntry.message.content = "rewritten durable turn";
+
+		backend.failWrites = 1;
+		await expect(manager.rewriteEntries()).rejects.toThrow("transient backend write failure");
 		await storage.drain().catch(() => {});
+		const fullWritesBeforeRecovery = backend.fullWriteCalls;
+		const appendsBeforeRecovery = backend.appendCalls;
 
-		// A failed append must not be counted as durable.
-		expect(manager.captureState().expectedDiskSize).toBe(before);
-
-		// The next entry retries the whole in-memory transcript.
+		// Every append-only entry predates the failed rewrite. The next turn must
+		// reach the backend as an append, rather than republishing the journal.
 		manager.appendMessage({ role: "user", content: "recovered turn", timestamp: Date.now() });
 		await manager.flush().catch(() => {});
 		await storage.drain().catch(() => {});
 
+		expect(backend.fullWriteCalls).toBe(fullWritesBeforeRecovery);
+		expect(backend.appendCalls).toBe(appendsBeforeRecovery + 1);
 		const body = backend.files.get(sessionFile) ?? "";
-		expect(body).toContain("lost turn");
+		expect(body).toContain("durable turn");
 		expect(body).toContain("recovered turn");
 		expect(manager.captureState().expectedDiskSize).toBe(Buffer.byteLength(body, "utf8"));
 		await manager.close();
@@ -218,13 +235,15 @@ describe("SessionManager + indexed backend durability", () => {
 		if (!sessionFile) throw new Error("expected a session file");
 
 		// The first cold rewrite (a fresh manager materializes on the first
-		// assistant message) is rejected by the backend.
+		// assistant message) is rejected by the backend, so its first turn has
+		// not reached durable storage.
 		backend.failWrites = 1;
 		manager.appendMessage(assistantMessage("first turn"));
 		await manager.flush().catch(() => {});
 		await storage.drain().catch(() => {});
 
-		// The next append retries the whole in-memory transcript.
+		// The next entry must publish the whole in-memory journal because the
+		// first turn never landed.
 		manager.appendMessage({ role: "user", content: "second turn", timestamp: Date.now() });
 		await manager.flush().catch(() => {});
 		await storage.drain().catch(() => {});
