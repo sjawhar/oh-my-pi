@@ -11,7 +11,7 @@
 - Fixed a failed session-maintenance rewrite making every later turn republish its full transcript; turns with durable predecessors now keep appending normally.
 - Fixed agents continuing after a session persistence failure without context about the risk; the next prompt now receives a hidden warning to preserve critical work.
 - Fixed `omp --resume <path>` parsing an unchanged session file twice; large sessions now re-stat for freshness and reparse only after a change.
-- Fixed full rewrites of large file-backed sessions retaining a second transcript-sized serialization; file storage now streams the journal and verifies uncertain publication by checksum and byte length.
+- Fixed full rewrites of large file-backed sessions retaining a second transcript-sized serialization; file storage now streams the journal and verifies uncertain publication by an exact streamed comparison.
 
 ## [18.12.2] - 2026-10-18
 
