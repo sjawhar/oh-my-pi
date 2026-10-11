@@ -36,7 +36,7 @@ describe("AgentSession persistence failure context", () => {
 		session = undefined;
 	});
 
-	it("shows the agent a hidden next-turn warning after session persistence fails", async () => {
+	it("delivers one hidden next-turn warning after a session persistence failure", async () => {
 		const mock = createMockModel({ provider: "openai", id: "gpt-test", responses: [{ content: ["acknowledged"] }] });
 		const storage = new FailingRewriteStorage();
 		const sessionManager = SessionManager.create("/cwd", "/sessions", storage);
@@ -55,20 +55,27 @@ describe("AgentSession persistence failure context", () => {
 			modelRegistry: new ModelRegistry(authStorage),
 		});
 
+		await sessionManager.appendEntriesAtomically(() => sessionManager.appendCustomEntry("durable-before-rewrite"));
 		storage.failNextRewrite = true;
-		await expect(sessionManager.rewriteEntries()).rejects.toThrow("synthetic session rewrite failure");
+		await expect(
+			sessionManager.appendEntriesAtomically(() => sessionManager.appendCustomEntry("rejected-rewrite")),
+		).rejects.toThrow("synthetic session rewrite failure");
 
 		await session.prompt("continue the task");
 
-		expect(JSON.stringify(mock.calls[0]?.context.messages)).toContain("Session persistence failed");
 		const warning = session.agent.state.messages.find(
 			message => message.role === "custom" && message.customType === "session-persistence-error",
 		);
-		expect(warning).toMatchObject({
-			content: expect.stringContaining("Session persistence failed"),
-			display: false,
-			attribution: "agent",
-		});
-		await sessionManager.rewriteEntries();
+		expect(warning).toMatchObject({ display: false, attribution: "agent" });
+		if (warning?.role !== "custom" || typeof warning.content !== "string") {
+			throw new Error("Expected the persistence warning to be a hidden custom message");
+		}
+		const providerContext = JSON.stringify(mock.calls[0]?.context.messages);
+		expect(providerContext.split(warning.content).length - 1).toBe(1);
+		expect(
+			session.agent.state.messages.filter(
+				message => message.role === "custom" && message.customType === "session-persistence-error",
+			),
+		).toHaveLength(1);
 	});
 });
