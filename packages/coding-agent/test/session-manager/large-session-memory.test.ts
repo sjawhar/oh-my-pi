@@ -71,10 +71,14 @@ function sameLengthCrc32Collision(body: Uint8Array): Uint8Array {
 	return collision;
 }
 
+const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
+
 class AcknowledgementLossStorage extends FileSessionStorage {
 	failNextPublish = false;
 	corruptNextPublishedBody = false;
+	prefixNextPublishedBodyWithBom = false;
 	publishedCrcCollision = false;
+	publishedBomPrefixedBody = false;
 	readTextCalls = 0;
 
 	override async writeLinesAtomic(
@@ -92,6 +96,14 @@ class AcknowledgementLossStorage extends FileSessionStorage {
 				Bun.hash.crc32(collision) === Bun.hash.crc32(published) &&
 				!collision.every((byte, index) => byte === published[index]);
 			await fsp.writeFile(path, collision);
+		}
+		if (this.prefixNextPublishedBodyWithBom) {
+			const published = await fsp.readFile(path);
+			await fsp.writeFile(path, Buffer.concat([UTF8_BOM, published]));
+			const persisted = await fsp.readFile(path);
+			this.publishedBomPrefixedBody =
+				persisted.subarray(0, UTF8_BOM.byteLength).equals(UTF8_BOM) &&
+				persisted.subarray(UTF8_BOM.byteLength).equals(published);
 		}
 		throw new Error("simulated acknowledgement loss");
 	}
@@ -151,7 +163,8 @@ describe("large session memory guards", () => {
 		const storage = new AcknowledgementLossStorage();
 		const session = SessionManager.create(dir, path.join(dir, "sessions"), storage);
 		await session.ensureOnDisk();
-		session.appendMessage(makeAssistantMessage("persisted before acknowledgement loss"));
+		// 1- to 4-byte UTF-8 code points spanning many 64 KiB comparison windows and stream chunks.
+		session.appendMessage(makeAssistantMessage(`a${"aé中😀".repeat(20_000)}`));
 
 		storage.failNextPublish = true;
 		await expect(session.rewriteEntries()).resolves.toBeUndefined();
@@ -174,6 +187,22 @@ describe("large session memory guards", () => {
 		await expect(session.rewriteEntries()).rejects.toThrow("simulated acknowledgement loss");
 
 		expect(storage.publishedCrcCollision).toBe(true);
+		expect(storage.readTextCalls).toBe(0);
+	});
+
+	it("rejects a byte-order-mark-prefixed body after an acknowledgement loss", async () => {
+		const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "pi-rewrite-ack-bom-"));
+		tempDirs.push(dir);
+		const storage = new AcknowledgementLossStorage();
+		const session = SessionManager.create(dir, path.join(dir, "sessions"), storage);
+		await session.ensureOnDisk();
+		session.appendMessage(makeAssistantMessage("persisted before acknowledgement loss"));
+
+		storage.failNextPublish = true;
+		storage.prefixNextPublishedBodyWithBom = true;
+		await expect(session.rewriteEntries()).rejects.toThrow("simulated acknowledgement loss");
+
+		expect(storage.publishedBomPrefixedBody).toBe(true);
 		expect(storage.readTextCalls).toBe(0);
 	});
 
