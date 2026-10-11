@@ -812,29 +812,51 @@ function textMatchesLines(text: string, lines: Iterable<string>): boolean {
 	return offset === text.length;
 }
 
-interface BodyDigest {
-	bytes: number;
-	crc32: number;
-}
+/**
+ * Compare a generated JSONL body to the durable file without materializing either
+ * transcript. JSON serialization emits valid UTF-8, so fatal decoding plus exact
+ * code-unit comparison proves the file's bytes equal the intended UTF-8 body.
+ */
+async function fileMatchesLines(filePath: string, lines: Iterable<string>): Promise<boolean> {
+	const decoder = new TextDecoder("utf-8", { fatal: true });
+	const iterator = lines[Symbol.iterator]();
+	let nextLine = iterator.next();
+	let lineOffset = 0;
 
-function digestLines(lines: Iterable<string>): BodyDigest {
-	let bytes = 0;
-	let crc32 = 0;
-	for (const line of lines) {
-		bytes += Buffer.byteLength(line, "utf8");
-		crc32 = Bun.hash.crc32(line, crc32);
-	}
-	return { bytes, crc32 };
-}
+	const consume = (text: string): boolean => {
+		let textOffset = 0;
+		while (textOffset < text.length) {
+			if (nextLine.done) return false;
+			const line = nextLine.value;
+			if (lineOffset === line.length) {
+				nextLine = iterator.next();
+				lineOffset = 0;
+				continue;
+			}
+			const sharedLength = Math.min(line.length - lineOffset, text.length - textOffset);
+			for (let offset = 0; offset < sharedLength; offset++) {
+				if (line.charCodeAt(lineOffset + offset) !== text.charCodeAt(textOffset + offset)) return false;
+			}
+			lineOffset += sharedLength;
+			textOffset += sharedLength;
+		}
+		return true;
+	};
 
-async function digestFile(filePath: string): Promise<BodyDigest> {
-	let bytes = 0;
-	let crc32 = 0;
-	for await (const chunk of Bun.file(filePath).stream()) {
-		bytes += chunk.byteLength;
-		crc32 = Bun.hash.crc32(chunk, crc32);
+	try {
+		for await (const chunk of Bun.file(filePath).stream()) {
+			if (!consume(decoder.decode(chunk, { stream: true }))) return false;
+		}
+		if (!consume(decoder.decode())) return false;
+	} catch {
+		return false;
 	}
-	return { bytes, crc32 };
+
+	while (!nextLine.done && lineOffset === nextLine.value.length) {
+		nextLine = iterator.next();
+		lineOffset = 0;
+	}
+	return nextLine.done === true;
 }
 
 /** Whether `loaded` still describes the current session object without parsing it again. */
@@ -1569,11 +1591,7 @@ export class SessionManager {
 
 	/** Verify a failed acknowledgement without materializing a file-backed transcript. */
 	async #bodyMatchesStorage(sessionFile: string, body: SessionFileBody): Promise<boolean> {
-		if (this.#storage instanceof FileSessionStorage) {
-			const expected = digestLines(body.lines);
-			const actual = await digestFile(sessionFile);
-			return expected.bytes === actual.bytes && expected.crc32 === actual.crc32;
-		}
+		if (this.#storage instanceof FileSessionStorage) return fileMatchesLines(sessionFile, body.lines);
 		return textMatchesLines(await this.#storage.readText(sessionFile), body.lines);
 	}
 
