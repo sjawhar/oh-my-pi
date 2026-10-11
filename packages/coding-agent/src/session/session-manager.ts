@@ -126,6 +126,9 @@ import { recordSessionRecap, recordSessionTitle } from "./session-index";
 
 const JSONL_SUFFIX_LENGTH = ".jsonl".length;
 const DRAFT_ONLY_SESSION_MARKER = ".draft-only-session";
+const utf8Encoder = new TextEncoder();
+/** UTF-8 bytes of the intended body encoded per step when verifying a failed acknowledgement. */
+const ACK_COMPARE_WINDOW_BYTES = 1 << 16;
 const DISCARDED_ENTRY_BRANCH_MARKER = "discarded-entry-branch";
 /**
  * Read-back-and-retry passes one full rewrite makes after meeting another
@@ -813,50 +816,57 @@ function textMatchesLines(text: string, lines: Iterable<string>): boolean {
 }
 
 /**
- * Compare a generated JSONL body to the durable file without materializing either
- * transcript. JSON serialization emits valid UTF-8, so fatal decoding plus exact
- * code-unit comparison proves the file's bytes equal the intended UTF-8 body.
+ * Compare the UTF-8 encoding of a generated JSONL body to the durable file's raw
+ * bytes without materializing either transcript. Nothing is decoded, so no decoder
+ * normalization (such as dropping a leading byte-order mark) can make different
+ * bytes match.
  */
 async function fileMatchesLines(filePath: string, lines: Iterable<string>): Promise<boolean> {
-	const decoder = new TextDecoder("utf-8", { fatal: true });
 	const iterator = lines[Symbol.iterator]();
-	let nextLine = iterator.next();
-	let lineOffset = 0;
+	const expected = Buffer.allocUnsafe(ACK_COMPARE_WINDOW_BYTES);
+	let expectedLength = 0;
+	let expectedOffset = 0;
+	let line = "";
+	let lineRead = 0;
 
-	const consume = (text: string): boolean => {
-		let textOffset = 0;
-		while (textOffset < text.length) {
-			if (nextLine.done) return false;
-			const line = nextLine.value;
-			if (lineOffset === line.length) {
-				nextLine = iterator.next();
-				lineOffset = 0;
-				continue;
-			}
-			const sharedLength = Math.min(line.length - lineOffset, text.length - textOffset);
-			for (let offset = 0; offset < sharedLength; offset++) {
-				if (line.charCodeAt(lineOffset + offset) !== text.charCodeAt(textOffset + offset)) return false;
-			}
-			lineOffset += sharedLength;
-			textOffset += sharedLength;
+	/** Encode the next window of the body into `expected`; false once the body is exhausted. */
+	const encodeNextWindow = (): boolean => {
+		while (lineRead === line.length) {
+			const next = iterator.next();
+			if (next.done) return false;
+			line = next.value;
+			lineRead = 0;
 		}
+		// `encodeInto` never splits a code point, and the window always fits one.
+		const { read, written } = utf8Encoder.encodeInto(line.slice(lineRead), expected);
+		lineRead += read;
+		expectedLength = written;
+		expectedOffset = 0;
 		return true;
 	};
 
 	try {
 		for await (const chunk of Bun.file(filePath).stream()) {
-			if (!consume(decoder.decode(chunk, { stream: true }))) return false;
+			let chunkOffset = 0;
+			while (chunkOffset < chunk.byteLength) {
+				if (expectedOffset === expectedLength && !encodeNextWindow()) return false;
+				const sharedLength = Math.min(expectedLength - expectedOffset, chunk.byteLength - chunkOffset);
+				const differs = expected.compare(
+					chunk,
+					chunkOffset,
+					chunkOffset + sharedLength,
+					expectedOffset,
+					expectedOffset + sharedLength,
+				);
+				if (differs !== 0) return false;
+				expectedOffset += sharedLength;
+				chunkOffset += sharedLength;
+			}
 		}
-		if (!consume(decoder.decode())) return false;
 	} catch {
 		return false;
 	}
-
-	while (!nextLine.done && lineOffset === nextLine.value.length) {
-		nextLine = iterator.next();
-		lineOffset = 0;
-	}
-	return nextLine.done === true;
+	return expectedOffset === expectedLength && !encodeNextWindow();
 }
 
 /** Whether `loaded` still describes the current session object without parsing it again. */
