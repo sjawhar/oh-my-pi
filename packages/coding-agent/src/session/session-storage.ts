@@ -177,7 +177,7 @@ export interface SessionStorage {
 	 * materializing it as one string. Optional; callers on backends without
 	 * it join the lines and call {@link writeTextSync}.
 	 */
-	writeLinesSync?(path: string, lines: readonly string[], options?: SessionStorageWriteOptions): void;
+	writeLinesSync?(path: string, lines: Iterable<string>, options?: SessionStorageWriteOptions): void;
 	/**
 	 * Update the current session title through the storage backend.
 	 *
@@ -210,7 +210,7 @@ export interface SessionStorage {
 	writeText(path: string, content: string): Promise<void>;
 	writeTextAtomic(path: string, content: string, options?: WriteTextAtomicOptions): Promise<void>;
 	/** Streaming {@link writeTextAtomic}, optional on the same terms as {@link writeLinesSync}. */
-	writeLinesAtomic?(path: string, lines: readonly string[], options?: WriteTextAtomicOptions): Promise<void>;
+	writeLinesAtomic?(path: string, lines: Iterable<string>, options?: WriteTextAtomicOptions): Promise<void>;
 	rename(path: string, nextPath: string): Promise<void>;
 	unlink(path: string): Promise<void>;
 	deleteSessionWithArtifacts(sessionPath: string): Promise<void>;
@@ -637,11 +637,17 @@ export function tryAcquireSessionLease(sessionId: string): FileLockHandle | null
 const LINE_STREAM_CHUNK = 1 << 20;
 
 /** Write `lines` to a new file at `target` in bounded chunks, never holding their full concatenation. */
-function writeLinesToFileSync(target: string, lines: readonly string[]): void {
+function writeLinesToFileSync(target: string, lines: Iterable<string>): void {
 	const fd = fs.openSync(target, "w");
 	try {
 		let chunk = "";
 		for (const line of lines) {
+			if (line.length >= LINE_STREAM_CHUNK) {
+				if (chunk.length > 0) fs.writeFileSync(fd, chunk);
+				chunk = "";
+				fs.writeFileSync(fd, line);
+				continue;
+			}
 			chunk += line;
 			if (chunk.length < LINE_STREAM_CHUNK) continue;
 			fs.writeFileSync(fd, chunk);
@@ -657,7 +663,7 @@ function writeLinesToFileSync(target: string, lines: readonly string[]): void {
  * Async {@link writeLinesToFileSync} through a buffered Bun file sink.
  * `target` must be a fresh path: a sink does not truncate an existing file.
  */
-async function writeLinesToFile(target: string, lines: readonly string[]): Promise<void> {
+async function writeLinesToFile(target: string, lines: Iterable<string>): Promise<void> {
 	const sink = Bun.file(target).writer({ highWaterMark: LINE_STREAM_CHUNK });
 	try {
 		for (const line of lines) {
@@ -961,9 +967,9 @@ export class FileSessionStorage implements SessionStorage {
 	 * spy that intercepts {@link writeTextSync} still sees every full rewrite:
 	 * the lines are then joined and routed through it.
 	 */
-	writeLinesSync(fpath: string, lines: readonly string[], options?: SessionStorageWriteOptions): void {
+	writeLinesSync(fpath: string, lines: Iterable<string>, options?: SessionStorageWriteOptions): void {
 		if (this.writeTextSync !== FileSessionStorage.prototype.writeTextSync) {
-			this.writeTextSync(fpath, lines.join(""), options);
+			this.writeTextSync(fpath, Array.from(lines).join(""), options);
 			return;
 		}
 		this.#publishSync(fpath, tempPath => writeLinesToFileSync(tempPath, lines), options);
@@ -1099,9 +1105,9 @@ export class FileSessionStorage implements SessionStorage {
 	 * subclass or spy that intercepts {@link writeTextAtomic} still sees every
 	 * full rewrite: the lines are then joined and routed through it.
 	 */
-	async writeLinesAtomic(fpath: string, lines: readonly string[], options?: WriteTextAtomicOptions): Promise<void> {
+	async writeLinesAtomic(fpath: string, lines: Iterable<string>, options?: WriteTextAtomicOptions): Promise<void> {
 		if (this.writeTextAtomic !== FileSessionStorage.prototype.writeTextAtomic) {
-			return this.writeTextAtomic(fpath, lines.join(""), options);
+			return this.writeTextAtomic(fpath, Array.from(lines).join(""), options);
 		}
 		await this.#publishAtomic(fpath, tempPath => writeLinesToFile(tempPath, lines), options);
 	}

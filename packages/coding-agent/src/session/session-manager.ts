@@ -793,23 +793,48 @@ interface SessionBodyStamp {
 
 /**
  * One full-file serialization: title slot, header, and entry lines in file
- * order plus their total UTF-8 byte length. Kept as lines so the file backend
- * streams them instead of materializing one string the size of the session.
+ * order. `lines` regenerates on every iteration so file storage can write
+ * bodies without allocating a transcript-sized array.
  */
 interface SessionFileBody {
-	lines: string[];
-	bytes: number;
+	lines: Iterable<string>;
+	readonly bytes: number;
 	stamp: SessionBodyStamp;
 }
 
 /** Whether `text` is exactly the concatenation of `lines`, compared without building it. */
-function textMatchesLines(text: string, lines: readonly string[]): boolean {
+function textMatchesLines(text: string, lines: Iterable<string>): boolean {
 	let offset = 0;
 	for (const line of lines) {
 		if (!text.startsWith(line, offset)) return false;
 		offset += line.length;
 	}
 	return offset === text.length;
+}
+
+interface BodyDigest {
+	bytes: number;
+	crc32: number;
+}
+
+function digestLines(lines: Iterable<string>): BodyDigest {
+	let bytes = 0;
+	let crc32 = 0;
+	for (const line of lines) {
+		bytes += Buffer.byteLength(line, "utf8");
+		crc32 = Bun.hash.crc32(line, crc32);
+	}
+	return { bytes, crc32 };
+}
+
+async function digestFile(filePath: string): Promise<BodyDigest> {
+	let bytes = 0;
+	let crc32 = 0;
+	for await (const chunk of Bun.file(filePath).stream()) {
+		bytes += chunk.byteLength;
+		crc32 = Bun.hash.crc32(chunk, crc32);
+	}
+	return { bytes, crc32 };
 }
 
 /** Whether `loaded` still describes the current session object without parsing it again. */
@@ -1480,7 +1505,7 @@ export class SessionManager {
 		try {
 			await (this.#storage.writeLinesAtomic
 				? this.#storage.writeLinesAtomic(target, body.lines, options)
-				: this.#storage.writeTextAtomic(target, body.lines.join(""), options));
+				: this.#storage.writeTextAtomic(target, Array.from(body.lines).join(""), options));
 		} catch (error) {
 			const retryPath = await this.#recoverFromWriteConflict(error, recoveries);
 			if (retryPath) return this.#publishAuthoritativeBody(retryPath, operationError, commitGuard, recoveries + 1);
@@ -1490,15 +1515,14 @@ export class SessionManager {
 			} catch (drainFailure) {
 				recoveryErrors.push(toError(drainFailure));
 			}
-			let actual: string;
 			try {
-				actual = await this.#storage.readText(target);
+				if (!(await this.#bodyMatchesStorage(target, body))) {
+					recoveryErrors.push(new Error("Authoritative session repair did not match durable storage."));
+					throw this.#latchIndeterminate(operationError, recoveryErrors);
+				}
 			} catch (readFailure) {
+				if (readFailure instanceof SessionPersistenceIndeterminateError) throw readFailure;
 				recoveryErrors.push(toError(readFailure));
-				throw this.#latchIndeterminate(operationError, recoveryErrors);
-			}
-			if (!textMatchesLines(actual, body.lines)) {
-				recoveryErrors.push(new Error("Authoritative session repair did not match durable storage."));
 				throw this.#latchIndeterminate(operationError, recoveryErrors);
 			}
 		}
@@ -1541,6 +1565,16 @@ export class SessionManager {
 		this.#expectedDiskSize = bytes;
 		this.#firstUndurableEntryIndex = undefined;
 		this.#clearDiskError();
+	}
+
+	/** Verify a failed acknowledgement without materializing a file-backed transcript. */
+	async #bodyMatchesStorage(sessionFile: string, body: SessionFileBody): Promise<boolean> {
+		if (this.#storage instanceof FileSessionStorage) {
+			const expected = digestLines(body.lines);
+			const actual = await digestFile(sessionFile);
+			return expected.bytes === actual.bytes && expected.crc32 === actual.crc32;
+		}
+		return textMatchesLines(await this.#storage.readText(sessionFile), body.lines);
 	}
 
 	/**
@@ -1589,26 +1623,51 @@ export class SessionManager {
 		});
 	}
 
-	/** Serialize the whole file — title slot, header, entries — as lines, stamped with the state they came from. */
+	/** Serialize the whole file lazily, retaining only one JSONL record at a time. */
 	#serializeBody(): SessionFileBody {
 		const titleLine = this.#titleSlotLine();
 		const headerLine = this.#lineFor(this.#header);
 		const entries = this.#entries;
-		const lines = [titleLine, headerLine];
-		let bytes = Buffer.byteLength(titleLine, "utf8") + Buffer.byteLength(headerLine, "utf8");
-		for (const entry of entries) {
-			const line = this.#lineFor(entry);
-			bytes += Buffer.byteLength(line, "utf8");
-			lines.push(line);
-		}
+		const entryCount = entries.length;
+		const manager = this;
+		let bytes = 0;
+		const lines: Iterable<string> = {
+			*[Symbol.iterator]() {
+				bytes = 0;
+				let bytesSinceGc = 0;
+				for (const line of [titleLine, headerLine]) {
+					const lineBytes = Buffer.byteLength(line, "utf8");
+					bytes += lineBytes;
+					bytesSinceGc += lineBytes;
+					yield line;
+				}
+				for (let index = 0; index < entryCount; index++) {
+					const line = manager.#lineFor(entries[index]!);
+					const lineBytes = Buffer.byteLength(line, "utf8");
+					bytes += lineBytes;
+					bytesSinceGc += lineBytes;
+					yield line;
+					if (bytesSinceGc >= 64 * 1024 * 1024) {
+						Bun.gc(false);
+						bytesSinceGc = 0;
+					}
+				}
+			},
+		};
 		const stamp: SessionBodyStamp = {
 			entries,
-			entryCount: entries.length,
+			entryCount,
 			lastEntry: entries.at(-1),
 			revision: this.#bodyRevision,
 			prefix: titleLine + headerLine,
 		};
-		return { lines, bytes, stamp };
+		return {
+			lines,
+			get bytes() {
+				return bytes;
+			},
+			stamp,
+		};
 	}
 
 	#historyContainsAssistantMessage(): boolean {
@@ -1660,7 +1719,7 @@ export class SessionManager {
 				try {
 					const options = { expectedSize: this.#expectedDiskSize };
 					if (this.#storage.writeLinesSync) this.#storage.writeLinesSync(targetPath, body.lines, options);
-					else this.#storage.writeTextSync(targetPath, body.lines.join(""), options);
+					else this.#storage.writeTextSync(targetPath, Array.from(body.lines).join(""), options);
 					break;
 				} catch (err) {
 					const retryPath = this.#recoverFromWriteConflictSync(err, recoveries);
@@ -1794,7 +1853,7 @@ export class SessionManager {
 				try {
 					await (this.#storage.writeLinesAtomic
 						? this.#storage.writeLinesAtomic(sessionFile, body.lines, options)
-						: this.#storage.writeTextAtomic(sessionFile, body.lines.join(""), options));
+						: this.#storage.writeTextAtomic(sessionFile, Array.from(body.lines).join(""), options));
 				} catch (error) {
 					if (await this.#recoverFromWriteConflict(error, recoveries)) {
 						recoveries++;
@@ -1802,14 +1861,7 @@ export class SessionManager {
 						this.#atomicRewriteDirty = true;
 						continue;
 					}
-					try {
-						if (textMatchesLines(await this.#storage.readText(sessionFile), body.lines)) {
-							this.#recordFullRewrite(body.bytes);
-						}
-					} catch {
-						// Preserve the publish error when durable state cannot be read back.
-					}
-					throw error;
+					if (!(await this.#bodyMatchesStorage(sessionFile, body))) throw error;
 				}
 				if (this.#diskEpoch !== epoch) {
 					try {
