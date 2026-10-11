@@ -115,6 +115,20 @@ class AcknowledgementLossStorage extends FileSessionStorage {
 	}
 }
 
+class UnreadableAfterFailedPublishStorage extends MemorySessionStorage {
+	failNextPublish = false;
+
+	override async writeTextAtomic(path: string, content: string, options?: WriteTextAtomicOptions): Promise<void> {
+		if (!this.failNextPublish) return super.writeTextAtomic(path, content, options);
+		throw new Error("simulated publish failure");
+	}
+
+	override readText(path: string): Promise<string> {
+		if (this.failNextPublish) return Promise.reject(new Error("simulated readback failure"));
+		return super.readText(path);
+	}
+}
+
 function makeAssistantMessage(text: string) {
 	const model = getBundledModel("anthropic", "claude-sonnet-4-5");
 	if (!model) throw new Error("Expected built-in anthropic model to exist");
@@ -204,6 +218,16 @@ describe("large session memory guards", () => {
 
 		expect(storage.publishedBomPrefixedBody).toBe(true);
 		expect(storage.readTextCalls).toBe(0);
+	});
+
+	it("reports the publish error when a failed acknowledgement cannot be read back", async () => {
+		const storage = new UnreadableAfterFailedPublishStorage();
+		const session = SessionManager.create("/work", "/sessions", storage);
+		await session.ensureOnDisk();
+		session.appendMessage(makeAssistantMessage("persisted before the failed publish"));
+
+		storage.failNextPublish = true;
+		await expect(session.rewriteEntries()).rejects.toThrow("simulated publish failure");
 	});
 
 	it("elides superseded compactions only in the forward transcript", async () => {

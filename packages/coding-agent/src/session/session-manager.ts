@@ -1774,7 +1774,6 @@ export class SessionManager {
 					// A newer deferred publish owns the durability record now;
 					// this body is no longer on the backend, so record nothing.
 					if (generation !== this.#deferredPublishGen) return;
-					this.#recordFullRewrite(bytes);
 					const entries = this.#entries;
 					const bodyIsCurrent =
 						stamp.entries === entries &&
@@ -1784,16 +1783,19 @@ export class SessionManager {
 						stamp.prefix === this.#titleSlotLine() + this.#lineFor(this.#header);
 					if (!bodyIsCurrent) {
 						// Entries raced the unconfirmed publish: the confirmed
-						// body predates them. Stay non-current and re-issue the
-						// full transcript instead of declaring it durable
-						// (rvEW); the re-issued publish carries the
-						// just-confirmed size token, so its queue-time check
-						// passes.
+						// body predates them. Record only its size, so a failure
+						// latched since it was issued still stands, stay
+						// non-current and re-issue the full transcript instead
+						// of declaring it durable (rvEW); the re-issued publish
+						// carries the just-confirmed size token, so its
+						// queue-time check passes.
+						this.#expectedDiskSize = bytes;
 						this.#fileIsCurrent = false;
 						this.#rewriteRequired = true;
 						this.#rewriteSynchronously();
 						return;
 					}
+					this.#recordFullRewrite(bytes);
 					if (!this.#sessionFileRelocating || targetPath === this.#sessionFile) {
 						this.#fileIsCurrent = true;
 						this.#materializeBreadcrumb();
@@ -1889,7 +1891,22 @@ export class SessionManager {
 						this.#atomicRewriteDirty = true;
 						continue;
 					}
-					if (!(await this.#bodyMatchesStorage(sessionFile, body))) throw error;
+					let landed = false;
+					try {
+						landed = await this.#bodyMatchesStorage(sessionFile, body);
+					} catch {
+						// Preserve the publish error when durable state cannot be read back.
+					}
+					if (!landed) throw error;
+					// A body proven durable despite its failed acknowledgement has published, except while an
+					// atomic entry batch is open: the body carries the batch's uncommitted entries, so the
+					// batch must still see the failure and roll them back. Recording the landed size lets the
+					// rollback's repair replace that body instead of adopting the staged entries back as
+					// another writer's.
+					if (this.#atomicEntryBatch) {
+						this.#expectedDiskSize = body.bytes;
+						throw error;
+					}
 				}
 				if (this.#diskEpoch !== epoch) {
 					try {
