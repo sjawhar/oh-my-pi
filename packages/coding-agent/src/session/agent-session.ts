@@ -2587,21 +2587,7 @@ export class AgentSession implements SettingsScope {
 		// (session persistence, hooks, auto-compaction, retry logic)
 		this.#unsubscribeAgent = this.agent.subscribe(this.#handleAgentEvent);
 		this.#unsubscribeQueueChange = this.agent.onQueueChange(() => this.#emitQueueUpdateIfChanged());
-		this.addDisposer(
-			this.sessionManager.onPersistenceError(() => {
-				this.#queueHiddenNextTurnMessage(
-					{
-						role: "custom",
-						customType: "session-persistence-error",
-						content: prompt.render(sessionPersistenceErrorPrompt),
-						display: false,
-						attribution: "agent",
-						timestamp: Date.now(),
-					},
-					false,
-				);
-			}),
-		);
+		this.addDisposer(this.sessionManager.onPersistenceError(() => this.#queuePersistenceFailureMessage()));
 		// Re-evaluate append-only context mode when the setting changes at runtime.
 		cfgProviderAppendOnlyContext.listen(this, () => this.#syncAppendOnlyContext(this.model));
 		cfgModelRoles.listen(this, () => this.#advisors.reconcileModelRoles());
@@ -6215,6 +6201,10 @@ export class AgentSession implements SettingsScope {
 		this.#releaseQueuedTtsrReservations();
 		this.agent.reset();
 		this.#pendingNextTurnMessages = [];
+		// The manager reports a latched persistence failure once. A clear removes
+		// its previous hidden warning with the old context, so queue a replacement
+		// for the first post-clear turn while persistence is still unavailable.
+		if (this.sessionManager.hasPersistenceFailure()) this.#queuePersistenceFailureMessage();
 		this.#experimentalContextNotesReminder = undefined;
 		this.#scheduledHiddenNextTurnGeneration = undefined;
 		// Reset the session_stop continuation chain: the queued continuation
@@ -8902,6 +8892,19 @@ export class AgentSession implements SettingsScope {
 		this.#queueHiddenNextTurnMessage(message, true);
 	}
 
+	#queuePersistenceFailureMessage(): void {
+		this.#queueHiddenNextTurnMessage(
+			{
+				role: "custom",
+				customType: "session-persistence-error",
+				content: prompt.render(sessionPersistenceErrorPrompt),
+				display: false,
+				attribution: "agent",
+				timestamp: Date.now(),
+			},
+			false,
+		);
+	}
 	queueLaunchCompletion(notification: DaemonCompletionNotification): Promise<void> {
 		if (this.#isDisposed) return Promise.reject(new Error("Session disposed before launch completion delivery"));
 		const delivered = this.yieldQueue.enqueueWithReceipt<LaunchCompletionEntry>(

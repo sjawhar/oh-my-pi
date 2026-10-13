@@ -96,6 +96,7 @@ import {
 	resolveBlobRefsInEntries,
 	resolveBlobRefsInEntriesSync,
 	type SessionLoadResult,
+	sessionContentDigest,
 	visitEntriesFromFile,
 } from "./session-loader";
 import { generateId, migrateToCurrentVersion } from "./session-migrations";
@@ -869,15 +870,20 @@ async function fileMatchesLines(filePath: string, lines: Iterable<string>): Prom
 	return expectedOffset === expectedLength && !encodeNextWindow();
 }
 
-/** Whether `loaded` still describes the current session object without parsing it again. */
-function sessionSnapshotIsCurrent(storage: SessionStorage, filePath: string, loaded: SessionLoadResult): boolean {
-	if (loaded.sourceSize === undefined || loaded.sourceMtimeMs === undefined) return false;
-	const current = storage.statSync(filePath);
-	return (
-		current.size === loaded.sourceSize &&
-		current.mtimeMs === loaded.sourceMtimeMs &&
-		current.identity === loaded.sourceIdentity
-	);
+/**
+ * Whether `loaded` still describes the current session object without parsing
+ * it again. Size, mtime, and inode are not authoritative (an in-place rewrite
+ * can keep all three, and an indexed backend's stat reads only its local
+ * index), so this compares a digest of the current content with the one taken
+ * while parsing. A session that is gone throws ENOENT.
+ */
+async function sessionSnapshotIsCurrent(
+	storage: SessionStorage,
+	filePath: string,
+	loaded: SessionLoadResult,
+): Promise<boolean> {
+	if (loaded.sourceDigest === undefined) return false;
+	return (await sessionContentDigest(filePath, storage)) === loaded.sourceDigest;
 }
 
 /**
@@ -1822,6 +1828,12 @@ export class SessionManager {
 				this.#hasTitleSlot = true;
 			}
 		} catch (err) {
+			// Every caller rewrites because memory holds state the store lacks (an
+			// append made inside a fence, relocation, or repair window, a new branch's
+			// file), so a failed rewrite leaves that state undurable: the next write
+			// must republish it rather than append after the missing records.
+			this.#fileIsCurrent = false;
+			this.#rewriteRequired = true;
 			this.#noteDiskFailure(err);
 		}
 	}
@@ -2105,6 +2117,7 @@ export class SessionManager {
 	#resetToNewSession(options?: NewSessionOptions, forcedSessionFile?: string): string | undefined {
 		this.#diskTail = Promise.resolve();
 		this.#clearDiskError();
+		this.#firstUndurableEntryIndex = undefined;
 		this.#expectedDiskSize = null;
 		this.#reconcileSessionDirForFallback();
 		if (options?.sessionDir && this.#persist) {
@@ -2443,6 +2456,7 @@ export class SessionManager {
 	): Promise<void> {
 		await this.#drainAndCloseWriter();
 		this.#clearDiskError();
+		this.#firstUndurableEntryIndex = undefined;
 		this.#draftOnlySessionCleanupArmed = false;
 		// A switch gives up the previous file. Opening claims nothing: the first
 		// write does, so inspecting a session never counts as owning it.
@@ -3411,6 +3425,11 @@ export class SessionManager {
 		};
 	}
 
+	/** Whether a persistence failure remains latched for the current session file. */
+	hasPersistenceFailure(): boolean {
+		return this.#diskFailure !== undefined;
+	}
+
 	/**
 	 * Subscribe to persistence failures so hosts can surface lost-durability state.
 	 *
@@ -3966,6 +3985,7 @@ export class SessionManager {
 		if (!entry) return;
 		const children = this.#index.childrenOf(entryId);
 		const canReparentChildren = children.every(child => child.type === "service_tier_change");
+		const structuralMutationStart = this.#entries.indexOf(entry);
 		let leafId = entry.parentId;
 		if (canReparentChildren) {
 			for (const child of children) {
@@ -3979,6 +3999,17 @@ export class SessionManager {
 			kind: DISCARDED_ENTRY_BRANCH_MARKER,
 			discardedEntryId: entryId,
 		});
+		if (canReparentChildren && structuralMutationStart >= 0) {
+			// The marker append cannot describe the removed entry or its reparented
+			// children. If this rewrite fails, a later hot append would make the
+			// stale on-disk tree the one a restart reconstructs.
+			this.#firstUndurableEntryIndex = Math.min(
+				this.#firstUndurableEntryIndex ?? structuralMutationStart,
+				structuralMutationStart,
+			);
+			this.#fileIsCurrent = false;
+			this.#rewriteRequired = true;
+		}
 		await this.rewriteEntries();
 	}
 
@@ -4312,7 +4343,10 @@ export class SessionManager {
 		storage: SessionStorage = new FileSessionStorage(),
 		options?: { initialCwd?: string; parentSession?: string; suppressBreadcrumb?: boolean; throwIfMissing?: boolean },
 	): Promise<SessionManager> {
-		const probed = await loadSessionFile(filePath, storage, { throwIfMissing: options?.throwIfMissing });
+		const probed = await loadSessionFile(filePath, storage, {
+			throwIfMissing: options?.throwIfMissing,
+			digest: options?.throwIfMissing,
+		});
 		const header = probed.entries.find(entry => entry.type === "session") as SessionHeader | undefined;
 		// Resume into the session's recorded cwd only when it is verifiably
 		// accessible. A deleted or permission-blocked (macOS TCC denial) project
@@ -4330,13 +4364,13 @@ export class SessionManager {
 				: path.dirname(path.resolve(filePath)));
 		const manager = new SessionManager(cwd, dir, true, storage);
 		manager.#suppressBreadcrumb = options?.suppressBreadcrumb === true;
-		// Fail-closed callers yield while probing the recorded cwd. Re-stat the
-		// snapshot before adoption and parse again only if its bytes, mtime, or
-		// backing-object identity changed. A deleted, truncated, or replaced
-		// transcript then still fails closed without a second parse of a stable
-		// multi-gigabyte session.
+		// Fail-closed callers yield while probing the recorded cwd. Before
+		// adoption, digest the current content and parse again only if it
+		// differs from the snapshot parsed above. A deleted, truncated, or
+		// replaced transcript then still fails closed, and a stable
+		// multi-gigabyte session is read once more but parsed only once.
 		const loaded =
-			options?.throwIfMissing && !sessionSnapshotIsCurrent(storage, filePath, probed)
+			options?.throwIfMissing && !(await sessionSnapshotIsCurrent(storage, filePath, probed))
 				? await loadSessionFile(filePath, storage, { throwIfMissing: true })
 				: probed;
 		await manager.#setSessionFile(filePath, loaded, {

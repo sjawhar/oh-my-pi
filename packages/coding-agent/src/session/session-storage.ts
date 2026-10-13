@@ -60,8 +60,6 @@ export interface SessionStorageStat {
 	size: number;
 	mtimeMs: number;
 	mtime: Date;
-	/** Stable backing-object identity when the storage can provide one. */
-	identity?: string;
 }
 
 export interface SessionStorageWriter {
@@ -1034,12 +1032,7 @@ export class FileSessionStorage implements SessionStorage {
 
 	statSync(path: string): SessionStorageStat {
 		const stats = fs.statSync(path);
-		return {
-			size: stats.size,
-			mtimeMs: stats.mtimeMs,
-			mtime: stats.mtime,
-			identity: `${stats.dev}:${stats.ino}`,
-		};
+		return { size: stats.size, mtimeMs: stats.mtimeMs, mtime: stats.mtime };
 	}
 
 	listFilesSync(dir: string, pattern: string): string[] {
