@@ -415,6 +415,78 @@ describe("SessionManager JSONL software-crash durability", () => {
 		await reloaded.close();
 	});
 
+	it("republishes a discarded structural change before later appends survive a restart", async () => {
+		const storage = new MemorySessionStorage();
+		const manager = SessionManager.create("/cwd", "/sessions", storage);
+		await manager.ensureOnDisk();
+		const sessionFile = manager.getSessionFile();
+		if (!sessionFile) throw new Error("Expected a persisted session file path");
+
+		const priorId = manager.appendMessage(assistantMessage("prior turn"));
+		const discardedId = manager.appendMessage(assistantMessage("discarded turn"));
+		const serviceTierId = manager.appendServiceTierChange(null);
+		const rewrite = spyOn(storage, "writeTextAtomic").mockRejectedValueOnce(
+			new Error("synthetic discarded-entry rewrite failure"),
+		);
+		try {
+			await expect(manager.discardEntryDurably(discardedId)).rejects.toThrow(
+				"synthetic discarded-entry rewrite failure",
+			);
+		} finally {
+			rewrite.mockRestore();
+		}
+
+		const markerId = manager.getBranch().at(-1)?.id;
+		if (!markerId) throw new Error("Expected a discarded-entry branch marker");
+		const laterId = manager.appendMessage({ role: "user", content: "after failed discard", timestamp: Date.now() });
+
+		const reloaded = await SessionManager.open(sessionFile, "/sessions", storage, { suppressBreadcrumb: true });
+		try {
+			// A restart consumes the persisted branch, not this manager's in-memory tree.
+			expect(reloaded.getBranch().map(entry => entry.id)).toEqual([priorId, serviceTierId, markerId, laterId]);
+			expect(reloaded.getBranch().some(entry => entry.id === discardedId)).toBe(false);
+		} finally {
+			await reloaded.close();
+			await manager.close().catch(() => undefined);
+		}
+	});
+
+	it("does not carry a failed append recovery into the first append after switching sessions", async () => {
+		class FailingAppendStorage extends MemorySessionStorage {
+			failNextAppend = false;
+
+			override appendSync(path: string, chunk: string): void {
+				if (this.failNextAppend) {
+					this.failNextAppend = false;
+					throw new Error("synthetic append failure");
+				}
+				super.appendSync(path, chunk);
+			}
+		}
+
+		const storage = new FailingAppendStorage();
+		const manager = SessionManager.create("/cwd", "/sessions", storage);
+		await manager.ensureOnDisk();
+		storage.failNextAppend = true;
+		manager.appendMessage({ role: "user", content: "lost in the old session", timestamp: Date.now() });
+
+		const replacement = SessionManager.create("/cwd", "/sessions", storage);
+		await replacement.ensureOnDisk();
+		const replacementFile = replacement.getSessionFile();
+		if (!replacementFile) throw new Error("Expected replacement session file");
+		await replacement.close();
+
+		await manager.setSessionFile(replacementFile);
+		const fullRewrite = spyOn(storage, "writeTextSync");
+		try {
+			manager.appendMessage({ role: "user", content: "first turn in the new session", timestamp: Date.now() });
+			expect(fullRewrite).not.toHaveBeenCalled();
+		} finally {
+			fullRewrite.mockRestore();
+			await manager.close().catch(() => undefined);
+		}
+	});
+
 	it("persists a branch marker when a discarded entry has content children", async () => {
 		const cwd = makeTempDir("@pi-discard-content-cwd-");
 		const sessionDir = path.join(cwd, "sessions");
