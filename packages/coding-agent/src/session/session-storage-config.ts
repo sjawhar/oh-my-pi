@@ -32,6 +32,13 @@ const SESSION_SQL_DSN_FILE_ENV = "OMP_SESSION_SQL_DSN_FILE";
 const SESSION_STORAGE_SETTING = cfgSessionStorage.id;
 const SESSION_SQL_DSN_FILE_SETTING = cfgSessionSqlDsnFile.id;
 
+// Bun opens every connection in a pool on its first query. Two connections let
+// a separate-path append proceed while a rename holds its transaction, without
+// spending Bun's default ten database backends for every omp process. Return
+// them between turns; a lifetime cap would only churn actively used connections.
+const SESSION_SQL_POOL_MAX = 2;
+const SESSION_SQL_POOL_IDLE_TIMEOUT_SECONDS = 5;
+
 /** A session-storage configuration the process refuses to start with. */
 export class SessionStorageConfigError extends Error {
 	constructor(message: string, options?: ErrorOptions) {
@@ -82,7 +89,7 @@ export async function resolveSessionStorage({ settings, env }: ResolveSessionSto
 
 	let client: SQL;
 	try {
-		client = new SQL(dsn);
+		client = new SQL(dsn, { max: SESSION_SQL_POOL_MAX, idleTimeout: SESSION_SQL_POOL_IDLE_TIMEOUT_SECONDS });
 	} catch {
 		throw new SessionStorageConfigError(
 			`${source} names ${dsnFile}, but its contents are not a connection URL the database driver accepts`,
