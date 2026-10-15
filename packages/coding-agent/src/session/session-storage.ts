@@ -195,6 +195,13 @@ export interface SessionStorage {
 	 * them, and reports the conflict instead on backends without it.
 	 */
 	readTextSync?(path: string): string;
+	/**
+	 * Synchronously read the UTF-8 bytes `[start, end)` of the file, or fewer
+	 * when it ends sooner. Optional: `SessionManager` reads back only what
+	 * another writer appended past the bytes it accounts for, and republishes
+	 * instead on backends without it.
+	 */
+	readTextRangeSync?(path: string, start: number, end: number): string;
 	/** Read the requested UTF-8 byte windows from the head and tail of the file. */
 	readTextSlices(path: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]>;
 	/**
@@ -563,8 +570,25 @@ function sessionOwnersDir(): string {
 	return testSessionOwnersDir() ?? getSessionOwnersDir();
 }
 
-/** Bytes read to find a header at claim time: the title slot plus a header line fit well inside. */
-const SESSION_HEADER_PREFIX_BYTES = 64 * 1024;
+/** Bytes read to find a header: the title slot plus a header line fit well inside. */
+export const SESSION_HEADER_PREFIX_BYTES = 64 * 1024;
+
+/**
+ * The session id in the header at the start of `prefix` (past the title
+ * slot), or `undefined` when the prefix holds no complete session header.
+ */
+export function sessionHeaderIdInPrefix(prefix: string): string | undefined {
+	if (parseTitleSlotFromContent(prefix)) prefix = prefix.slice(prefix.indexOf("\n") + 1);
+	const end = prefix.indexOf("\n");
+	if (end === -1) return undefined;
+	try {
+		const entry: unknown = JSON.parse(prefix.slice(0, end));
+		if (entry && typeof entry === "object" && "type" in entry && entry.type === "session" && "id" in entry) {
+			return typeof entry.id === "string" ? entry.id : undefined;
+		}
+	} catch {}
+	return undefined;
+}
 
 /**
  * The session id in the header of the file at `sessionPath`, read
@@ -584,16 +608,7 @@ function readSessionHeaderIdSync(sessionPath: string): string | undefined {
 	} catch {
 		return undefined;
 	}
-	if (parseTitleSlotFromContent(prefix)) prefix = prefix.slice(prefix.indexOf("\n") + 1);
-	const end = prefix.indexOf("\n");
-	if (end === -1) return undefined;
-	try {
-		const entry: unknown = JSON.parse(prefix.slice(0, end));
-		if (entry && typeof entry === "object" && "type" in entry && entry.type === "session" && "id" in entry) {
-			return typeof entry.id === "string" ? entry.id : undefined;
-		}
-	} catch {}
-	return undefined;
+	return sessionHeaderIdInPrefix(prefix);
 }
 
 /**
@@ -1064,6 +1079,22 @@ export class FileSessionStorage implements SessionStorage {
 
 	readTextSync(path: string): string {
 		return fs.readFileSync(path, "utf8");
+	}
+
+	readTextRangeSync(path: string, start: number, end: number): string {
+		const fd = fs.openSync(path, "r");
+		try {
+			const buffer = Buffer.allocUnsafe(Math.max(0, end - start));
+			let read = 0;
+			while (read < buffer.length) {
+				const n = fs.readSync(fd, buffer, read, buffer.length - read, start + read);
+				if (n === 0) break;
+				read += n;
+			}
+			return buffer.toString("utf8", 0, read);
+		} finally {
+			fs.closeSync(fd);
+		}
 	}
 
 	async readTextSlices(path: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]> {
@@ -1690,6 +1721,26 @@ export class MemorySessionStorage implements SessionStorage {
 		const entry = this.#files.get(path);
 		if (!entry) throw memoryFileNotFound(path);
 		return materializeMemoryEntry(entry);
+	}
+
+	readTextRangeSync(path: string, start: number, end: number): string {
+		const entry = this.#files.get(path);
+		if (!entry) throw memoryFileNotFound(path);
+		const from = Math.max(0, Math.min(start, entry.size));
+		const to = Math.max(from, Math.min(end, entry.size));
+		let text = "";
+		for (let i = upperBound(entry.cumulativeBytes, from); i < entry.chunks.length; i++) {
+			const chunkStart = i === 0 ? 0 : entry.cumulativeBytes[i - 1];
+			if (chunkStart >= to) break;
+			const chunkEnd = entry.cumulativeBytes[i];
+			text += decodeChunkByteRange(
+				entry.chunks[i],
+				Math.max(from, chunkStart) - chunkStart,
+				Math.min(to, chunkEnd) - chunkStart,
+				chunkEnd - chunkStart,
+			);
+		}
+		return text;
 	}
 
 	readTextSlices(path: string, prefixBytes: number, suffixBytes: number): Promise<[string, string]> {

@@ -6201,10 +6201,6 @@ export class AgentSession implements SettingsScope {
 		this.#releaseQueuedTtsrReservations();
 		this.agent.reset();
 		this.#pendingNextTurnMessages = [];
-		// The manager reports a latched persistence failure once. A clear removes
-		// its previous hidden warning with the old context, so queue a replacement
-		// for the first post-clear turn while persistence is still unavailable.
-		if (this.sessionManager.hasPersistenceFailure()) this.#queuePersistenceFailureMessage();
 		this.#experimentalContextNotesReminder = undefined;
 		this.#scheduledHiddenNextTurnGeneration = undefined;
 		// Reset the session_stop continuation chain: the queued continuation
@@ -6250,6 +6246,10 @@ export class AgentSession implements SettingsScope {
 		// on-disk record and the plain `transcript:true` export path keep the full
 		// pre-reset history.
 		this.sessionManager.appendResetBoundary();
+		// The manager reports a latched persistence failure once. A clear removes
+		// its previous hidden warning with the old context. Check only after the
+		// boundary append, whose full rewrite may already have recovered.
+		if (this.sessionManager.getPersistenceFailure()) this.#queuePersistenceFailureMessage();
 
 		resetCapabilities();
 		await this.refreshBaseSystemPrompt();
@@ -8285,8 +8285,10 @@ export class AgentSession implements SettingsScope {
 			// it subsumes, avoiding a contradictory materialized notice.
 			const xdevMountNoticeIndex = messages.length;
 			messages.push(message);
-			// Inject any pending "nextTurn" messages as context alongside the user message
+			// Inject pending "nextTurn" messages as context alongside the user message.
 			for (const msg of this.#pendingNextTurnMessages) {
+				if (msg.customType === "session-persistence-error" && !this.sessionManager.getPersistenceFailure())
+					continue;
 				messages.push(msg);
 			}
 			this.#pendingNextTurnMessages = [];
@@ -8893,6 +8895,9 @@ export class AgentSession implements SettingsScope {
 	}
 
 	#queuePersistenceFailureMessage(): void {
+		// The failure observer and the post-/clear check can both report one
+		// failure (a reset boundary whose own append is the first to fail).
+		if (this.#pendingNextTurnMessages.some(message => message.customType === "session-persistence-error")) return;
 		this.#queueHiddenNextTurnMessage(
 			{
 				role: "custom",

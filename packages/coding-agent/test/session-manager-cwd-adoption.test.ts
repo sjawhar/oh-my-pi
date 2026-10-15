@@ -51,6 +51,16 @@ async function writeSession(cwd: string, sessionDir: string): Promise<string> {
 	return file;
 }
 
+/** Counts whole-file reads, the I/O a resume spends on a session below the streaming threshold. */
+class CountingFileSessionStorage extends FileSessionStorage {
+	fullReads = 0;
+
+	override readText(filePath: string): Promise<string> {
+		this.fullReads++;
+		return super.readText(filePath);
+	}
+}
+
 describe("SessionManager cwd adoption on resume", () => {
 	it("adopts the resumed session's own cwd and session directory", async () => {
 		const projectA = makeTempDir("@pi-cwd-a-");
@@ -166,14 +176,6 @@ describe("SessionManager cwd adoption on resume", () => {
 		const goneProject = makeTempDir("@pi-cwd-gone-");
 		const file = await writeSession(goneProject, store);
 		await removeWithRetries(goneProject);
-		class CountingFileSessionStorage extends FileSessionStorage {
-			fullReads = 0;
-
-			override readText(filePath: string): Promise<string> {
-				this.fullReads++;
-				return super.readText(filePath);
-			}
-		}
 		const storage = new CountingFileSessionStorage();
 
 		const manager = await SessionManager.open(file, undefined, storage, { initialCwd: launch });
@@ -184,21 +186,18 @@ describe("SessionManager cwd adoption on resume", () => {
 		expect(manager.getSessionDir()).not.toBe(path.resolve(store));
 		expect(storage.fullReads).toBe(1);
 	});
-	it("parses an unchanged fail-closed session once", async () => {
+	it("reads an unchanged fail-closed session once to parse and once to confirm it is unchanged", async () => {
 		const project = makeTempDir("@pi-cwd-fail-closed-");
 		const sessionDir = path.join(project, "sessions");
 		const file = await writeSession(project, sessionDir);
-		const parse = spyOn(piUtils, "parseJsonlLenient");
-		let parses = 0;
-		try {
-			const manager = await SessionManager.open(file, undefined, new FileSessionStorage(), { throwIfMissing: true });
-			parses = parse.mock.calls.length;
-			expect(manager.getSessionFile()).toBe(path.resolve(file));
-			await manager.close();
-		} finally {
-			parse.mockRestore();
-		}
-		expect(parses).toBe(1);
+		const storage = new CountingFileSessionStorage();
+
+		const manager = await SessionManager.open(file, undefined, storage, { throwIfMissing: true });
+
+		expect(manager.getSessionFile()).toBe(path.resolve(file));
+		// A second parse of the unchanged file would read it a third time.
+		expect(storage.fullReads).toBe(2);
+		await manager.close();
 	});
 
 	it("adopts a same-length in-place rewrite made during the cwd probe that kept size, mtime, and inode", async () => {

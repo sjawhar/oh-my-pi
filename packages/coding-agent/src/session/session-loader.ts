@@ -1,3 +1,4 @@
+import * as fs from "node:fs/promises";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -30,6 +31,7 @@ const LF = new Uint8Array([0x0a]);
 
 const STREAM_LOAD_THRESHOLD_BYTES = 8 * 1024 * 1024;
 const STREAM_YIELD_BYTES = 1 * 1024 * 1024;
+const DIGEST_READ_BYTES = 1 * 1024 * 1024;
 const STREAM_YIELD_ENTRIES = 8_192;
 const BLOB_READ_CONCURRENCY = 8;
 /** Hash for snapshot freshness digests; collisions must not be producible by ordinary edits. */
@@ -441,16 +443,28 @@ function shouldStreamEntries(storage: SessionStorage, size: number): boolean {
 
 /**
  * Digest of `filePath`'s current content, read the way {@link loadSessionFile}
- * reads a file of its size: raw bytes streamed for a large file-backed journal,
- * the storage's text otherwise. Equal to a load's
+ * reads a file of its size: raw bytes for a large file-backed journal, the
+ * storage's text otherwise. Equal to a load's
  * {@link SessionLoadResult.sourceDigest} only when the content is unchanged, so
  * it is a freshness check that trusts no size, mtime, or inode. Throws ENOENT
  * when the session is gone, including a row an indexed backend no longer holds.
+ * A large journal is hashed through one reused buffer, so the check adds no
+ * memory proportional to the file on top of the parse it follows.
  */
 export async function sessionContentDigest(filePath: string, storage: SessionStorage): Promise<string> {
 	const hasher = new Bun.CryptoHasher(SNAPSHOT_DIGEST_ALGORITHM);
 	if (shouldStreamEntries(storage, storage.statSync(filePath).size)) {
-		for await (const chunk of Bun.file(filePath).stream()) hasher.update(chunk);
+		const handle = await fs.open(filePath, "r");
+		try {
+			const buffer = Buffer.allocUnsafe(DIGEST_READ_BYTES);
+			for (;;) {
+				const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null);
+				if (bytesRead === 0) break;
+				hasher.update(buffer.subarray(0, bytesRead));
+			}
+		} finally {
+			await handle.close();
+		}
 	} else {
 		hasher.update(await storage.readText(filePath));
 	}
