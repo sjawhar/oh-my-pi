@@ -32,6 +32,7 @@
 
 ### Fixed
 
+- Fixed SQL and Redis sessions stalling after a rewrite races an append; later turns now republish after the backend recovers.
 - Fixed an unconfigured `judge` role falling back to a Google Vertex Claude model (any `…@default` id) instead of your `tiny`, `smol`, and `default` models when no TypeSafe judge is available
 - Fixed `omp --resume -p` continuing stale todos after answering instead of printing the answer and exiting ([#15320](https://github.com/can1357/oh-my-pi/issues/15320)).
 - Fixed `/btw`, IRC, and composer-prediction requests missing the conversation's prompt cache on Codex, and on GPT-6 models after a thinking-level change
