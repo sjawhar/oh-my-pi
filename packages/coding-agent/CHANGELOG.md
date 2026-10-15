@@ -31,7 +31,6 @@
 - Sessions with no prompt UI (`omp -p`, subagents, headless RPC, ACP clients without form elicitation) now spend a saved Codex or Claude reset under the default `autoRedeem: unset` when it expires within 5 minutes, with a notice naming the account, instead of letting it expire; `autoRedeem: no` still never spends, and other resets still wait for consent ([#15131](https://github.com/can1357/oh-my-pi/pull/15131) by [@will-bogusz](https://github.com/will-bogusz))
 
 ### Fixed
-- Fixed SQL and Redis sessions stalling after a rewrite races an append; later turns now republish after the backend recovers.
 
 - Fixed an unconfigured `judge` role falling back to a Google Vertex Claude model (any `…@default` id) instead of your `tiny`, `smol`, and `default` models when no TypeSafe judge is available
 - Fixed `omp --resume -p` continuing stale todos after answering instead of printing the answer and exiting ([#15320](https://github.com/can1357/oh-my-pi/issues/15320)).

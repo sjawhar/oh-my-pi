@@ -3,7 +3,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 
-const TARGET_BYTES = 2 ** 31 + 32 * 1024 * 1024;
+/** argv[2]: `fail-closed` opens the way resume does (`throwIfMissing`), with its content-digest check; anything else opens plainly. */
+const FAIL_CLOSED = process.argv[2] === "fail-closed";
+/** argv[3]: synthetic session size in bytes, defaulting to just past the 2 GiB string limit. */
+const TARGET_BYTES = Number(process.argv[3] ?? 2 ** 31 + 32 * 1024 * 1024);
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-large-rewrite-"));
 const cwd = path.join(root, "project");
 const sessionDir = path.join(root, "sessions");
@@ -46,7 +49,7 @@ let manager: SessionManager | undefined;
 try {
 	const sourceBytes = await writeSyntheticSession();
 	manager = await SessionManager.open(sessionFile, sessionDir, undefined, {
-		throwIfMissing: true,
+		throwIfMissing: FAIL_CLOSED,
 		suppressBreadcrumb: true,
 	});
 	const liveBeforeRewrite = await liveBytes();
@@ -55,9 +58,7 @@ try {
 	const retainedBytes = Math.max(0, (await liveBytes()) - liveBeforeRewrite);
 	const peakBytes = process.resourceUsage().maxRSS * 1024;
 	const rewrittenBytes = (await Bun.file(sessionFile).size) ?? 0;
-	process.stdout.write(
-		JSON.stringify({ sourceBytes, rewrittenBytes, peakBytes, retainedBytes, rewriteComplete: true }),
-	);
+	process.stdout.write(JSON.stringify({ sourceBytes, rewrittenBytes, peakBytes, retainedBytes }));
 } finally {
 	await manager?.close();
 	await fs.rm(root, { recursive: true, force: true });
