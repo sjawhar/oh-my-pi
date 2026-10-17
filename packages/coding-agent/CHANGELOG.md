@@ -7,6 +7,7 @@
 - Fixed `read` rejecting artifact URLs from truncation hints when cached approvals or restricted folders are configured ([#17282](https://github.com/can1357/oh-my-pi/pull/17282) by [@iliaal](https://github.com/iliaal)).
 - A failed Hindsight memory recall (for example `recall request timed out after 30s`) now shows a warning instead of silently sending the prompt without memories; `omp -p` writes it, and Hindsight retain failures, to stderr ([#17278](https://github.com/can1357/oh-my-pi/pull/17278) by [@enieuwy](https://github.com/enieuwy))
 - Fixed cancelling an MCP OAuth login or `/mcp` auth lookup at the wrong moment crashing the session with an unhandled rejection ([#17290](https://github.com/can1357/oh-my-pi/pull/17290) by [@H4vC](https://github.com/H4vC))
+- Fixed a subagent that crosses its soft request budget and then cooperates — yielding a normal "completed" result instead of being force-stopped — reporting nothing about it to the parent; the `<task-result>` envelope and background-job follow-up hint now say the budget was crossed (with the request count and budget) and, when the agent is still a live kept-alive ref, that messaging it continues the run in the same session with full context and no new request budget.
 
 ## [18.13.3] - 2026-10-28
 
