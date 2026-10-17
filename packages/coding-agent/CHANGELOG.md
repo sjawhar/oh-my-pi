@@ -32,6 +32,7 @@
 
 ### Fixed
 
+- Fixed a subagent that crosses its soft request budget and then cooperates — yielding a normal "completed" result instead of being force-stopped — reporting nothing about it to the parent; the `<task-result>` envelope and background-job follow-up hint now say the budget was crossed (with the request count and budget) and, when the agent is still a live kept-alive ref, that messaging it continues the run in the same session with full context and no new request budget.
 - Fixed an unconfigured `judge` role falling back to a Google Vertex Claude model (any `…@default` id) instead of your `tiny`, `smol`, and `default` models when no TypeSafe judge is available
 - Fixed `omp --resume -p` continuing stale todos after answering instead of printing the answer and exiting ([#15320](https://github.com/can1357/oh-my-pi/issues/15320)).
 - Fixed `/btw`, IRC, and composer-prediction requests missing the conversation's prompt cache on Codex, and on GPT-6 models after a thinking-level change
