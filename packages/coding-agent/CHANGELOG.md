@@ -8,6 +8,7 @@
 - Fixed an edit after a restart replacing a line that `read` or `grep` had shown cut at the column cap and silently dropping the rest of that line; such edits now ask for a full `:raw` read of the line first, while edits to lines within the cap still apply ([#16171](https://github.com/can1357/oh-my-pi/issues/16171))
 - Fixed Enter on an unknown slash command such as `/not-a-command` running a command whose description happened to match it (e.g. `/loop`, which then resent every later prompt after each turn); Enter now sends what you typed, including as the deny-and-steer message for a pending tool approval, unless you select a suggestion first ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
 - Fixed `read` of web pages dropping collapsed sections such as accordion and expander panels (e.g. a product page's "Item details" table); content in `<template>`, `<noscript>` and scripts stays out ([#16246](https://github.com/can1357/oh-my-pi/issues/16246))
+- Fixed a subagent that crosses its soft request budget and then cooperates — yielding a normal "completed" result instead of being force-stopped — reporting nothing about it to the parent; the `<task-result>` envelope and background-job follow-up hint now say the budget was crossed (with the request count and budget) and, when the agent is still a live kept-alive ref, that messaging it continues the run in the same session with full context and no new request budget.
 
 ## [18.12.2] - 2026-10-18
 
