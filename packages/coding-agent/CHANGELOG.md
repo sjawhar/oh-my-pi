@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a subagent that crosses its soft request budget and then cooperates — yielding a normal "completed" result instead of being force-stopped — reporting nothing about it to the parent; the `<task-result>` envelope and background-job follow-up hint now say the budget was crossed (with the request count and budget) and, when the agent is still a live kept-alive ref, that messaging it continues the run in the same session with full context and no new request budget.
+
 ## [18.13.2] - 2026-10-27
 
 ### Added
