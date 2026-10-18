@@ -22,6 +22,8 @@
 - Fixed Kotlin, Swift, Elixir and Sass code being highlighted with the Java, Objective-C, Ruby and Haml grammars
 - Fixed code inside string interpolations (Python f-strings, Julia `$(…)`, Elixir `#{…}`) being colored as part of the string
 - Fixed `supportsLanguage` returning `true` for languages `highlightCode` leaves unhighlighted
+- Fixed the embedded shell skipping an EXIT trap set inside `( ... )`, `$( ... )`, a pipeline stage or a background job, so `trap 'rm -f "$f"' EXIT` cleanups there left their files behind
+- Fixed `exit`, `return`, `break`, `continue`, a failed expansion or a failed redirect in a pipeline stage or `$(< file)` of the embedded shell ending the whole command, so `cmd | { ...; exit 0; }; next` no longer drops `next`
 
 ## [18.8.8] - 2026-10-10
 
