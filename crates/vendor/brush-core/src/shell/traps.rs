@@ -551,6 +551,56 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn fatal_error_in_a_subshell_exit_trap_keeps_the_subshell_status() {
+		let log = run(
+			r#"( settrap ': ${nope?boom}'; exitnow ) 2>/dev/null; say "st=$?" >> "$LOG""#,
+			false,
+		)
+		.await;
+		assert_eq!(log, "st=3\n");
+	}
+
+	#[tokio::test]
+	async fn fatal_error_in_a_command_substitution_exit_trap_keeps_its_status() {
+		let log = run(
+			r#"x=$(settrap ': ${nope?boom}'; exitnow) 2>/dev/null; say "st=$?" >> "$LOG""#,
+			false,
+		)
+		.await;
+		assert_eq!(log, "st=3\n");
+	}
+
+	#[tokio::test]
+	async fn fatal_error_in_an_exit_trap_ends_only_that_trap() {
+		let log = run(
+			r#"( settrap ': ${nope?boom}; say after-fatal >> "$LOG"'; exitnow ) 2>/dev/null; say "st=$?" >> "$LOG""#,
+			false,
+		)
+		.await;
+		assert_eq!(log, "st=3\n");
+	}
+
+	#[tokio::test]
+	async fn exit_in_an_exit_trap_ends_the_trap_with_that_status() {
+		let log = run(
+			r#"( settrap 'say first >> "$LOG"; exitnow; say unreachable >> "$LOG"'; /bin/false ); say "st=$?" >> "$LOG""#,
+			false,
+		)
+		.await;
+		assert_eq!(log, "first\nst=3\n");
+	}
+
+	#[tokio::test]
+	async fn fatal_error_in_a_function_run_by_an_exit_trap_keeps_the_status() {
+		let log = run(
+			r#"g() { : ${nope?boom}; say in-g >> "$LOG"; }; ( settrap g; exitnow ) 2>/dev/null; say "st=$?" >> "$LOG""#,
+			false,
+		)
+		.await;
+		assert_eq!(log, "st=3\n");
+	}
+
+	#[tokio::test]
 	async fn exit_trap_sees_the_status_the_subshell_failed_with() {
 		let log = run(
 			r#"( settrap 'say in-trap=$? >> "$LOG"'; : ${unset_var?unset} ) 2>/dev/null"#,
