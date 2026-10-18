@@ -85,3 +85,26 @@ async fn inherited_exit_trap_does_not_run_in_a_subshell() {
 	assert_eq!(code, Some(0), "output: {output}");
 	assert!(output.starts_with("sub\nafter\n"), "output: {output}");
 }
+
+/// A fatal error in the subshell's own EXIT trap, wherever it happens, keeps
+/// the subshell's status, as in bash. `eval`, `.` and `exit` are the real
+/// builtins here.
+#[tokio::test]
+async fn fatal_error_in_an_exit_trap_keeps_the_subshell_status() {
+	let dir = tempfile::tempdir().expect("tempdir");
+	std::fs::write(dir.path().join("f.sh"), ": ${nope?boom}\n").expect("script");
+	let script = r#"
+( trap ': ${nope?boom}' EXIT; exit 4 ) 2>/dev/null; echo "direct: $?"
+( trap "eval ': \${nope?boom}'" EXIT; exit 4 ) 2>/dev/null; echo "eval: $?"
+( trap '. ./f.sh' EXIT; exit 4 ) 2>/dev/null; echo "source: $?"
+g() { : ${nope?boom}; }
+( trap g EXIT; exit 4 ) 2>/dev/null; echo "function: $?"
+( trap 'exit 6' EXIT; exit 4 ); echo "explicit exit: $?"
+"#;
+	let (code, output) = run(script, dir.path()).await;
+	assert_eq!(code, Some(0), "output: {output}");
+	assert_eq!(
+		output, "direct: 4\neval: 4\nsource: 4\nfunction: 4\nexplicit exit: 6\n",
+		"output: {output}"
+	);
+}
