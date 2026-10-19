@@ -75,6 +75,7 @@ describe("AgentSession persistence failure context", () => {
 		const sessionManager = SessionManager.create("/cwd", "/sessions", storage);
 		await sessionManager.ensureOnDisk();
 		authStorage = await AuthStorage.create(":memory:");
+		authStorage.keys.setRuntime("openai", "test-key");
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model: mock.model, systemPrompt: ["Test"], tools: [], messages: [] },
@@ -111,6 +112,7 @@ describe("AgentSession persistence failure context", () => {
 		const sessionManager = SessionManager.create("/cwd", "/sessions", storage);
 		await sessionManager.ensureOnDisk();
 		authStorage = await AuthStorage.create(":memory:");
+		authStorage.keys.setRuntime("openai", "test-key");
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model: mock.model, systemPrompt: ["Test"], tools: [], messages: [] },
@@ -147,6 +149,7 @@ describe("AgentSession persistence failure context", () => {
 		const sessionManager = SessionManager.create("/cwd", "/sessions", storage);
 		await sessionManager.ensureOnDisk();
 		authStorage = await AuthStorage.create(":memory:");
+		authStorage.keys.setRuntime("openai", "test-key");
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model: mock.model, systemPrompt: ["Test"], tools: [], messages: [] },
@@ -189,6 +192,7 @@ describe("AgentSession persistence failure context", () => {
 		const sessionManager = SessionManager.create("/cwd", "/sessions", storage);
 		await sessionManager.ensureOnDisk();
 		authStorage = await AuthStorage.create(":memory:");
+		authStorage.keys.setRuntime("openai", "test-key");
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model: mock.model, systemPrompt: ["Test"], tools: [], messages: [] },
@@ -226,6 +230,7 @@ describe("AgentSession persistence failure context", () => {
 		const sessionManager = SessionManager.create("/cwd", "/sessions", storage);
 		await sessionManager.ensureOnDisk();
 		authStorage = await AuthStorage.create(":memory:");
+		authStorage.keys.setRuntime("openai", "test-key");
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model: mock.model, systemPrompt: ["Test"], tools: [], messages: [] },
