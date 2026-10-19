@@ -43,7 +43,8 @@ class HeldSqlClient implements SqlSessionStorageClient {
 	}
 
 	unsafe(query: string, values?: unknown[]) {
-		if (this.holdNextReplace && query.startsWith("UPDATE omp_session_files SET content")) {
+		// A full rewrite replaces the session row with this upsert, after its size check and before its parts.
+		if (this.holdNextReplace && query.includes("ON CONFLICT (path) DO UPDATE SET content = excluded.content")) {
 			this.holdNextReplace = false;
 			this.replaceStarted.resolve();
 			return this.allowReplace.promise.then(() => this.#client.unsafe(query, values));
