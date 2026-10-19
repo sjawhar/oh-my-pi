@@ -3334,7 +3334,12 @@ describe("AgentSession retry fallback", () => {
 		expect(retryEndEvents[0]).toMatchObject({ success: true });
 	});
 
-	it("trusts a credential switch on the primary restored mid-saga after its cooldown", async () => {
+	// An automatic retry never restores the primary; the cooldown-expiry revert
+	// runs on the next turn. After a retry turn that settles aborted the saga's
+	// attempt counter is still running, and a queued follow-up drains without
+	// a prompt reset, so only the restore's own clear keeps the fallback's
+	// record off the restored primary.
+	it("trusts a credential switch on the primary a queued follow-up restores after its cooldown", async () => {
 		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
 		const fallbackModel = getBundledModel("anthropic", "claude-haiku-4-5");
 		if (!primaryModel || !fallbackModel) {
@@ -3351,14 +3356,16 @@ describe("AgentSession retry fallback", () => {
 			initialState: { model: primaryModel, systemPrompt: ["Test"], tools: [], messages: [] },
 			streamFn: (model, context, options) => {
 				requestedModels.push(`${model.provider}/${model.id}`);
-				const succeeds = model.id === primaryModel.id ? ++primaryRequests > 2 : ++fallbackRequests > 1;
-				if (succeeds) {
+				const onPrimary = model.id === primaryModel.id;
+				const request = onPrimary ? ++primaryRequests : ++fallbackRequests;
+				if (request > 2) {
 					mock.push({ content: [`ok:${model.provider}/${model.id}`] });
 					return mock.stream(model, context, options);
 				}
-				// The primary's cooldown runs out while the fallback is failing, so
-				// the next retry restores the primary.
-				if (model.id === fallbackModel.id) modelRegistry.clearSuppressedSelectors();
+				if (!onPrimary && request === 2) {
+					mock.push({ content: ["partial"], stopReason: "aborted" });
+					return mock.stream(model, context, options);
+				}
 				mock.push({ throw: "429 usage_limit_reached" });
 				return servedByCredential(mock.stream(model, context, options), 1);
 			},
@@ -3380,12 +3387,19 @@ describe("AgentSession retry fallback", () => {
 		});
 		const { retryEndEvents } = trackRetryEvents(session);
 
-		await session.prompt("Restore the primary mid-saga");
+		await session.prompt("Fall back, then end the retry aborted");
+		await session.waitForIdle();
+		expect(requestedModels).toEqual([primary, fallback, fallback]);
+
+		// The primary's cooldown runs out, so the follow-up's turn restores it.
+		modelRegistry.clearSuppressedSelectors();
+		await session.followUp("Continue on the restored primary");
 		await session.waitForIdle();
 
 		// Row 1's failure on the restored primary is new for that model: the
 		// claimed switch is trusted and the retry stays on the primary.
-		expect(requestedModels).toEqual([primary, fallback, primary, primary]);
+		expect(requestedModels).toEqual([primary, fallback, fallback, primary, primary]);
+		expect(session.model?.id).toBe(primaryModel.id);
 		expect(retryEndEvents).toHaveLength(1);
 		expect(retryEndEvents[0]).toMatchObject({ success: true });
 	});
