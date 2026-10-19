@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Fixed `read` middle-eliding large file pages into an artifact; a page past the output spill threshold now stops at a line boundary with an exact `:N` continuation ([#16277](https://github.com/can1357/oh-my-pi/issues/16277))
+- Fixed an edit after a restart replacing a line that `read` or `grep` had shown cut at the column cap and silently dropping the rest of that line; such edits now ask for a full `:raw` read of the line first, while edits to lines within the cap still apply ([#16171](https://github.com/can1357/oh-my-pi/issues/16171))
+- Fixed Enter on an unknown slash command such as `/not-a-command` running a command whose description happened to match it (e.g. `/loop`, which then resent every later prompt after each turn); Enter now sends what you typed, including as the deny-and-steer message for a pending tool approval, unless you select a suggestion first ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
+- Fixed `read` of web pages dropping collapsed sections such as accordion and expander panels (e.g. a product page's "Item details" table); content in `<template>`, `<noscript>` and scripts stays out ([#16246](https://github.com/can1357/oh-my-pi/issues/16246))
 - Fixed subagents whose declared model has no working credentials silently running on the parent session's model: that model's own `retry.fallbackChains` key (`provider/id` or `provider/*`) now decides, as it also does for a declared model missing from the catalog (an empty chain refuses the spawn with an error naming the agent and model, a non-empty chain is walked), and any replacement is marked as a fallback in the session and task result ([#16028](https://github.com/can1357/oh-my-pi/pull/16028) by [@sjawhar](https://github.com/sjawhar))
 - Fixed task results not saying which fallback model answered for a subagent: the `<task-result>` now carries a `<model served=… requested=… fallback="true">` line, with the reason when the model was replaced at spawn ([#16028](https://github.com/can1357/oh-my-pi/pull/16028) by [@sjawhar](https://github.com/sjawhar))
 
