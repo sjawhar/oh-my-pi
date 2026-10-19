@@ -2109,17 +2109,24 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 
 	// Resolves the session/agent thinking level using the same precedence we
 	// apply at startup: task effort mapped onto the selected model → explicit
-	// option → persisted session entry → restored model selector suffix →
-	// default role's explicit selector → selected model's defaultLevel → global
-	// settings default. Run again after extension role reclaim so the final
-	// model's own defaults aren't masked by an earlier fallback model's.
+	// `:level` of the model a deferred pattern settled on → explicit option →
+	// persisted session entry → restored model selector suffix → default role's
+	// explicit selector → selected model's defaultLevel → global settings
+	// default. Run again after extension role reclaim so the final model's own
+	// defaults aren't masked by an earlier fallback model's.
+	let deferredSelectionThinkingLevel: ConfiguredThinkingLevel | undefined;
 	const pickInitialThinkingLevel = (selectedModel: Model | undefined): ConfiguredThinkingLevel | undefined => {
 		// Throws when the model has nothing at or below the ceiling, exactly as
 		// a spawn whose model was known at dispatch is rejected.
+		// A task spawn passes its agent definition's default as `thinkingLevel`;
+		// the explicit level of the model its deferred pattern settled on
+		// outranks it, as the explicit level of a model resolved at dispatch does.
 		let level =
 			(selectedModel && options.taskEffort !== undefined
 				? resolveTaskEffortLevel(selectedModel, options.taskEffort, options.thinkingLevelCeiling)
-				: undefined) ?? options.thinkingLevel;
+				: undefined) ??
+			deferredSelectionThinkingLevel ??
+			options.thinkingLevel;
 		if (level === undefined && hasExistingSession && hasThinkingEntry) {
 			level =
 				parseConfiguredThinkingLevel(existingSession.configuredThinkingLevel) ??
@@ -3296,7 +3303,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 						? { ...retryFallback, pinned: true }
 						: retryFallback;
 				if (selectedExplicitThinkingLevel) {
-					restoredSessionThinkingLevel = selectedThinkingLevel;
+					if (chainFallback) deferredSelectionThinkingLevel = selectedThinkingLevel;
+					else restoredSessionThinkingLevel = selectedThinkingLevel;
 				}
 				settleDeferredModel(selectedModel, startupReplacement ?? usageFallbackReason);
 				break;
@@ -3317,7 +3325,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 						originalThinkingLevel: replacement.requestedThinkingLevel,
 					};
 					if (replacement.thinkingLevel !== undefined) {
-						restoredSessionThinkingLevel = replacement.thinkingLevel;
+						deferredSelectionThinkingLevel = replacement.thinkingLevel;
 					}
 					settleDeferredModel(replacement.model, startupReplacement);
 				}

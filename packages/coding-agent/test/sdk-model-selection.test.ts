@@ -877,6 +877,32 @@ describe("createAgentSession deferred model pattern resolution", () => {
 		}
 	});
 
+	test("keeps a chain entry's explicit effort over the agent default when it replaces a subagent model without working credentials", async () => {
+		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["runtime-fallback-model"]);
+		const settings = Settings.isolated({
+			"retry.fallbackChains": { "runtime-provider/runtime-model": ["runtime-provider/runtime-fallback-model:high"] },
+		});
+
+		// The task executor passes the agent definition's default as `thinkingLevel`.
+		const { session } = await createAgentSession({
+			...subagentSessionOptions(
+				modelRegistry,
+				authStorage,
+				settings,
+				"runtime-provider/runtime-model",
+				parentPattern,
+			),
+			thinkingLevel: Effort.Low,
+		});
+
+		try {
+			expect(session.model?.id).toBe("runtime-fallback-model");
+			expect(session.thinkingLevel).toBe(Effort.High);
+		} finally {
+			await session.dispose();
+		}
+	});
+
 	test("keeps the plain credential fallback for a subagent without the spawn opt-in, as cold revival does, under an empty chain", async () => {
 		const { authStorage, modelRegistry, parentPattern } = registryWithKeys([]);
 		const settings = Settings.isolated({ "retry.fallbackChains": { "runtime-provider/runtime-model": [] } });
