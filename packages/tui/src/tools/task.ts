@@ -18,6 +18,7 @@ import { sanitizeText } from "@oh-my-pi/pi-utils";
 import type { RenderResultOptions } from "./renderer";
 import { formatAgentStatRun, renderAgentTreeRow } from "./agent-tree";
 import { getMarkdownTheme, type Theme } from "../theme/theme";
+import { isWallTimeNoticeLine } from "./bash";
 import { stripGeneratedOutputNotice, stripRawOutputArtifactNotice, stripTrailingNotice } from "./output-meta";
 import {
 	capPreviewLines,
@@ -303,7 +304,6 @@ function extractMissingYieldWarning(output: string): { warning?: string; rest: s
 	return { warning: firstLine, rest };
 }
 
-const BASH_WALL_TIME_NOTICE_RE = /^Wall time: \d+(?:\.\d+)? seconds$/u;
 const BASH_EXIT_CODE_NOTICE_RE = /^Command exited with code -?\d+$/u;
 
 function sanitizeRecentOutput(output: string): string {
@@ -321,7 +321,7 @@ function sanitizeRecentOutput(output: string): string {
 		}
 		const withoutRuntimeNotice = stripTrailingNotice(
 			text,
-			line => BASH_WALL_TIME_NOTICE_RE.test(line) || BASH_EXIT_CODE_NOTICE_RE.test(line),
+			line => isWallTimeNoticeLine(line) || BASH_EXIT_CODE_NOTICE_RE.test(line),
 		);
 		if (withoutRuntimeNotice !== text) {
 			text = withoutRuntimeNotice;

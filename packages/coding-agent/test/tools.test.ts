@@ -2349,11 +2349,17 @@ function b() {
 		});
 
 		it("should record wall time in text content and details", async () => {
+			const before = Math.floor(Date.now() / 1000) * 1000;
 			const result = await bashTool.execute("test-call-walltime", { command: "echo wt" });
+			const after = Date.now();
 
 			const output = getTextOutput(result);
 			expect(output).toContain("wt");
-			expect(output).toMatch(/Wall time: \d+\.\d{2} seconds/);
+			const footer = output.match(/Wall time: \d+\.\d{2} seconds, ended (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)/);
+			expect(footer).not.toBeNull();
+			const endedAt = Date.parse(footer![1]!);
+			expect(endedAt).toBeGreaterThanOrEqual(before);
+			expect(endedAt).toBeLessThanOrEqual(after);
 			expect(typeof result.details?.wallTimeMs).toBe("number");
 			expect(result.details?.wallTimeMs).toBeGreaterThanOrEqual(0);
 		});
