@@ -459,6 +459,10 @@ describe("autoloadSkills through task spawn", () => {
 				],
 				projectAgentsDir: null,
 			});
+			// The executor resolves autoload names against the child session's
+			// skills, which createAgentSession seeds from the `skills` the spawn
+			// forwards: the parent's list, read after refreshSkills.
+			const childSkills: Skill[] = [];
 			const child = createMockSession(({ emit }) => {
 				emit({
 					type: "tool_execution_end",
@@ -470,8 +474,11 @@ describe("autoloadSkills through task spawn", () => {
 					},
 					isError: false,
 				});
+			}, childSkills);
+			vi.spyOn(sdkModule, "createAgentSession").mockImplementation(async options => {
+				childSkills.push(...(options?.skills ?? []));
+				return createSessionResult(child);
 			});
-			vi.spyOn(sdkModule, "createAgentSession").mockResolvedValue(createSessionResult(child));
 
 			await runStructuredSubagent({
 				session: parent,
