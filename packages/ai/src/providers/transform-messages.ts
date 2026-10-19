@@ -1172,9 +1172,8 @@ export function transformMessages<TApi extends Api>(
 					// Server-side-fallback boundary marker (Anthropic beta
 					// `server-side-fallback-2026-06-01`). Keep it for every
 					// Anthropic-messages target: `convertAnthropicMessages` decides
-					// per request whether the marker can go on the wire (the request
-					// opts into the beta chain, to api.anthropic.com or a transparent
-					// gateway in front of it), and when it cannot, the boundary is
+					// per request whether the marker can go on the wire (official
+					// endpoint + beta opt-in), and when it cannot, the boundary is
 					// what tells it which model's signed reasoning to keep. Every
 					// other API rejects the block or throws in its converter.
 					if (isAnthropicTarget) return block;

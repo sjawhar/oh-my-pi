@@ -2066,20 +2066,6 @@ function reportedDropKey(params: MessageCreateParamsStreaming, path: string | un
 }
 
 /**
- * Whether the request still replays any native thinking. A retry that drops
- * all replayed thinking changes nothing on the wire without it.
- */
-function hasReplayableThinking(params: MessageCreateParamsStreaming): boolean {
-	for (const message of params.messages) {
-		if (!message || !Array.isArray(message.content)) continue;
-		if (message.content.some(block => block.type === "thinking" || block.type === "redacted_thinking")) {
-			return true;
-		}
-	}
-	return false;
-}
-
-/**
  * Record server-reported input rewrites on the response. A `drop_block`
  * request keeps replaying the transcript verbatim afterwards: the API drops
  * the same invalid blocks again on every later request (unbilled), while
@@ -3639,11 +3625,7 @@ const streamAnthropicOnce = (
 						firstTokenTime === undefined &&
 						!streamedReplayUnsafeContent &&
 						!isThinkingPrefixBindingError(streamFailureMessage) &&
-						(isInvalidThinkingSignatureError(streamFailureMessage) ||
-							// A repeat of the latest-turn refusal, or one with no latest-turn
-							// thinking left to drop, escalates here only when some replayed
-							// thinking remains; otherwise the retry would resend the same body.
-							(AIError.isImmutableLatestThinkingText(streamFailureMessage) && hasReplayableThinking(params)))
+						isInvalidThinkingSignatureError(streamFailureMessage)
 					) {
 						// The unsigned-demotion retry only rewrites UNSIGNED blocks;
 						// when every replayed block carries a signature the signer no
@@ -5749,17 +5731,6 @@ function toWellFormedDeep(value: unknown): unknown {
 	return value;
 }
 
-interface AnthropicMessageConversionOptions {
-	serverSideFallbackEnabled?: boolean;
-	replayCompaction?: boolean;
-	replayLegacyCompaction?: boolean;
-	dropAllThinking?: boolean;
-	droppedThinkingBlocks?: ReadonlySet<string>;
-	credentialId?: number;
-	/** On-demand compaction request: it ends inside the conversation, so it gets nothing live requests lack there. */
-	compactionRequest?: AnthropicCompactionRequest;
-}
-
 /**
  * Collapse a server-side-fallback turn for a request that cannot carry the
  * `fallback` boundary marker: drop the markers and keep reasoning from one
@@ -5795,11 +5766,11 @@ function collapseFallbackSegments(content: AssistantMessage["content"]): Assista
  * Serialize omp {@link Message}s to Anthropic wire messages.
  *
  * `opts.serverSideFallbackEnabled` — when the CURRENT request itself
- * opts into the server-side-fallback beta chain. Only then may a persisted
- * `fallback` content block from a prior turn be replayed on the wire (to
- * api.anthropic.com or a gateway in front of it); otherwise the block is
- * dropped to avoid a 400 on requests that don't send the beta, and its turn
- * keeps one model's reasoning (see {@link collapseFallbackSegments}).
+ * opts into the server-side-fallback beta chain. Only then, and only on the
+ * official endpoint, may a persisted `fallback` content block from a prior
+ * turn be replayed on the wire; otherwise the block is dropped to avoid a 400
+ * on requests that don't send the beta, and its turn keeps one model's
+ * reasoning (see {@link collapseFallbackSegments}).
  *
  * `opts.replayCompaction` — replay a user-role compaction summary that
  * carries an {@link AnthropicCompactionPayload} from this provider as a
@@ -5812,7 +5783,16 @@ export function convertAnthropicMessages(
 	messages: Message[],
 	model: Model<"anthropic-messages">,
 	isOAuthToken: boolean,
-	opts?: AnthropicMessageConversionOptions,
+	opts?: {
+		serverSideFallbackEnabled?: boolean;
+		replayCompaction?: boolean;
+		replayLegacyCompaction?: boolean;
+		dropAllThinking?: boolean;
+		droppedThinkingBlocks?: ReadonlySet<string>;
+		credentialId?: number;
+		/** On-demand compaction request: it ends inside the conversation, so it gets nothing live requests lack there. */
+		compactionRequest?: AnthropicCompactionRequest;
+	},
 ): AnthropicMessageParam[] {
 	// Indices of params emitted from agent-owned `developer` messages. After the
 	// main pass, the ones whose placement satisfies Anthropic's mid-conversation
@@ -5823,11 +5803,6 @@ export function convertAnthropicMessages(
 	// and the developer upgrade below look through them: they were inserted
 	// by this provider, not authored in the conversation.
 	const controlParams = new Set<AnthropicMessageParam>();
-	// A source turn can omit a native-thinking block (dropped for the session
-	// or the request) while it is emitted. Keep that fact on the emitted object
-	// through every later shape repair, then correct only the actual final
-	// assistant message.
-	let assistantParamsWithOmittedBlocks: WeakSet<AnthropicMessageParam> | undefined;
 	// Harness file metadata queued behind a replayed compaction block, oldest
 	// replay point first. Messages kept after a summary must reach the API
 	// exactly as they were sent before, or their signed thinking no longer
@@ -5970,14 +5945,13 @@ export function convertAnthropicMessages(
 			params.push(param);
 		} else if (msg.role === "assistant") {
 			const blocks: ContentBlockParam[] = [];
-			// The fallback boundary replays exactly when the current request opts
-			// into the beta chain: an endpoint that accepts `fallbacks` accepts the
-			// marker it minted, whether it is api.anthropic.com or a transparent
-			// gateway in front of it; an endpoint that does not speak the beta
-			// rejects the `fallbacks` field before the marker matters. Otherwise the
-			// marker is dropped and the turn keeps one model's reasoning.
-			const content = opts?.serverSideFallbackEnabled ? msg.content : collapseFallbackSegments(msg.content);
-			let omittedThinking = false;
+			// The fallback boundary replays ONLY when both sides are aligned: the
+			// current request opted into the beta chain, and the target is
+			// official Anthropic (the only endpoint that accepts the block).
+			const content =
+				opts?.serverSideFallbackEnabled && model.compat.officialEndpoint
+					? msg.content
+					: collapseFallbackSegments(msg.content);
 			const hasSignedThinking = content.some(
 				block =>
 					block.type === "thinking" && !!block.thinkingSignature && block.thinkingSignature.trim().length > 0,
@@ -6008,7 +5982,6 @@ export function convertAnthropicMessages(
 						opts?.dropAllThinking ||
 						(block.thinkingSignature && opts?.droppedThinkingBlocks?.has(`thinking:${block.thinkingSignature}`))
 					) {
-						omittedThinking = true;
 						continue;
 					}
 					if (hasSignedThinking) {
@@ -6049,10 +6022,7 @@ export function convertAnthropicMessages(
 						});
 					}
 				} else if (block.type === "redactedThinking") {
-					if (opts?.dropAllThinking || opts?.droppedThinkingBlocks?.has(`redacted:${block.data}`)) {
-						omittedThinking = true;
-						continue;
-					}
+					if (opts?.dropAllThinking || opts?.droppedThinkingBlocks?.has(`redacted:${block.data}`)) continue;
 					if (block.data.trim().length === 0) continue;
 					blocks.push({
 						type: "redacted_thinking",
@@ -6120,9 +6090,6 @@ export function convertAnthropicMessages(
 				role: "assistant",
 				content: blocks,
 			};
-			if (omittedThinking) {
-				(assistantParamsWithOmittedBlocks ??= new WeakSet()).add(assistantParam);
-			}
 			copyPerCallContextMessage(assistantParam, msg);
 			params.push(assistantParam);
 			if (!blocks.some(block => block.type === "tool_use")) flushLegacyCompactionFiles();
@@ -6260,11 +6227,7 @@ export function convertAnthropicMessages(
 		) {
 			continue;
 		}
-		const merged = { ...next, content: [current.content[0], ...next.content] };
-		if (assistantParamsWithOmittedBlocks?.has(current) || assistantParamsWithOmittedBlocks?.has(next)) {
-			(assistantParamsWithOmittedBlocks ??= new WeakSet()).add(merged);
-		}
-		params.splice(i, 2, merged);
+		params.splice(i, 2, { ...next, content: [current.content[0], ...next.content] });
 	}
 	// Dropped empty user/developer turns can leave two assistant params adjacent;
 	// the API rejects consecutive assistant messages. Repair with the same neutral
@@ -6302,27 +6265,6 @@ export function convertAnthropicMessages(
 	const last = skipControls(params.length, -1);
 	if (params[last]?.role === "assistant") {
 		params.splice(last + 1, 0, { role: "user", content: "Continue." });
-	}
-
-	// The API treats native thinking in the final assistant wire message as an
-	// immutable transcript. This runs after folding and all tail repairs, when
-	// that message is known, but before the caller decorates cache breakpoints.
-	// If removing its native thinking empties it, drop it exactly as the main
-	// conversion loop does and check the newly final assistant in turn.
-	if (assistantParamsWithOmittedBlocks) {
-		for (let i = params.length - 1; i >= 0; i--) {
-			const param = params[i];
-			if (param?.role !== "assistant") continue;
-			if (!assistantParamsWithOmittedBlocks.has(param) || typeof param.content === "string") break;
-			const content = param.content.filter(block => block.type !== "thinking" && block.type !== "redacted_thinking");
-			if (content.length === param.content.length) break;
-			if (content.length === 0) {
-				params.splice(i, 1);
-				continue;
-			}
-			params[i] = { ...param, content };
-			break;
-		}
 	}
 
 	return params;
