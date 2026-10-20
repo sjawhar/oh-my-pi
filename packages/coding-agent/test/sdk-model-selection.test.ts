@@ -1121,20 +1121,28 @@ describe("createAgentSession deferred model pattern resolution", () => {
 
 	// The same level sources when the requested model is not in the catalog at
 	// spawn and a later registry refresh (a discovery provider coming back, say)
-	// adds it before the next prompt.
+	// adds it before the next prompt, down to the settings default when the
+	// spawn names no level at all.
 	test.each([
 		{
 			source: "task effort mapped onto its ladder",
 			options: { taskEffort: "lo" as const, thinkingLevelCeiling: Effort.Medium },
 			expected: Effort.Low,
 		},
+		{
+			source: "task effort capped by the ceiling",
+			options: { taskEffort: "hi" as const, thinkingLevelCeiling: Effort.Medium },
+			expected: Effort.Medium,
+		},
 		{ source: "agent default", options: { thinkingLevel: Effort.Medium }, expected: Effort.Medium },
+		{ source: "settings default", options: {}, defaultThinkingLevel: Effort.Low, expected: Effort.Low },
 	])(
 		"restores a subagent's requested model at its $source once a refresh adds it to the catalog",
-		async ({ options, expected }) => {
+		async ({ options, defaultThinkingLevel, expected }) => {
 			const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["runtime-fallback-model", "ladder"]);
 			const settings = Settings.isolated({
 				"retry.fallbackChains": { "ladder-provider/ladder": ["runtime-provider/runtime-fallback-model"] },
+				...(defaultThinkingLevel === undefined ? {} : { defaultThinkingLevel }),
 			});
 
 			const { session } = await createAgentSession({

@@ -9,7 +9,6 @@ import {
 	type ConfiguredThinkingLevel,
 	concreteThinkingLevel,
 	resolveThinkingLevelForModel,
-	type TaskEffort,
 } from "@oh-my-pi/pi-tui/thinking";
 import { resolveConfiguredModelPatterns, resolveModelRoleValue } from "../config/model-resolver";
 import { getRoleInfo, isKindRole } from "../config/model-roles";
@@ -53,8 +52,8 @@ export interface ActiveRetryFallbackState {
 	role: string;
 	originalSelector: string;
 	originalThinkingLevel: ConfiguredThinkingLevel | undefined;
-	/** Task-spawn effort mapped onto the primary when it is restored (see `InitialRetryFallbackState`). */
-	originalTaskEffort?: TaskEffort;
+	/** Picks the primary's level when it is restored (see `InitialRetryFallbackState`). */
+	resolveOriginalThinkingLevel?: (primary: Model) => ConfiguredThinkingLevel | undefined;
 	lastAppliedFallbackThinkingLevel: ConfiguredThinkingLevel | undefined;
 	pinned: boolean;
 	/**

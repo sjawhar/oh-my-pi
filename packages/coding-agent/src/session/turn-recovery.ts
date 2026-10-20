@@ -41,7 +41,6 @@ import {
 	type ConfiguredThinkingLevel,
 	clampThinkingLevelToCeiling,
 	modelSupportsEffortCeiling,
-	resolveTaskEffortLevel,
 	resolveThinkingLevelForModel,
 } from "@oh-my-pi/pi-tui/thinking";
 import type { EditMode } from "@oh-my-pi/pi-tui/tools/edit";
@@ -2445,7 +2444,7 @@ export class TurnRecovery {
 		const {
 			originalSelector: originalSelectorRaw,
 			originalThinkingLevel,
-			originalTaskEffort,
+			resolveOriginalThinkingLevel,
 			lastAppliedFallbackThinkingLevel,
 		} = this.#activeRetryFallback;
 		const originalSelector = parseRetryFallbackSelector(originalSelectorRaw, this.#host.modelRegistry);
@@ -2487,12 +2486,12 @@ export class TurnRecovery {
 		if (!apiKey) return false;
 
 		const currentThinkingLevel = this.#host.configuredThinkingLevel();
-		// A task effort recorded for a primary unknown at startup maps onto the
-		// primary now, as session creation maps it onto the model it starts on.
-		const primaryThinkingLevel =
-			(originalTaskEffort === undefined
-				? undefined
-				: resolveTaskEffortLevel(primaryModel, originalTaskEffort, ceiling)) ?? originalThinkingLevel;
+		// A primary unknown at startup gets its level picked now, on the model,
+		// as session creation picks one for the model it starts on. The ceiling
+		// check above keeps a task effort mapping from finding nothing.
+		const primaryThinkingLevel = resolveOriginalThinkingLevel
+			? resolveOriginalThinkingLevel(primaryModel)
+			: originalThinkingLevel;
 		const thinkingToApply =
 			currentThinkingLevel === lastAppliedFallbackThinkingLevel ? primaryThinkingLevel : currentThinkingLevel;
 		const primarySelector = formatModelStringWithRouting(primaryModel);

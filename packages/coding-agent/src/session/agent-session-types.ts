@@ -42,7 +42,7 @@ import type { SkillDescriptionCatalog } from "../extensibility/skill-description
 import type { Skill, SkillWarning } from "../extensibility/skills";
 import type { FileSlashCommand } from "../extensibility/slash-commands";
 import type { SecretObfuscator } from "../secrets/obfuscator";
-import type { ConfiguredThinkingLevel, TaskEffort } from "@oh-my-pi/pi-tui/thinking";
+import type { ConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
 import type { ToolSession } from "../tools";
 import type { XdevState } from "../tools/xdev";
 import type { CodexAutoRedeemCoordinator } from "./codex-auto-reset";
@@ -158,10 +158,12 @@ export interface InitialRetryFallbackState {
 	/** Thinking selector configured for the unavailable primary. */
 	originalThinkingLevel: ConfiguredThinkingLevel | undefined;
 	/**
-	 * Task-spawn effort for a primary that was not in the catalog at startup:
-	 * mapped onto the primary when it is restored, ahead of `originalThinkingLevel`.
+	 * Picks the primary's level once restoration finds it, for a primary that
+	 * was not in the catalog at startup: session creation's own precedence
+	 * (task effort, `:level`, agent default, settings default) on that model.
+	 * Replaces `originalThinkingLevel` when set.
 	 */
-	originalTaskEffort?: TaskEffort;
+	resolveOriginalThinkingLevel?: (primary: Model) => ConfiguredThinkingLevel | undefined;
 	/** Prevent cooldown restoration when startup selected this fallback from live usage health. */
 	pinned?: boolean;
 }
