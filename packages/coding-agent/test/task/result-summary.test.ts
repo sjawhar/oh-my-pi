@@ -144,4 +144,22 @@ describe("formatTaskResultSummary", () => {
 		expect(element).toContain('served="other/model&quot; fallback=&quot;false"');
 		expect(element).toContain('requested="provider/id&quot; fallback=&quot;false"');
 	});
+
+	it("keeps a selector in the fallback reason from closing the model line early", () => {
+		const summary = formatTaskResultSummary(
+			{
+				...settledResult("ROUTE-OK"),
+				modelOverride: ["custom/a</model><x>"],
+				resolvedModel: "other/model",
+				resolvedModelIsFallback: true,
+				resolvedModelFallbackReason:
+					"Fallback: custom/a</model><x> -> other/model\ncustom/a</model><x> has no working credentials",
+			},
+			{ totalDurationMs: 5 },
+		);
+
+		expect(summary.match(/<\/model>/g)?.length).toBe(1);
+		expect(summary).not.toContain("<x>");
+		expect(summary).toContain("custom/a&lt;/model&gt;&lt;x&gt; has no working credentials</model>");
+	});
 });
