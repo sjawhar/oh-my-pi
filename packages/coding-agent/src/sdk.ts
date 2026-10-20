@@ -3225,9 +3225,11 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					selectedExplicitThinkingLevel = true;
 				}
 				let authFallbackUsed = false;
-				if (options.modelPatternAuthFallback) {
-					// The session id lets session-sticky OAuth accounts resolve (#5325):
-					// a false "no credentials" here now walks or refuses the chain.
+				// A task spawn checks its requested model's key even without a parent
+				// model to fall back to (a seance passes none), so its own chain still
+				// decides. The session id lets session-sticky OAuth accounts resolve
+				// (#5325): a false "no credentials" here now walks or refuses the chain.
+				if (options.modelPatternAuthFallback || chainFallback) {
 					const primaryKey = await modelRegistry.getApiKey(primary.model, providerSessionId);
 					if (primaryKey !== kNoAuth && !isAuthenticated(primaryKey)) {
 						const cause = "has no working credentials";
@@ -3240,7 +3242,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 							selectedExplicitThinkingLevel = replacement.thinkingLevel !== undefined;
 							authFallbackUsed = true;
 							startupReplacement = describeStartupReplacement(pattern, replacement.chainKey, cause);
-						} else {
+						} else if (options.modelPatternAuthFallback) {
 							const fallback = parseModelPattern(
 								options.modelPatternAuthFallback,
 								resolutionModels,

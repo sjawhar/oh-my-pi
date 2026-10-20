@@ -69,13 +69,14 @@ afterEach(async () => {
  * on the keyed mock model. `listed` puts the declared model among the
  * registry's available models (a key is configured but does not resolve), so
  * dispatch finds it and sees the failed key itself; unlisted, dispatch finds no
- * model and leaves the request to session creation. `keylessParent` makes the
- * parent's provider keyless by design (a local server), as `kNoAuth` reports it.
+ * model and leaves the request to session creation. `parent` is the parent's
+ * model: keyed, on a provider keyless by design (a local server, which reports
+ * `kNoAuth`), or absent, as for a prepared seance, which passes no parent.
  */
 async function spawnWithoutCredentials(
 	fallbackChains: Record<string, string[]>,
 	listed: boolean,
-	keylessParent = false,
+	parent: "keyed" | "keyless" | "absent" = "keyed",
 ): Promise<{ result: SingleResult; parentCalls: number }> {
 	// Under the isolated HOME, so project discovery stops at os.homedir().
 	const cwd = path.join(root, "home", "work");
@@ -86,7 +87,7 @@ async function spawnWithoutCredentials(
 	const authStorage = createInMemoryAuthStorage();
 	authStorage.keys.setRuntime("mock", "test-key");
 	const modelRegistry = new ModelRegistry(authStorage);
-	const parent = createMockModel({
+	const parentModel = createMockModel({
 		handler: context =>
 			(context.tools ?? []).some(tool => tool.name === "yield")
 				? { content: [{ type: "toolCall", name: "yield", arguments: { type: "result", data: "done" } }] }
@@ -96,16 +97,16 @@ async function spawnWithoutCredentials(
 	if (!declared) throw new Error("Expected the bundled mistral model");
 	const catalogAvailable = modelRegistry.getAvailable.bind(modelRegistry);
 	vi.spyOn(modelRegistry, "getAvailable").mockImplementation(kind => [
-		parent,
+		parentModel,
 		...(listed ? [declared] : []),
 		...catalogAvailable(kind),
 	]);
 	const catalogAll = modelRegistry.getAll.bind(modelRegistry);
-	vi.spyOn(modelRegistry, "getAll").mockImplementation(kind => [parent, ...catalogAll(kind)]);
+	vi.spyOn(modelRegistry, "getAll").mockImplementation(kind => [parentModel, ...catalogAll(kind)]);
 	const resolveKey = modelRegistry.getApiKey.bind(modelRegistry);
 	vi.spyOn(modelRegistry, "getApiKey").mockImplementation((model, ...rest) => {
 		if (model.provider === "mistral") return Promise.resolve(undefined);
-		if (keylessParent && model.provider === parent.provider) return Promise.resolve(kNoAuth);
+		if (parent === "keyless" && model.provider === parentModel.provider) return Promise.resolve(kNoAuth);
 		return resolveKey(model, ...rest);
 	});
 	try {
@@ -117,7 +118,7 @@ async function spawnWithoutCredentials(
 			index: 0,
 			id: "Unavailable",
 			modelOverride: DECLARED,
-			parentActiveModelPattern: `${parent.provider}/${parent.id}`,
+			parentActiveModelPattern: parent === "absent" ? undefined : `${parentModel.provider}/${parentModel.id}`,
 			authStorage,
 			modelRegistry,
 			settings: Settings.isolated({
@@ -132,7 +133,7 @@ async function spawnWithoutCredentials(
 			enableMCP: false,
 			enableIrc: false,
 		});
-		return { result, parentCalls: parent.calls.length };
+		return { result, parentCalls: parentModel.calls.length };
 	} finally {
 		authStorage.close();
 	}
@@ -150,7 +151,7 @@ it("refuses the spawn when the declared model's own chain is empty, without call
 it("refuses the spawn under an empty own chain when the parent's provider is keyless", async () => {
 	// Listed with a failing key, and the parent cannot stand in for it: the
 	// declared model's own chain still decides at spawn.
-	const { result, parentCalls } = await spawnWithoutCredentials({ [DECLARED]: [] }, true, true);
+	const { result, parentCalls } = await spawnWithoutCredentials({ [DECLARED]: [] }, true, "keyless");
 
 	expect(result.exitCode).not.toBe(0);
 	expect(result.error).toContain(`retry.fallbackChains["${DECLARED}"] is empty`);
@@ -158,7 +159,24 @@ it("refuses the spawn under an empty own chain when the parent's provider is key
 }, 30_000);
 
 it("serves from the declared model's own chain when the parent's provider is keyless", async () => {
-	const { result } = await spawnWithoutCredentials({ [DECLARED]: ["mock/mock-model"] }, true, true);
+	const { result } = await spawnWithoutCredentials({ [DECLARED]: ["mock/mock-model"] }, true, "keyless");
+
+	expect(result.exitCode).toBe(0);
+	expect(result.resolvedModel).toBe("mock/mock-model");
+	expect(result.resolvedModelIsFallback).toBe(true);
+	expect(result.resolvedModelFallbackReason).toContain(`retry.fallbackChains["${DECLARED}"] chose the replacement`);
+}, 30_000);
+
+it("refuses the spawn under an empty own chain when no parent model is passed, as for a seance", async () => {
+	const { result, parentCalls } = await spawnWithoutCredentials({ [DECLARED]: [] }, true, "absent");
+
+	expect(result.exitCode).not.toBe(0);
+	expect(result.error).toContain(`retry.fallbackChains["${DECLARED}"] is empty`);
+	expect(parentCalls).toBe(0);
+}, 30_000);
+
+it("serves from the declared model's own chain when no parent model is passed, as for a seance", async () => {
+	const { result } = await spawnWithoutCredentials({ [DECLARED]: ["mock/mock-model"] }, true, "absent");
 
 	expect(result.exitCode).toBe(0);
 	expect(result.resolvedModel).toBe("mock/mock-model");

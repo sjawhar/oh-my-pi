@@ -1718,8 +1718,8 @@ export function sessionModelDiscoveryProviders(
  * If neither the subagent nor the parent has working auth, returns the
  * primary resolution unchanged so the existing error path still surfaces
  * a meaningful failure downstream. `primaryAuthFailed` reports whether the
- * primary's key was checked and did not work, whether or not the parent
- * could replace it.
+ * primary's key was checked and did not work, whether or not a parent model
+ * was given or could replace it.
  */
 export async function resolveModelOverrideWithAuthFallback(
 	modelPatterns: string[],
@@ -1742,13 +1742,16 @@ export async function resolveModelOverrideWithAuthFallback(
 		lookupRegistry = { getAvailable: () => enabledModels };
 	}
 	const primary = resolveModelOverride(modelPatterns, lookupRegistry, settings);
-	if (!primary.model || !parentActiveModelPattern) {
+	if (!primary.model) {
 		return { ...primary, authFallbackUsed: false, primaryAuthFailed: false };
 	}
 
 	const primaryKey = await modelRegistry.getApiKey(primary.model, sessionId);
 	if (primaryKey === kNoAuth || isAuthenticated(primaryKey)) {
 		return { ...primary, authFallbackUsed: false, primaryAuthFailed: false };
+	}
+	if (!parentActiveModelPattern) {
+		return { ...primary, authFallbackUsed: false, primaryAuthFailed: true };
 	}
 
 	const fallback = resolveModelOverride([parentActiveModelPattern], lookupRegistry, settings);
