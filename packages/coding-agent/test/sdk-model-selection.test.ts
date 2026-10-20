@@ -1016,24 +1016,26 @@ describe("createAgentSession deferred model pattern resolution", () => {
 		}
 	});
 
+	const ladderProviderConfig: ProviderConfigInput = {
+		baseUrl: "https://ladder.example.com/v1",
+		apiKey: "LADDER_KEY",
+		api: "openai-completions",
+		models: [
+			{
+				id: "ladder",
+				name: "Ladder",
+				reasoning: true,
+				thinking: { mode: "effort", efforts: [Effort.Low, Effort.Medium, Effort.High] },
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 128000,
+				maxTokens: 8192,
+			},
+		],
+	};
+
 	const ladderProviderExtension: ExtensionFactory = pi => {
-		pi.registerProvider("ladder-provider", {
-			baseUrl: "https://ladder.example.com/v1",
-			apiKey: "LADDER_KEY",
-			api: "openai-completions",
-			models: [
-				{
-					id: "ladder",
-					name: "Ladder",
-					reasoning: true,
-					thinking: { mode: "effort", efforts: [Effort.Low, Effort.Medium, Effort.High] },
-					input: ["text"],
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-					contextWindow: 128000,
-					maxTokens: 8192,
-				},
-			],
-		});
+		pi.registerProvider("ladder-provider", ladderProviderConfig);
 	};
 
 	// Each row is a distinct source of the level the spawn would have started
@@ -1116,6 +1118,49 @@ describe("createAgentSession deferred model pattern resolution", () => {
 			await session.dispose();
 		}
 	});
+
+	// The same level sources when the requested model is not in the catalog at
+	// spawn and a later registry refresh (a discovery provider coming back, say)
+	// adds it before the next prompt.
+	test.each([
+		{
+			source: "task effort mapped onto its ladder",
+			options: { taskEffort: "lo" as const, thinkingLevelCeiling: Effort.Medium },
+			expected: Effort.Low,
+		},
+		{ source: "agent default", options: { thinkingLevel: Effort.Medium }, expected: Effort.Medium },
+	])(
+		"restores a subagent's requested model at its $source once a refresh adds it to the catalog",
+		async ({ options, expected }) => {
+			const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["runtime-fallback-model", "ladder"]);
+			const settings = Settings.isolated({
+				"retry.fallbackChains": { "ladder-provider/ladder": ["runtime-provider/runtime-fallback-model"] },
+			});
+
+			const { session } = await createAgentSession({
+				...subagentSessionOptions(modelRegistry, authStorage, settings, "ladder-provider/ladder", parentPattern),
+				...options,
+			});
+
+			try {
+				expect(session.model?.id).toBe("runtime-fallback-model");
+				const requests: Array<{ model: string; reasoning: Effort | undefined }> = [];
+				const mock = createMockModel({ handler: { content: ["ok"] } });
+				session.agent.streamFn = (model, context, streamOptions) => {
+					requests.push({ model: `${model.provider}/${model.id}`, reasoning: streamOptions?.reasoning });
+					return mock.stream(model, context, streamOptions);
+				};
+				modelRegistry.registerProvider("ladder-provider", ladderProviderConfig, "ext://ladder");
+
+				await session.prompt("Follow-up after the requested model appears in the catalog");
+				await session.waitForIdle();
+
+				expect(requests).toEqual([{ model: "ladder-provider/ladder", reasoning: expected }]);
+			} finally {
+				await session.dispose();
+			}
+		},
+	);
 
 	test("walks a non-empty fallback chain for a subagent model without working credentials and marks the fallback", async () => {
 		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["runtime-fallback-model"]);

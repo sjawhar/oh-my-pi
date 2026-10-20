@@ -41,6 +41,7 @@ import {
 	type ConfiguredThinkingLevel,
 	clampThinkingLevelToCeiling,
 	modelSupportsEffortCeiling,
+	resolveTaskEffortLevel,
 	resolveThinkingLevelForModel,
 } from "@oh-my-pi/pi-tui/thinking";
 import type { EditMode } from "@oh-my-pi/pi-tui/tools/edit";
@@ -2444,6 +2445,7 @@ export class TurnRecovery {
 		const {
 			originalSelector: originalSelectorRaw,
 			originalThinkingLevel,
+			originalTaskEffort,
 			lastAppliedFallbackThinkingLevel,
 		} = this.#activeRetryFallback;
 		const originalSelector = parseRetryFallbackSelector(originalSelectorRaw, this.#host.modelRegistry);
@@ -2485,8 +2487,14 @@ export class TurnRecovery {
 		if (!apiKey) return false;
 
 		const currentThinkingLevel = this.#host.configuredThinkingLevel();
+		// A task effort recorded for a primary unknown at startup maps onto the
+		// primary now, as session creation maps it onto the model it starts on.
+		const primaryThinkingLevel =
+			(originalTaskEffort === undefined
+				? undefined
+				: resolveTaskEffortLevel(primaryModel, originalTaskEffort, ceiling)) ?? originalThinkingLevel;
 		const thinkingToApply =
-			currentThinkingLevel === lastAppliedFallbackThinkingLevel ? originalThinkingLevel : currentThinkingLevel;
+			currentThinkingLevel === lastAppliedFallbackThinkingLevel ? primaryThinkingLevel : currentThinkingLevel;
 		const primarySelector = formatModelStringWithRouting(primaryModel);
 		const previousEditMode = this.#host.resolveActiveEditMode();
 		// Clear before the swap: `setModelWithProviderSessionReset` and

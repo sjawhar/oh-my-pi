@@ -3341,10 +3341,14 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					const chainReplacement = describeStartupReplacement(requestedSelector, replacement.chainKey, cause);
 					startupReplacement = chainReplacement;
 					model = replacement.model;
+					// No model to map the spawn's level onto yet: keep its sources, in
+					// startup precedence (task effort, the selector's `:level`, the
+					// agent default), for restoration to apply to the model it finds.
 					initialRetryFallback = {
 						role: chainReplacement.role,
 						originalSelector: requestedSelector,
-						originalThinkingLevel: replacement.requestedThinkingLevel,
+						originalThinkingLevel: replacement.requestedThinkingLevel ?? options.thinkingLevel,
+						originalTaskEffort: options.taskEffort,
 					};
 					if (replacement.thinkingLevel !== undefined) {
 						deferredSelectionThinkingLevel = replacement.thinkingLevel;
