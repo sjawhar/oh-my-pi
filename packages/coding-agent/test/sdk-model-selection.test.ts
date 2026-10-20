@@ -1083,6 +1083,40 @@ describe("createAgentSession deferred model pattern resolution", () => {
 		},
 	);
 
+	test("restores a subagent's requested model named through a provider-less role once its credentials return", async () => {
+		const keyedModelIds = ["runtime-fallback-model"];
+		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(keyedModelIds);
+		const settings = Settings.isolated({
+			"retry.fallbackChains": { "ladder-provider/ladder": ["runtime-provider/runtime-fallback-model"] },
+		});
+		// A role value may name a model without its provider, as `modelRoles.task: gpt-x` does.
+		// The ladder provider has a key configured, which does not resolve until later.
+		settings.setModelRole("probe", "ladder");
+
+		const { session } = await createAgentSession({
+			...subagentSessionOptions(modelRegistry, authStorage, settings, "probe", parentPattern),
+			extensions: [providerExtension, ladderProviderExtension],
+		});
+
+		try {
+			expect(session.model?.id).toBe("runtime-fallback-model");
+			const requests: string[] = [];
+			const mock = createMockModel({ handler: { content: ["ok"] } });
+			session.agent.streamFn = (model, context, streamOptions) => {
+				requests.push(`${model.provider}/${model.id}`);
+				return mock.stream(model, context, streamOptions);
+			};
+			keyedModelIds.push("ladder");
+
+			await session.prompt("Follow-up after the requested model's credentials return");
+			await session.waitForIdle();
+
+			expect(requests).toEqual(["ladder-provider/ladder"]);
+		} finally {
+			await session.dispose();
+		}
+	});
+
 	test("walks a non-empty fallback chain for a subagent model without working credentials and marks the fallback", async () => {
 		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["runtime-fallback-model"]);
 		const settings = Settings.isolated({

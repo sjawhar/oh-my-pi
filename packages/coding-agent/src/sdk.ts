@@ -214,6 +214,7 @@ import {
 import {
 	expandDefaultRetryFallbackChains,
 	findRetryFallbackCandidates,
+	formatRetryFallbackSelector,
 	installRetryFallbackRole,
 	type RetryFallbackResolutionContext,
 	resolveRetryFallbackChainKey,
@@ -3306,7 +3307,13 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				initialRetryFallback = startupReplacement?.role
 					? {
 							role: startupReplacement.role,
-							originalSelector: startupReplacement.from,
+							// The resolved model, as a runtime fallback records its primary:
+							// the requested spelling (a role value without its provider, or
+							// a fuzzy one) does not parse as a retry fallback selector.
+							originalSelector: formatRetryFallbackSelector(
+								primary.model,
+								primary.explicitThinkingLevel ? concreteThinkingLevel(primary.thinkingLevel) : undefined,
+							),
 							originalThinkingLevel: primaryHonorsCeiling
 								? pickInitialThinkingLevel(
 										primary.model,
