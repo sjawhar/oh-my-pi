@@ -4315,14 +4315,15 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			// A requested model without working credentials is left to
 			// createAgentSession's deferred resolution, the one place that applies
 			// the model's retry.fallbackChains entry (an empty chain refuses the
-			// spawn) and marks whatever replaces it as a fallback.
-			const { authFallbackUsed, warning: modelResolutionWarning } = resolution;
-			const model = authFallbackUsed ? undefined : resolution.model;
-			const resolvedThinkingLevel = authFallbackUsed ? undefined : resolution.thinkingLevel;
-			const explicitThinkingLevel = !authFallbackUsed && resolution.explicitThinkingLevel;
+			// spawn) and marks whatever replaces it as a fallback. That holds whether
+			// or not the parent's model could stand in for it.
+			const { primaryAuthFailed, warning: modelResolutionWarning } = resolution;
+			const model = primaryAuthFailed ? undefined : resolution.model;
+			const resolvedThinkingLevel = primaryAuthFailed ? undefined : resolution.thinkingLevel;
+			const explicitThinkingLevel = !primaryAuthFailed && resolution.explicitThinkingLevel;
 			// Session creation resolves what dispatch could not: an explicit request
 			// it found no model for, or any requested model without credentials.
-			const deferModelPatterns = !model && (modelOverride !== undefined || authFallbackUsed);
+			const deferModelPatterns = !model && (modelOverride !== undefined || primaryAuthFailed);
 			if (modelResolutionWarning) {
 				logger.warn("Subagent model resolution warning", {
 					warning: modelResolutionWarning,

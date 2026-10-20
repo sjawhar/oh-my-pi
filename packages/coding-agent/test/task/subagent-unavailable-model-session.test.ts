@@ -11,7 +11,7 @@ import { unregisterCustomApis } from "@oh-my-pi/pi-ai/api-registry";
 import { createMockModel, registerMockApi } from "@oh-my-pi/pi-ai/providers/mock";
 import { closeModelCache } from "@oh-my-pi/pi-catalog/model-cache";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
-import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
+import { kNoAuth, ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
@@ -69,11 +69,13 @@ afterEach(async () => {
  * on the keyed mock model. `listed` puts the declared model among the
  * registry's available models (a key is configured but does not resolve), so
  * dispatch finds it and sees the failed key itself; unlisted, dispatch finds no
- * model and leaves the request to session creation.
+ * model and leaves the request to session creation. `keylessParent` makes the
+ * parent's provider keyless by design (a local server), as `kNoAuth` reports it.
  */
 async function spawnWithoutCredentials(
 	fallbackChains: Record<string, string[]>,
 	listed: boolean,
+	keylessParent = false,
 ): Promise<{ result: SingleResult; parentCalls: number }> {
 	// Under the isolated HOME, so project discovery stops at os.homedir().
 	const cwd = path.join(root, "home", "work");
@@ -101,9 +103,11 @@ async function spawnWithoutCredentials(
 	const catalogAll = modelRegistry.getAll.bind(modelRegistry);
 	vi.spyOn(modelRegistry, "getAll").mockImplementation(kind => [parent, ...catalogAll(kind)]);
 	const resolveKey = modelRegistry.getApiKey.bind(modelRegistry);
-	vi.spyOn(modelRegistry, "getApiKey").mockImplementation((model, ...rest) =>
-		model.provider === "mistral" ? Promise.resolve(undefined) : resolveKey(model, ...rest),
-	);
+	vi.spyOn(modelRegistry, "getApiKey").mockImplementation((model, ...rest) => {
+		if (model.provider === "mistral") return Promise.resolve(undefined);
+		if (keylessParent && model.provider === parent.provider) return Promise.resolve(kNoAuth);
+		return resolveKey(model, ...rest);
+	});
 	try {
 		const result = await runSubprocess({
 			cwd,
@@ -141,6 +145,25 @@ it("refuses the spawn when the declared model's own chain is empty, without call
 	expect(result.exitCode).not.toBe(0);
 	expect(result.error).toContain(`retry.fallbackChains["${DECLARED}"] is empty`);
 	expect(parentCalls).toBe(0);
+}, 30_000);
+
+it("refuses the spawn under an empty own chain when the parent's provider is keyless", async () => {
+	// Listed with a failing key, and the parent cannot stand in for it: the
+	// declared model's own chain still decides at spawn.
+	const { result, parentCalls } = await spawnWithoutCredentials({ [DECLARED]: [] }, true, true);
+
+	expect(result.exitCode).not.toBe(0);
+	expect(result.error).toContain(`retry.fallbackChains["${DECLARED}"] is empty`);
+	expect(parentCalls).toBe(0);
+}, 30_000);
+
+it("serves from the declared model's own chain when the parent's provider is keyless", async () => {
+	const { result } = await spawnWithoutCredentials({ [DECLARED]: ["mock/mock-model"] }, true, true);
+
+	expect(result.exitCode).toBe(0);
+	expect(result.resolvedModel).toBe("mock/mock-model");
+	expect(result.resolvedModelIsFallback).toBe(true);
+	expect(result.resolvedModelFallbackReason).toContain(`retry.fallbackChains["${DECLARED}"] chose the replacement`);
 }, 30_000);
 
 it("runs on the parent's model and says so when no chain key owns the declared model", async () => {
