@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Effort, type FetchImpl } from "@oh-my-pi/pi-ai";
+import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { writeModelCache } from "@oh-my-pi/pi-catalog/model-cache";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
@@ -1014,6 +1015,73 @@ describe("createAgentSession deferred model pattern resolution", () => {
 			await session.dispose();
 		}
 	});
+
+	const ladderProviderExtension: ExtensionFactory = pi => {
+		pi.registerProvider("ladder-provider", {
+			baseUrl: "https://ladder.example.com/v1",
+			apiKey: "LADDER_KEY",
+			api: "openai-completions",
+			models: [
+				{
+					id: "ladder",
+					name: "Ladder",
+					reasoning: true,
+					thinking: { mode: "effort", efforts: [Effort.Low, Effort.Medium, Effort.High] },
+					input: ["text"],
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+					contextWindow: 128000,
+					maxTokens: 8192,
+				},
+			],
+		});
+	};
+
+	// Each row is a distinct source of the level the spawn would have started
+	// the requested model at; without it restoration sends no effort and the
+	// provider picks its default, whatever task.maxEffort allows. The executor
+	// sets the task.maxEffort ceiling only for an `effort` spawn.
+	test.each([
+		{
+			source: "task effort mapped onto its ladder",
+			options: { taskEffort: "lo" as const, thinkingLevelCeiling: Effort.Medium },
+			expected: Effort.Low,
+		},
+		{ source: "agent default", options: { thinkingLevel: Effort.Medium }, expected: Effort.Medium },
+	])(
+		"restores a subagent's requested model at its $source once its credentials return",
+		async ({ options, expected }) => {
+			const keyedModelIds = ["runtime-fallback-model"];
+			const { authStorage, modelRegistry, parentPattern } = registryWithKeys(keyedModelIds);
+			const settings = Settings.isolated({
+				"retry.fallbackChains": { "ladder-provider/ladder": ["runtime-provider/runtime-fallback-model"] },
+			});
+
+			const { session } = await createAgentSession({
+				...subagentSessionOptions(modelRegistry, authStorage, settings, "ladder-provider/ladder", parentPattern),
+				extensions: [providerExtension, ladderProviderExtension],
+				...options,
+			});
+
+			try {
+				expect(session.model?.id).toBe("runtime-fallback-model");
+				const requests: Array<{ model: string; reasoning: Effort | undefined }> = [];
+				const mock = createMockModel({ handler: { content: ["ok"] } });
+				session.agent.streamFn = (model, context, streamOptions) => {
+					requests.push({ model: `${model.provider}/${model.id}`, reasoning: streamOptions?.reasoning });
+					return mock.stream(model, context, streamOptions);
+				};
+				// The requested model's credentials become usable before the next prompt.
+				keyedModelIds.push("ladder");
+
+				await session.prompt("Follow-up after the requested model's credentials return");
+				await session.waitForIdle();
+
+				expect(requests).toEqual([{ model: "ladder-provider/ladder", reasoning: expected }]);
+			} finally {
+				await session.dispose();
+			}
+		},
+	);
 
 	test("walks a non-empty fallback chain for a subagent model without working credentials and marks the fallback", async () => {
 		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["runtime-fallback-model"]);

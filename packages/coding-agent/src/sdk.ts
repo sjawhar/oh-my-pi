@@ -2115,7 +2115,10 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 	// default. Run again after extension role reclaim so the final model's own
 	// defaults aren't masked by an earlier fallback model's.
 	let deferredSelectionThinkingLevel: ConfiguredThinkingLevel | undefined;
-	const pickInitialThinkingLevel = (selectedModel: Model | undefined): ConfiguredThinkingLevel | undefined => {
+	const pickInitialThinkingLevel = (
+		selectedModel: Model | undefined,
+		selectionThinkingLevel: ConfiguredThinkingLevel | undefined,
+	): ConfiguredThinkingLevel | undefined => {
 		// Throws when the model has nothing at or below the ceiling, exactly as
 		// a spawn whose model was known at dispatch is rejected.
 		// A task spawn passes its agent definition's default as `thinkingLevel`;
@@ -2125,7 +2128,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			(selectedModel && options.taskEffort !== undefined
 				? resolveTaskEffortLevel(selectedModel, options.taskEffort, options.thinkingLevelCeiling)
 				: undefined) ??
-			deferredSelectionThinkingLevel ??
+			selectionThinkingLevel ??
 			options.thinkingLevel;
 		if (level === undefined && hasExistingSession && hasThinkingEntry) {
 			level =
@@ -2149,7 +2152,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		}
 		return level;
 	};
-	let thinkingLevel = pickInitialThinkingLevel(model);
+	let thinkingLevel = pickInitialThinkingLevel(model, deferredSelectionThinkingLevel);
 	let autoThinking = thinkingLevel === AUTO_THINKING;
 	// Concrete level the agent/session start with. With `auto` this is the
 	// provisional level shown until the first per-turn classification resolves;
@@ -2174,7 +2177,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 	// model than the one (possibly none) the level above was resolved against,
 	// so the settings default is clamped to the model's actual effort ladder.
 	const adoptThinkingForModel = (selectedModel: Model): void => {
-		thinkingLevel = pickInitialThinkingLevel(selectedModel);
+		thinkingLevel = pickInitialThinkingLevel(selectedModel, deferredSelectionThinkingLevel);
 		autoThinking = thinkingLevel === AUTO_THINKING;
 		const concreteLevel = concreteThinkingLevel(thinkingLevel);
 		effectiveThinkingLevel = logger.time("resolveThinkingLevelForModel", () =>
@@ -3293,11 +3296,23 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					}
 				}
 				model = selectedModel;
+				// Restoring the requested model reapplies the level the spawn would
+				// have started it at, as restoring a runtime fallback's primary
+				// reapplies the level it ran at. A primary with nothing under the
+				// effort ceiling is never restored, and has no such level.
+				const primaryHonorsCeiling =
+					options.thinkingLevelCeiling === undefined ||
+					modelSupportsEffortCeiling(primary.model, options.thinkingLevelCeiling);
 				initialRetryFallback = startupReplacement?.role
 					? {
 							role: startupReplacement.role,
 							originalSelector: startupReplacement.from,
-							originalThinkingLevel: primary.thinkingLevel,
+							originalThinkingLevel: primaryHonorsCeiling
+								? pickInitialThinkingLevel(
+										primary.model,
+										primary.explicitThinkingLevel ? primary.thinkingLevel : undefined,
+									)
+								: primary.thinkingLevel,
 						}
 					: retryFallback && usageFallbackTriggered
 						? { ...retryFallback, pinned: true }
