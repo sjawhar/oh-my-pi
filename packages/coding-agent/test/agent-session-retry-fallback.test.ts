@@ -4613,6 +4613,102 @@ describe("AgentSession retry fallback", () => {
 		expect(requestedModels).toEqual([selectorA, selectorB]);
 	});
 
+	it("walks a refusal on an Anthropic fallback to the next entry of the requested model's chain", async () => {
+		// A session asked for a Codex model runs on its Anthropic fallback, and every turn there signs
+		// its thinking. When that model's classifier refuses, the walk used to skip every remaining
+		// Anthropic entry because the latest turn carried another Anthropic model's signed thinking,
+		// so the run ended on the refusal with the rest of the chain untried. Anthropic's documented
+		// retry resends the history unchanged on the fallback model, which drops the blocks it cannot
+		// read. The walk follows the chain that served the refused model, not that model's own chain.
+		const requested = getBundledModel("openai-codex", "gpt-5.6-terra");
+		const fallback = getBundledModel("anthropic", "claude-opus-5-5");
+		const next = getBundledModel("anthropic", "claude-opus-5");
+		const fallbacksOwnNext = getBundledModel("anthropic", "claude-opus-4-8");
+		if (!requested || !fallback || !next || !fallbacksOwnNext) {
+			throw new Error("Expected bundled test models to exist");
+		}
+		const requestedSelector = `${requested.provider}/${requested.id}`;
+		const fallbackSelector = `${fallback.provider}/${fallback.id}`;
+		const nextSelector = `${next.provider}/${next.id}`;
+
+		const requestedModels: string[] = [];
+		const fallbackAppliedEvents: Array<Extract<AgentSessionEvent, { type: "retry_fallback_applied" }>> = [];
+		const mock = createMockModel();
+		let fallbackRequests = 0;
+		const agent = new Agent({
+			getApiKey: model => `${model.provider}-test-key`,
+			initialState: { model: requested, systemPrompt: ["Test"], tools: [], messages: [] },
+			streamFn: (model, context, options) => {
+				const selector = `${model.provider}/${model.id}`;
+				requestedModels.push(selector);
+				if (selector === requestedSelector) {
+					mock.push({ throw: "503 overloaded_error: provider returned error" });
+				} else if (selector === fallbackSelector && ++fallbackRequests === 1) {
+					mock.push({
+						content: [
+							{ type: "thinking", thinking: "Opus 5.5 reasoning.", thinkingSignature: "opus-5-5-signature" },
+							"Answered on the fallback",
+						],
+					});
+				} else if (selector === fallbackSelector) {
+					mock.push({
+						content: [],
+						stopReason: "error",
+						stopDetails: { type: "refusal", category: "cyber", explanation: "Declined." },
+						errorMessage: "Refusal (cyber): Declined.",
+					});
+				} else if (selector === nextSelector) {
+					mock.push({ content: ["Answered on the next chain entry"] });
+				} else {
+					throw new Error(`Unexpected model requested: ${selector}`);
+				}
+				return mock.stream(model, context, options);
+			},
+		});
+
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.baseDelayMs": 5,
+			"retry.maxRetries": 1,
+			"retry.fallbackChains": {
+				[requestedSelector]: [fallbackSelector, nextSelector],
+				[fallbackSelector]: [`${fallbacksOwnNext.provider}/${fallbacksOwnNext.id}`],
+			},
+		});
+		const sessionManager = SessionManager.inMemory();
+		session = new AgentSession({ agent, sessionManager, settings, modelRegistry });
+		session.subscribe(event => {
+			if (event.type === "retry_fallback_applied") fallbackAppliedEvents.push(event);
+		});
+
+		await session.prompt("Fail over to the Anthropic fallback");
+		await session.waitForIdle();
+		// The mock stamps its own identity on replies; give the answered turn the fallback's, as the
+		// Anthropic provider would.
+		const fallbackTurn = agent.state.messages.findLast(
+			(message): message is AssistantMessage => message.role === "assistant",
+		);
+		if (!fallbackTurn) throw new Error("Expected the fallback's answer");
+		fallbackTurn.api = fallback.api;
+		fallbackTurn.provider = fallback.provider;
+		fallbackTurn.model = fallback.id;
+
+		await session.prompt("Declined by the fallback's classifier");
+		await session.waitForIdle();
+
+		expect(requestedModels).toEqual([requestedSelector, fallbackSelector, fallbackSelector, nextSelector]);
+		expect(fallbackAppliedEvents.map(event => `${event.from} -> ${event.to}`)).toEqual([
+			`${requestedSelector} -> ${fallbackSelector}`,
+			`${fallbackSelector} -> ${nextSelector}`,
+		]);
+		expect(session.model?.id).toBe(next.id);
+		expect(getLastAssistantMessage(session).content).toEqual([
+			{ type: "text", text: "Answered on the next chain entry" },
+		]);
+		const modelChanges = sessionManager.getEntries().filter(entry => entry.type === "model_change");
+		expect(modelChanges.at(-1)).toMatchObject({ model: nextSelector, role: "fallback" });
+	});
+
 	it("starts a fresh refusal walk on the next turn after an abort cut the previous one short", async () => {
 		// An abort during the fallback's request ends the turn without closing the retry saga, and a
 		// turn an extension starts skips prompt()'s per-prompt reset, so neither a new saga nor a new
