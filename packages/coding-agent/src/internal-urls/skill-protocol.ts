@@ -13,8 +13,11 @@ import type * as fsTypes from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isEnoent, logger, withTimeout } from "@oh-my-pi/pi-utils";
+import { reset as resetCapabilities } from "../capability";
 import { resolveContainedPath } from "../discovery/contained-path";
-import { getActiveSkills, type Skill } from "../extensibility/skills";
+import { clearPluginRootsAndCaches } from "../discovery/helpers";
+import { cfgDisabledExtensions, cfgSkills } from "../extensibility/settings";
+import { getActiveSkills, loadSkills, type Skill } from "../extensibility/skills";
 import { MCPManager } from "../mcp/manager";
 import skillDoc from "../prompts/internal-urls/skill.md" with { type: "text" };
 import {
@@ -46,6 +49,12 @@ class UnknownSkillError extends Error {}
  */
 const UNKNOWN_SKILL_MCP_WAIT_MS = 5_000;
 
+/** A skill:// URL's target path and the loaded skill that owns it. */
+interface SkillTarget {
+	skill: Skill;
+	path: string;
+}
+
 /**
  * Path a skill:// URL addresses, after traversal and plugin-root containment
  * checks. A bare URL addresses the skill's instruction file, or its base
@@ -57,7 +66,7 @@ async function skillTargetPath(
 	skills: readonly Skill[],
 	directory: boolean,
 	create = false,
-): Promise<string> {
+): Promise<SkillTarget> {
 	const skillName = url.rawHost || url.hostname;
 	if (!skillName) {
 		throw new Error("skill:// URL requires a skill name: skill://<name>");
@@ -97,11 +106,11 @@ async function skillTargetPath(
 	// Agent Plugin skills (§4.1): every target, including the bare instruction
 	// file and base directory, must canonically resolve within the plugin root.
 	// Symlinks may target other files inside the same package.
-	if (!skill.containRoot) return resolvedPath;
+	if (!skill.containRoot) return { skill, path: resolvedPath };
 	const escape = `skill:// path resolves outside the plugin root: ${url.href}`;
 	const contained = await resolveContainedPath(skill.containRoot, resolvedPath);
 	if (contained.status === "outside") throw new UrlContainmentError(escape);
-	if (contained.status === "ok") return contained.realPath;
+	if (contained.status === "ok") return { skill, path: contained.realPath };
 	if (create) {
 		try {
 			await ensureCreatableWithinRoot(resolvedPath, skill.containRoot, "skill", url.href);
@@ -110,7 +119,83 @@ async function skillTargetPath(
 			throw error instanceof UrlContainmentError ? new UrlContainmentError(escape) : error;
 		}
 	}
-	return resolvedPath;
+	return { skill, path: resolvedPath };
+}
+
+async function statIfExists(filePath: string): Promise<fsTypes.Stats | null> {
+	try {
+		return await fs.stat(filePath);
+	} catch (error) {
+		if (isEnoent(error)) return null;
+		throw error;
+	}
+}
+
+/**
+ * Skills to resolve against again after the loaded skill `name` lost its instruction file.
+ * `omp plugin upgrade` installs the new version in a new cache directory and deletes the old
+ * one, so every path a long-running session discovered from that plugin is gone. The plugin-root
+ * cache and the discovery file cache still name the deleted directory, so both are dropped first.
+ * A session that rediscovers its own skills refreshes in place, so its list, its prompt and the
+ * process snapshot follow. A session whose skills were fixed at creation (a subagent given its
+ * parent's) keeps its names; each of them is re-pointed at a fresh discovery's same-named skill.
+ */
+async function rediscoverSkills(
+	name: string,
+	skills: readonly Skill[],
+	context: ResolveContext | undefined,
+): Promise<readonly Skill[]> {
+	clearPluginRootsAndCaches();
+	resetCapabilities();
+	const session = context?.session;
+	let current = skills;
+	if (session?.refreshSkills) {
+		await session.refreshSkills();
+		current = session.skills ?? [];
+		const refreshed = current.find(skill => skill.name === name);
+		if (!refreshed || (await statIfExists(refreshed.filePath))) return current;
+	}
+	const settings = context?.settings ?? session?.settings;
+	if (!settings) return current;
+	const discovered = await loadSkills({
+		...cfgSkills.get(settings),
+		cwd: session?.cwd ?? context?.cwd,
+		disabledExtensions: cfgDisabledExtensions.get(settings),
+		extensionRoots: session?.effectiveExtensionRoots?.(),
+	});
+	const byName = new Map(discovered.skills.map(skill => [skill.name, skill]));
+	return current.map(skill => byName.get(skill.name) ?? skill);
+}
+
+/** A located skill:// target; `stats` is null when it does not exist. */
+interface LocatedSkillTarget {
+	path: string;
+	stats: fsTypes.Stats | null;
+}
+
+/**
+ * {@link skillTargetPath}, resolved once more against rediscovered skills when the target is
+ * missing because the skill that owns it is gone from disk ({@link rediscoverSkills}).
+ */
+async function locateSkillTarget(
+	url: InternalUrl,
+	context: ResolveContext | undefined,
+	directory: boolean,
+	create = false,
+): Promise<LocatedSkillTarget> {
+	const skills = context?.skills ?? getActiveSkills();
+	let target = await skillTargetPath(url, skills, directory, create);
+	let stats = await statIfExists(target.path);
+	if (!stats && !(await statIfExists(target.skill.filePath))) {
+		target = await skillTargetPath(
+			url,
+			await rediscoverSkills(target.skill.name, skills, context),
+			directory,
+			create,
+		);
+		stats = await statIfExists(target.path);
+	}
+	return { path: target.path, stats };
 }
 
 /**
@@ -132,9 +217,9 @@ export class SkillProtocolHandler implements ProtocolHandler {
 	}
 
 	async resolve(url: InternalUrl, context?: ResolveContext): Promise<InternalResource> {
-		let targetPath: string;
+		let target: LocatedSkillTarget;
 		try {
-			targetPath = await skillTargetPath(url, context?.skills ?? getActiveSkills(), false);
+			target = await locateSkillTarget(url, context, false);
 		} catch (error) {
 			if (!(error instanceof UnknownSkillError)) throw error;
 			// Loaded skills always win; otherwise serve the resource an MCP server advertises under
@@ -168,15 +253,8 @@ export class SkillProtocolHandler implements ProtocolHandler {
 			return { ...resource, unbounded: false };
 		}
 
-		let stats: fsTypes.Stats;
-		try {
-			stats = await fs.stat(targetPath);
-		} catch (error) {
-			if (isEnoent(error)) {
-				throw new Error(`File not found: ${targetPath}`);
-			}
-			throw error;
-		}
+		const { path: targetPath, stats } = target;
+		if (!stats) throw new Error(`File not found: ${targetPath}`);
 
 		if (stats.isDirectory()) {
 			return buildDirectoryResource(url.href, targetPath);
@@ -203,22 +281,14 @@ export class SkillProtocolHandler implements ProtocolHandler {
 	 * advertise the URL, which {@link resolve} settles (its servers may still be connecting).
 	 */
 	async locate(url: InternalUrl, context?: ResolveContext, options?: LocateOptions): Promise<string | null> {
-		const skills = context?.skills ?? getActiveSkills();
-		let targetPath: string;
+		let target: LocatedSkillTarget;
 		try {
-			targetPath = await skillTargetPath(url, skills, options?.directory === true, options?.create === true);
+			target = await locateSkillTarget(url, context, options?.directory === true, options?.create === true);
 		} catch (error) {
 			if (error instanceof UnknownSkillError && !options?.localOnly && MCPManager.available()) return null;
 			throw error;
 		}
-		if (options?.create) return targetPath;
-		try {
-			await fs.stat(targetPath);
-			return targetPath;
-		} catch (error) {
-			if (isEnoent(error)) return null;
-			throw error;
-		}
+		return options?.create || target.stats ? target.path : null;
 	}
 
 	async complete(): Promise<UrlCompletion[]> {
