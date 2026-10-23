@@ -13,11 +13,8 @@ import type * as fsTypes from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isEnoent, logger, withTimeout } from "@oh-my-pi/pi-utils";
-import { reset as resetCapabilities } from "../capability";
 import { resolveContainedPath } from "../discovery/contained-path";
-import { clearPluginRootsAndCaches } from "../discovery/helpers";
-import { cfgDisabledExtensions, cfgSkills } from "../extensibility/settings";
-import { getActiveSkills, loadSkills, type Skill } from "../extensibility/skills";
+import { getActiveSkills, rediscoverSkills, type Skill, type SkillRediscoveryHost } from "../extensibility/skills";
 import { MCPManager } from "../mcp/manager";
 import skillDoc from "../prompts/internal-urls/skill.md" with { type: "text" };
 import {
@@ -131,40 +128,23 @@ async function statIfExists(filePath: string): Promise<fsTypes.Stats | null> {
 	}
 }
 
-/**
- * Skills to resolve against again after the loaded skill `name` lost its instruction file.
- * `omp plugin upgrade` installs the new version in a new cache directory and deletes the old
- * one, so every path a long-running session discovered from that plugin is gone. The plugin-root
- * cache and the discovery file cache still name the deleted directory, so both are dropped first.
- * A session that rediscovers its own skills refreshes in place, so its list, its prompt and the
- * process snapshot follow. A session whose skills were fixed at creation (a subagent given its
- * parent's) keeps its names; each of them is re-pointed at a fresh discovery's same-named skill.
- */
-async function rediscoverSkills(
-	name: string,
-	skills: readonly Skill[],
-	context: ResolveContext | undefined,
-): Promise<readonly Skill[]> {
-	clearPluginRootsAndCaches();
-	resetCapabilities();
+/** The calling tool session (or, without one, the process snapshot) as a {@link SkillRediscoveryHost}. */
+function contextRediscoveryHost(skills: readonly Skill[], context: ResolveContext | undefined): SkillRediscoveryHost {
 	const session = context?.session;
-	let current = skills;
-	if (session?.refreshSkills) {
-		await session.refreshSkills();
-		current = session.skills ?? [];
-		const refreshed = current.find(skill => skill.name === name);
-		if (!refreshed || (await statIfExists(refreshed.filePath))) return current;
-	}
-	const settings = context?.settings ?? session?.settings;
-	if (!settings) return current;
-	const discovered = await loadSkills({
-		...cfgSkills.get(settings),
+	const refresh = session?.refreshSkills;
+	return {
+		skills,
+		refreshSkills:
+			session && refresh
+				? async () => {
+						await refresh();
+						return session.skills ?? [];
+					}
+				: undefined,
+		settings: context?.settings ?? session?.settings,
 		cwd: session?.cwd ?? context?.cwd,
-		disabledExtensions: cfgDisabledExtensions.get(settings),
 		extensionRoots: session?.effectiveExtensionRoots?.(),
-	});
-	const byName = new Map(discovered.skills.map(skill => [skill.name, skill]));
-	return current.map(skill => byName.get(skill.name) ?? skill);
+	};
 }
 
 /** A located skill:// target; `stats` is null when it does not exist. */
@@ -189,7 +169,7 @@ async function locateSkillTarget(
 	if (!stats && !(await statIfExists(target.skill.filePath))) {
 		target = await skillTargetPath(
 			url,
-			await rediscoverSkills(target.skill.name, skills, context),
+			await rediscoverSkills(target.skill.name, contextRediscoveryHost(skills, context)),
 			directory,
 			create,
 		);

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, type Mock, vi } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -6,11 +6,16 @@ import { clearCache as clearFsCache } from "@oh-my-pi/pi-coding-agent/capability
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { clearClaudePluginRootsCache } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
-import { createAgentSession } from "@oh-my-pi/pi-coding-agent/sdk";
-import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { buildSkillPromptMessage } from "@oh-my-pi/pi-coding-agent/extensibility/skills";
+import * as sdkModule from "@oh-my-pi/pi-coding-agent/sdk";
+import { AgentSession, type AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
+import { SKILL_PROMPT_MESSAGE_TYPE } from "@oh-my-pi/pi-coding-agent/session/messages";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { runSubprocess } from "@oh-my-pi/pi-coding-agent/task/executor";
+import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import { __resetDirsFromEnvForTests, removeSyncWithRetries, setAgentDir } from "@oh-my-pi/pi-utils";
+import { createSessionDefaults } from "./helpers/session-defaults";
 import { cleanupTempHome } from "./helpers/temp-home-cleanup";
 
 const SKILL = "upgrade-skill";
@@ -21,7 +26,7 @@ const SKILL = "upgrade-skill";
  * registry at it and deletes the old version's directory. A session that
  * discovered its skills before the upgrade must keep reading them.
  */
-describe("skill:// after a plugin upgrade replaces the plugin's version directory", () => {
+describe("a plugin upgrade that replaces the plugin's version directory under a running session", () => {
 	let tempDir = "";
 	let tempHomeDir = "";
 	let originalHome: string | undefined;
@@ -90,18 +95,22 @@ describe("skill:// after a plugin upgrade replaces the plugin's version director
 		if (previous) removeSyncWithRetries(pluginDir(previous));
 	}
 
+	function skillsSettings(): Settings {
+		return Settings.isolated({
+			"skills.enabled": true,
+			"skills.enableCodexUser": false,
+			"skills.enableClaudeUser": false,
+			"skills.enableClaudeProject": false,
+		});
+	}
+
 	async function startSession(options: { skills?: AgentSession["skills"] } = {}): Promise<AgentSession> {
-		const { session } = await createAgentSession({
+		const { session } = await sdkModule.createAgentSession({
 			cwd: tempDir,
 			agentDir: tempDir,
 			sessionManager: SessionManager.inMemory(tempDir),
 			modelRegistry: sharedModelRegistry,
-			settings: Settings.isolated({
-				"skills.enabled": true,
-				"skills.enableCodexUser": false,
-				"skills.enableClaudeUser": false,
-				"skills.enableClaudeProject": false,
-			}),
+			settings: skillsSettings(),
 			...(options.skills ? { skills: [...options.skills] } : {}),
 		});
 		sessions.push(session);
@@ -133,5 +142,87 @@ describe("skill:// after a plugin upgrade replaces the plugin's version director
 		installPluginVersion("2.0.0", "1.0.0");
 
 		expect(await readText(child, `skill://${SKILL}`)).toContain("Body of version 2.0.0.");
+	});
+
+	it("a /skill: invocation from a running session (TUI, ACP, RPC) sends the new version", async () => {
+		const session = await startSession();
+		const skill = session.skills.find(entry => entry.name === SKILL)!;
+
+		installPluginVersion("2.0.0", "1.0.0");
+
+		const built = await buildSkillPromptMessage(skill, { args: "" }, "user", session);
+		expect(built.message).toContain("Body of version 2.0.0.");
+		expect(built.details.path.startsWith(pluginDir("2.0.0"))).toBe(true);
+	});
+
+	it("a subagent spawned with an autoload skill after the upgrade receives the new version", async () => {
+		const parent = await startSession();
+		const skill = parent.skills.find(entry => entry.name === SKILL)!;
+
+		installPluginVersion("2.0.0", "1.0.0");
+
+		// The child is a session fake (no model to run), but its skill list, settings and rediscovery
+		// host are what the executor creates: the parent's list, fixed, and AgentSession's own host.
+		const listeners: Array<(event: AgentSessionEvent) => void> = [];
+		const child = {
+			...createSessionDefaults(),
+			state: { messages: [] },
+			agent: { state: { systemPrompt: ["test"] } },
+			model: undefined,
+			extensionRunner: undefined,
+			skills: parent.skills,
+			settings: skillsSettings(),
+			sessionManager: { appendSessionInit: () => {}, getCwd: () => tempDir },
+			refreshSkills: async () => {},
+			skillRediscoveryHost: AgentSession.prototype.skillRediscoveryHost,
+			getActiveToolNames: () => ["read", "yield"],
+			getEnabledToolNames: () => ["read", "yield"],
+			subscribe: (listener: (event: AgentSessionEvent) => void) => {
+				listeners.push(listener);
+				return () => listeners.splice(listeners.indexOf(listener), 1);
+			},
+			prompt: async () => {
+				for (const listener of listeners) {
+					listener({
+						type: "tool_execution_end",
+						toolCallId: "tool-1",
+						toolName: "yield",
+						result: { content: [{ type: "text", text: "done" }], details: { status: "success", data: {} } },
+						isError: false,
+					});
+				}
+				return true;
+			},
+			sendCustomMessage: vi.fn(async () => {}),
+		} as unknown as AgentSession;
+		vi.spyOn(sdkModule, "createAgentSession").mockResolvedValue({
+			session: child,
+			extensionsResult: {} as sdkModule.CreateAgentSessionResult["extensionsResult"],
+			setToolUIContext: () => {},
+			eventBus: new EventBus(),
+		});
+
+		await runSubprocess({
+			cwd: tempDir,
+			agent: { name: "task", description: "test", systemPrompt: "test", source: "bundled" },
+			task: "do work",
+			index: 0,
+			id: "upgrade-subagent",
+			settings: skillsSettings(),
+			modelRegistry: sharedModelRegistry,
+			enableLsp: false,
+			skills: [...parent.skills],
+			autoloadSkills: [skill],
+		});
+
+		const sendCustomMessage = child.sendCustomMessage as Mock<AgentSession["sendCustomMessage"]>;
+		expect(sendCustomMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				customType: SKILL_PROMPT_MESSAGE_TYPE,
+				content: expect.stringContaining("Body of version 2.0.0."),
+				details: expect.objectContaining({ path: expect.stringContaining(pluginDir("2.0.0")) }),
+			}),
+			{ triggerTurn: false },
+		);
 	});
 });
