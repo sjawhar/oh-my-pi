@@ -90,9 +90,11 @@ export function stripWriteContent(session: ToolSession, content: string): { text
  * after a successful edit — the model gets a tag without an extra `read` —
  * but with provenance that shows no line: a write displays no numbered lines,
  * so the first line-anchored edit against this tag gets the seen-line
- * rejection that reveals the anchor content, and the identical retry
- * applies. Head and tail inserts (`PUT <1:`, `PUT >$:`) anchor no line and
- * apply at once. Authoring content is not knowing its line numbers.
+ * rejection that reveals the anchor content. When that reveal shows every
+ * anchor line in full (at most 40 lines, each within 512 columns), the
+ * identical retry applies; otherwise the lines need a `read` first. Head and
+ * tail inserts (`PUT <1:`, `PUT >$:`) anchor no line and apply at once.
+ * Authoring content is not knowing its line numbers.
  */
 export function maybeWriteSnapshotHeader(
 	session: ToolSession,
