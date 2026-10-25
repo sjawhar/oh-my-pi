@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `eval.envPassthrough` (`{ names, prefixes }`) so variables a harness sets, such as a session id, reach Python eval cells; provider API keys are still stripped ([#14960](https://github.com/can1357/oh-my-pi/issues/14960))
+
+### Fixed
+
+- Fixed a Python eval kernel started after a session switch keeping the environment of the first session instead of the one extensions exported for the new session ([#14960](https://github.com/can1357/oh-my-pi/issues/14960))
+
 ## [18.13.2] - 2026-10-27
 
 ### Added
