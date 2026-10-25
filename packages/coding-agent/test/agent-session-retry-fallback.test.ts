@@ -469,6 +469,63 @@ describe("AgentSession retry fallback", () => {
 		expect(session.agent.state.systemPrompt).toEqual(["edit:replace"]);
 	});
 
+	// Re-rendering the prompt on a fallback hop changes the Model line and every byte after it, so
+	// Anthropic rewrites the whole cached conversation once per hop and again on the restore.
+	it("keeps the rendered system prompt across a retry-fallback hop that leaves the edit mode alone", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
+		if (!primaryModel || !fallbackModel) {
+			throw new Error("Expected bundled test models to exist");
+		}
+
+		const mock = createMockModel();
+		const sentPrompts: string[][] = [];
+		const agent = new Agent({
+			getApiKey: model => `${model.provider}-test-key`,
+			initialState: { model: primaryModel, systemPrompt: ["Test"], tools: [], messages: [] },
+			streamFn: (model, context, options) => {
+				sentPrompts.push([...(context.systemPrompt ?? [])]);
+				if (model.provider === primaryModel.provider && model.id === primaryModel.id) {
+					mock.push({ throw: "overloaded_error: provider returned error 503" });
+				} else {
+					mock.push({ content: ["Recovered on the fallback"] });
+				}
+				return mock.stream(model, context, options);
+			},
+		});
+
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.baseDelayMs": 5,
+			"retry.fallbackChains": { default: [`${fallbackModel.provider}/${fallbackModel.id}`] },
+		});
+		settings.setModelRole("default", `${primaryModel.provider}/${primaryModel.id}`);
+
+		let rebuilds = 0;
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settings,
+			modelRegistry,
+			toolRegistry: new Map(),
+			rebuildSystemPrompt: async () => {
+				rebuilds++;
+				const active = session?.model;
+				return { systemPrompt: [`model:${active?.provider}/${active?.id}`] };
+			},
+		});
+		await session.refreshBaseSystemPrompt();
+		rebuilds = 0;
+
+		await session.prompt("Force a fallback that keeps the edit mode");
+		await session.waitForIdle();
+
+		expect(session.model?.id).toBe(fallbackModel.id);
+		expect(rebuilds).toBe(0);
+		const primaryPrompt = [`model:${primaryModel.provider}/${primaryModel.id}`];
+		expect(sentPrompts).toEqual([primaryPrompt, primaryPrompt]);
+	});
+
 	it("hops to the chain owned by a fallback that is the last entry of the chain it came from", async () => {
 		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
 		const firstFallback = getBundledModel("openai", "gpt-4o-mini");

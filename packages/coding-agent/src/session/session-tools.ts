@@ -859,9 +859,24 @@ export class SessionTools {
 		return `delegation-bias:${resolveDelegationBias(activeModel)}|inline-descriptors:${inlineDescriptors}`;
 	}
 
-	/** Rebuilds model-dependent tool prompts after a model change. */
-	async syncAfterModelChange(previousEditMode: EditMode): Promise<void> {
+	/**
+	 * Rebuilds model-dependent tool prompts after a model change.
+	 *
+	 * `retryFallback` marks a switch made by automatic retry fallback (a hop down the chain or the
+	 * restore to the primary). It rebuilds only for an edit-mode change, which changes the tools the
+	 * model is called with anyway, and keeps the Model line and model-keyed policy (Delegation
+	 * wording, inline descriptors) the prompt was rendered with. Anthropic's prompt cache is
+	 * positional, so re-rendering those lines rewrote everything after them: the whole cached
+	 * conversation, once per hop and again on the restore. The kept key makes a restore to the
+	 * rendered model a no-op, and a deliberate switch (`/model`, `setModel`) still rebuilds.
+	 */
+	async syncAfterModelChange(previousEditMode: EditMode, options?: { retryFallback?: boolean }): Promise<void> {
 		const currentEditMode = this.resolveActiveEditMode();
+		if (options?.retryFallback) {
+			// Edit-mode policy must track the model serving the turn (#11983); nothing else is re-rendered.
+			if (previousEditMode !== currentEditMode) await this.refreshBaseSystemPrompt();
+			return;
+		}
 		const editModeChanged = previousEditMode !== currentEditMode && this.getActiveToolNames().includes("edit");
 		// The system prompt selects model-specific policy even when it does not display the model id.
 		const modelChanged = this.#currentPromptModelKey() !== this.#promptModelKey;

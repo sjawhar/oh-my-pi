@@ -397,6 +397,32 @@ export function collectIrcPeerRoster(
 	return { peers, parkedCount, omittedCount };
 }
 
+/** A peer roster captured for one roster root. */
+export interface IrcPeerRosterSnapshot {
+	root: string | undefined;
+	data: IrcPeerRosterData;
+}
+
+/**
+ * The peer roster a subagent's system prompt renders: collected at the first render and reused by
+ * every later rebuild (model switch, memory refresh, tool or skill change). Peer rows carry each
+ * peer's live activity, so collecting them again on a rebuild changed the prompt's bytes and made
+ * Anthropic rewrite the whole cached conversation after them. A changed roster root (a revive into
+ * another session) collects again, so a session switch still hides stale parked trees.
+ */
+export function snapshotIrcPeerRoster(
+	holder: { ircRoster?: IrcPeerRosterSnapshot },
+	registry: AgentRegistry,
+	selfId: string,
+	rootSessionFile?: string,
+): IrcPeerRosterData {
+	const kept = holder.ircRoster;
+	if (kept && kept.root === rootSessionFile) return kept.data;
+	const data = collectIrcPeerRoster(registry, selfId, rootSessionFile);
+	holder.ircRoster = { root: rootSessionFile, data };
+	return data;
+}
+
 /** Options for subagent execution */
 export interface ExecutorOptions {
 	cwd: string;
@@ -3789,6 +3815,8 @@ interface SubagentPromptInputs {
 	ircEnabled: boolean;
 	/** Root resolved by the latest roster ensure; peer rows render scoped to it, so a session switch hides stale parked trees. */
 	ircRoot: { sessionFile?: string };
+	/** Roster the prompt renders; see {@link snapshotIrcPeerRoster}. */
+	ircRoster?: IrcPeerRosterSnapshot;
 }
 
 /**
@@ -3846,7 +3874,7 @@ function buildSubagentSessionOptions(
 		onFirstChatDispatch: launch?.onFirstChatDispatch,
 		systemPrompt: defaultPrompt => {
 			const ircRoster = inputs.ircEnabled
-				? collectIrcPeerRoster(AgentRegistry.global(), inputs.id, inputs.ircRoot.sessionFile)
+				? snapshotIrcPeerRoster(inputs, AgentRegistry.global(), inputs.id, inputs.ircRoot.sessionFile)
 				: undefined;
 			const subagentPrompt = prompt.render(subagentSystemPromptTemplate, {
 				agent: inputs.agentSystemPrompt,

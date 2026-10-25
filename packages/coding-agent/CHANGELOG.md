@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Fixed an automatic retry fallback (a hop down `retry.fallbackChains` or the return to the primary) re-rendering the system prompt for the new model, which made Anthropic write the whole cached conversation again on each switch; the prompt now changes only when the switch changes the edit mode
+- Fixed a subagent's system prompt re-rendering its peer list, with each peer's current activity, every time the prompt was rebuilt, which made Anthropic write the whole cached conversation again; the list now shows the peers at the subagent's start, and `history://` lists the current ones
 - Fixed `read` middle-eliding large file pages into an artifact; a page past the output spill threshold now stops at a line boundary with an exact `:N` continuation ([#16277](https://github.com/can1357/oh-my-pi/issues/16277))
 - Fixed an edit after a restart replacing a line that `read` or `grep` had shown cut at the column cap and silently dropping the rest of that line; such edits now ask for a full `:raw` read of the line first, while edits to lines within the cap still apply ([#16171](https://github.com/can1357/oh-my-pi/issues/16171))
 - Fixed Enter on an unknown slash command such as `/not-a-command` running a command whose description happened to match it (e.g. `/loop`, which then resent every later prompt after each turn); Enter now sends what you typed, including as the deny-and-steer message for a pending tool approval, unless you select a suggestion first ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
