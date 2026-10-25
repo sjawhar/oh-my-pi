@@ -43,6 +43,13 @@ export interface ResolvedApiKey {
 	/** Durable row id of the credential that supplied this bearer, when known. */
 	credentialId?: number;
 	/**
+	 * Kind of credential that supplied this bearer, when the resolver knows it:
+	 * an OAuth login (subscription or account token) or a static API key.
+	 */
+	credentialType?: "oauth" | "api_key";
+	/** Login that minted an OAuth bearer stored under another provider id (e.g. `anthropic-console`). */
+	loginProvider?: string;
+	/**
 	 * Resolved after `LimitsApi.rotate` slept out a sibling's short block
 	 * (`afterSiblingWait`): the driver accepts this bearer even if the request
 	 * already sent it before that block.

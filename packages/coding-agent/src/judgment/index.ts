@@ -14,11 +14,14 @@
 import {
 	type AgentTelemetry,
 	type AgentTelemetryConfig,
+	classifyTelemetryAuthKind,
 	recordJudgmentTelemetry,
 	resolveTelemetry,
+	type TelemetryAuthKind,
 } from "@oh-my-pi/pi-agent-core";
 import {
 	type Answer,
+	type ApiKeyResolver,
 	type AssistantMessage,
 	type BoxEdges,
 	chatTextBackend,
@@ -489,7 +492,7 @@ export class ChainJudge implements Judge {
 	}
 
 	/** Attribute one attempt: the ledger unless answered wholly from cache, and one telemetry span. */
-	#report(attempt: JudgmentAttempt): void {
+	#report(attempt: JudgmentAttempt, authKind?: TelemetryAuthKind): void {
 		const { startedAt, responseModel, questions, cachedQuestions, ...rest } = attempt;
 		const usage: JudgmentUsage = { purpose: this.#deps.purpose, ...rest };
 		if (questions === undefined || cachedQuestions !== questions) this.#deps.onUsage?.(usage);
@@ -504,6 +507,7 @@ export class ChainJudge implements Judge {
 			startTime: startedAt,
 			questions,
 			cachedQuestions,
+			authKind,
 		}).catch(error => logger.warn("judgment telemetry failed", { error: String(error) }));
 	}
 
@@ -533,11 +537,18 @@ export class ChainJudge implements Judge {
 		const model = candidate.model;
 		if (model.api === "local-inference") return new TextJudge(new LocalTextBackend(model.id));
 		if (!(await this.#deps.registry.getApiKey(model, this.#deps.sessionId, { signal }))) return undefined;
-		const apiKey = this.#deps.registry.resolver(model, this.#deps.sessionId);
+		const resolver = this.#deps.registry.resolver(model, this.#deps.sessionId);
+		// Each attempt's span records the credential kind its latest resolution used.
+		let authKind: TelemetryAuthKind = "unknown";
+		const apiKey: ApiKeyResolver = async ctx => {
+			const resolved = await resolver(ctx);
+			if (resolved !== undefined) authKind = classifyTelemetryAuthKind(resolved);
+			return resolved;
+		};
 		if (isJudgmentApi(model.api)) {
 			const headers = await this.#deps.registry.resolveModelHeaders(model, signal);
 			const judge = createNativeJudge(model, { apiKey, headers });
-			return nativeJudge(judge, model, this.#deps.cache, attempt => this.#report(attempt));
+			return nativeJudge(judge, model, this.#deps.cache, attempt => this.#report(attempt, authKind));
 		}
 		// Resolve metadata after getApiKey so the session-sticky credential is recorded first.
 		const metadata = this.#deps.metadataResolver?.(model.provider);
@@ -548,16 +559,19 @@ export class ChainJudge implements Judge {
 			// Sole attribution point for prompted judgments: TextJudge's result.usage
 			// aggregates these same attempts and must never be billed again.
 			onAttempt: attempt =>
-				this.#report({
-					role: "judge",
-					api: attempt.api,
-					provider: attempt.provider,
-					model: attempt.model,
-					usage: attempt.usage,
-					stopReason: attempt.stopReason,
-					errorMessage: attempt.errorMessage,
-					startedAt: attempt.timestamp,
-				}),
+				this.#report(
+					{
+						role: "judge",
+						api: attempt.api,
+						provider: attempt.provider,
+						model: attempt.model,
+						usage: attempt.usage,
+						stopReason: attempt.stopReason,
+						errorMessage: attempt.errorMessage,
+						startedAt: attempt.timestamp,
+					},
+					authKind,
+				),
 		});
 		return new TextJudge(backend);
 	}
