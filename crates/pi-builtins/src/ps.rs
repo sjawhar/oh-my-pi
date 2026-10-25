@@ -1434,7 +1434,13 @@ mod tests {
 				panic!("{args:?} must be rejected");
 			};
 			assert_eq!(code, 1, "{args:?}");
-			assert_eq!(message, format!("{named}; {SYSTEM_PS_HINT}"), "{args:?}");
+			let hint = message
+				.strip_prefix(named)
+				.and_then(|rest| rest.strip_prefix("; "))
+				.unwrap_or_else(|| panic!("{args:?}: {message:?} must start with {named:?}"));
+			assert!(hint.contains("'ps --help'"), "{args:?}: {message:?}");
+			assert!(hint.contains("system ps"), "{args:?}: {message:?}");
+			assert!(hint.contains("full path"), "{args:?}: {message:?}");
 		}
 	}
 
