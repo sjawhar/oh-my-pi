@@ -385,6 +385,8 @@ export class SessionTools {
 	#promptSurfaceScope = new AsyncLocalStorage<PromptSurface>();
 	#toolRegistryMutationTail: Promise<void> = Promise.resolve();
 	#promptModelKey: string | undefined;
+	/** Inline-descriptor decision of the model the base prompt was rendered for. */
+	#promptInlineDescriptors: boolean | undefined;
 	#rebuildSystemPrompt: SessionToolsOptions["rebuildSystemPrompt"];
 	#getMcpServerInstructions: SessionToolsOptions["getMcpServerInstructions"];
 	/**
@@ -487,6 +489,7 @@ export class SessionTools {
 		for (const tool of host.agent.state.tools) this.#enabledToolNames.add(tool.name);
 		for (const name of this.#xdev?.mountedNames ?? []) this.#enabledToolNames.add(name);
 		this.#promptModelKey = this.#currentPromptModelKey();
+		this.#promptInlineDescriptors = this.#currentInlineDescriptors();
 	}
 
 	/** Mutable registry shared with controller hosts that inspect available tools. */
@@ -846,35 +849,38 @@ export class SessionTools {
 		return resolveEditMode(this.#getEditModeSession());
 	}
 
+	/** Whether the active model inlines tool descriptors into the prompt and prunes them from the provider schemas. */
+	#currentInlineDescriptors(): boolean | undefined {
+		const activeModel = this.#host.model();
+		if (!activeModel) return undefined;
+		return shouldInlineToolDescriptors(cfgInlineToolDescriptors.get(this.#host.settings), activeModel.id);
+	}
+
 	#currentPromptModelKey(): string | undefined {
 		const activeModel = this.#host.model();
 		if (!activeModel) return undefined;
 		if (cfgIncludeModelInPrompt.get(this.#host.settings)) return formatModelString(activeModel);
 		// The inline-descriptor decision is per model and selects both the prompt's
 		// tool catalog and provider-side description pruning (see `sdk.ts`).
-		const inlineDescriptors = shouldInlineToolDescriptors(
-			cfgInlineToolDescriptors.get(this.#host.settings),
-			activeModel.id,
-		);
-		return `delegation-bias:${resolveDelegationBias(activeModel)}|inline-descriptors:${inlineDescriptors}`;
+		return `delegation-bias:${resolveDelegationBias(activeModel)}|inline-descriptors:${this.#currentInlineDescriptors()}`;
 	}
 
 	/**
 	 * Rebuilds model-dependent tool prompts after a model change.
 	 *
-	 * `retryFallback` marks a switch made by automatic retry fallback (a hop down the chain or the
-	 * restore to the primary). It rebuilds only for an edit-mode change, which changes the tools the
-	 * model is called with anyway, and keeps the Model line and model-keyed policy (Delegation
-	 * wording, inline descriptors) the prompt was rendered with. Anthropic's prompt cache is
-	 * positional, so re-rendering those lines rewrote everything after them: the whole cached
-	 * conversation, once per hop and again on the restore. The kept key makes a restore to the
-	 * rendered model a no-op, and a deliberate switch (`/model`, `setModel`) still rebuilds.
+	 * `retryFallback` marks a hop down the retry fallback chain. It keeps the Model line and the
+	 * Delegation wording the prompt was rendered with: re-rendering them changed the prompt's bytes,
+	 * and the provider then wrote the whole cached conversation again on every hop. It still rebuilds
+	 * when the hop changes what the request must carry for the new model: the edit-mode policy
+	 * (#11983), or the inline-descriptor decision, which also turns provider-side description pruning
+	 * on or off (#14200). The kept key makes a later switch back to the rendered model a no-op, and a
+	 * deliberate switch (`/model`, `setModel`) compares against the model the prompt describes.
 	 */
 	async syncAfterModelChange(previousEditMode: EditMode, options?: { retryFallback?: boolean }): Promise<void> {
 		const currentEditMode = this.resolveActiveEditMode();
 		if (options?.retryFallback) {
-			// Edit-mode policy must track the model serving the turn (#11983); nothing else is re-rendered.
-			if (previousEditMode !== currentEditMode) await this.refreshBaseSystemPrompt();
+			const inlineDescriptorsChanged = this.#currentInlineDescriptors() !== this.#promptInlineDescriptors;
+			if (previousEditMode !== currentEditMode || inlineDescriptorsChanged) await this.refreshBaseSystemPrompt();
 			return;
 		}
 		const editModeChanged = previousEditMode !== currentEditMode && this.getActiveToolNames().includes("edit");
@@ -1251,6 +1257,7 @@ export class SessionTools {
 				invalidateToolSchemaMetadata(this.#host.agent.state.tools);
 				this.#lastAppliedToolSignature = rebuiltSignature;
 				this.#promptModelKey = this.#currentPromptModelKey();
+				this.#promptInlineDescriptors = this.#currentInlineDescriptors();
 				this.#setBasePromptXdevNames(rebuiltXdevCatalogNames);
 				// The rebuilt prompt is a fresh roster snapshot. Keep the complete
 				// pending delta for a turn override that hides it, while separately
@@ -2078,6 +2085,7 @@ export class SessionTools {
 				this.#basePromptReflectsRosterDelta = true;
 				this.#pendingToolRosterDeltaAfterBase = undefined;
 				this.#promptModelKey = this.#currentPromptModelKey();
+				this.#promptInlineDescriptors = this.#currentInlineDescriptors();
 				this.#lastAppliedToolSignature = signature;
 				return true;
 			},

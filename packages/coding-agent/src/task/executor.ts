@@ -397,29 +397,39 @@ export function collectIrcPeerRoster(
 	return { peers, parkedCount, omittedCount };
 }
 
-/** A peer roster captured for one roster root. */
+/** A peer roster captured for one roster root and the default prompt blocks it was rendered after. */
 export interface IrcPeerRosterSnapshot {
 	root: string | undefined;
+	defaultPrompt: readonly string[];
 	data: IrcPeerRosterData;
 }
 
 /**
- * The peer roster a subagent's system prompt renders: collected at the first render and reused by
- * every later rebuild (model switch, memory refresh, tool or skill change). Peer rows carry each
- * peer's live activity, so collecting them again on a rebuild changed the prompt's bytes and made
- * Anthropic rewrite the whole cached conversation after them. A changed roster root (a revive into
- * another session) collects again, so a session switch still hides stale parked trees.
+ * The peer roster a subagent's system prompt renders. A rebuild that leaves the default prompt
+ * blocks and the roster root unchanged reuses the roster the last render showed: peer rows carry
+ * each peer's live activity, so collecting them again changed the prompt's bytes and made the
+ * provider write the whole cached conversation again. A rebuild whose default blocks changed loses
+ * the cached prefix anyway, so it collects again and catches up; so does a changed roster root (a
+ * revive into another session), which keeps stale parked trees hidden.
  */
 export function snapshotIrcPeerRoster(
 	holder: { ircRoster?: IrcPeerRosterSnapshot },
 	registry: AgentRegistry,
 	selfId: string,
-	rootSessionFile?: string,
+	rootSessionFile: string | undefined,
+	defaultPrompt: readonly string[],
 ): IrcPeerRosterData {
 	const kept = holder.ircRoster;
-	if (kept && kept.root === rootSessionFile) return kept.data;
+	if (
+		kept &&
+		kept.root === rootSessionFile &&
+		kept.defaultPrompt.length === defaultPrompt.length &&
+		kept.defaultPrompt.every((block, index) => block === defaultPrompt[index])
+	) {
+		return kept.data;
+	}
 	const data = collectIrcPeerRoster(registry, selfId, rootSessionFile);
-	holder.ircRoster = { root: rootSessionFile, data };
+	holder.ircRoster = { root: rootSessionFile, defaultPrompt: [...defaultPrompt], data };
 	return data;
 }
 
@@ -3874,7 +3884,13 @@ function buildSubagentSessionOptions(
 		onFirstChatDispatch: launch?.onFirstChatDispatch,
 		systemPrompt: defaultPrompt => {
 			const ircRoster = inputs.ircEnabled
-				? snapshotIrcPeerRoster(inputs, AgentRegistry.global(), inputs.id, inputs.ircRoot.sessionFile)
+				? snapshotIrcPeerRoster(
+						inputs,
+						AgentRegistry.global(),
+						inputs.id,
+						inputs.ircRoot.sessionFile,
+						defaultPrompt,
+					)
 				: undefined;
 			const subagentPrompt = prompt.render(subagentSystemPromptTemplate, {
 				agent: inputs.agentSystemPrompt,

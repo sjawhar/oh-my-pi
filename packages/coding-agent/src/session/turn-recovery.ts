@@ -2496,7 +2496,9 @@ export class TurnRecovery {
 		this.#host.sessionManager.appendModelChange(primarySelector, EPHEMERAL_MODEL_CHANGE_ROLE);
 		this.#host.settings.getStorage()?.recordModelUsage(primarySelector);
 		this.#host.setThinkingLevel(thinkingToApply);
-		await this.#host.syncAfterModelChange(previousEditMode, { retryFallback: true });
+		// The plain comparison: a hop kept the primary's prompt, so this is a no-op, unless a rebuild
+		// while on the fallback rendered the fallback's policy, which the primary must not keep.
+		await this.#host.syncAfterModelChange(previousEditMode);
 		return true;
 	}
 
