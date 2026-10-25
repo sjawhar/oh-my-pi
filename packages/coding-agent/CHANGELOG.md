@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a hashline edit under the tag a `write` returned applying at any guessed line number without the lines ever being shown; the first line-anchored edit now shows the anchored lines (the identical retry then applies, unless there were more than 40 lines or a line over 512 columns, which need a `read` first), while head and tail inserts still apply at once ([#15666](https://github.com/can1357/oh-my-pi/issues/15666))
+
 ## [18.13.2] - 2026-10-27
 
 ### Added
