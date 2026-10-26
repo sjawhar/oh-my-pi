@@ -342,11 +342,15 @@ export class OAuthRefresher {
 		options: StoredOAuthRefreshOptions<T>,
 	): Promise<StoredOAuthRefreshResult<T>> {
 		if (this.#shuttingDown) return Promise.reject(new AIError.AbortError("OAuth refresh stopped during shutdown"));
+		return this.#track(this.#refreshStored(provider, options));
+	}
+
+	/** Keeps shutdown waiting until `pending` settles, so rotated tokens are persisted before exit. */
+	#track<R>(pending: Promise<R>): Promise<R> {
 		this.#cancelRefreshCleanup ??= postmortem.register("oauth-refresh", () => this.#drainRefreshes(), {
 			exitOnly: true,
 			deadlineMs: OAUTH_REFRESH_SHUTDOWN_WAIT_MS,
 		});
-		const pending = this.#refreshStored(provider, options);
 		this.#pendingRefreshes.add(pending);
 		const settled = () => {
 			this.#pendingRefreshes.delete(pending);
@@ -361,7 +365,8 @@ export class OAuthRefresher {
 
 	async #drainRefreshes(): Promise<void> {
 		this.#shuttingDown = true;
-		await Promise.allSettled(this.#pendingRefreshes);
+		// Work tracked while draining (a lease hand-back a returning caller left behind) is waited for too.
+		while (this.#pendingRefreshes.size > 0) await Promise.allSettled([...this.#pendingRefreshes]);
 	}
 
 	/** A refresh failed without disabling the login: apply the caller's failure policy. */
@@ -690,7 +695,9 @@ export class OAuthRefresher {
 		} finally {
 			if (leasedCredentialId !== undefined && leaseStore && !keepLease) {
 				if (saved) leaseStore.releaseCredentialRefreshLease(leasedCredentialId, owner);
-				else await this.#leaveLease(leaseStore, leasedCredentialId, owner, takenOverFrom);
+				// A hand-back retries a busy store for the save window; the caller, which is
+				// leaving without a saved token, does not wait for it.
+				else void this.#track(this.#leaveLease(leaseStore, leasedCredentialId, owner, takenOverFrom));
 			}
 		}
 	}
