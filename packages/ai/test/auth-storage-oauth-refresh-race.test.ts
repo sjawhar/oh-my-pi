@@ -1276,31 +1276,43 @@ describe("AuthStorage OAuth refresh race", () => {
 		30_000,
 	);
 
-	test.skipIf(process.platform === "win32")(
-		"a refresh that starts while exit cleanup runs is saved before exit",
-		async () => {
-			if (!store || !tempDir) throw new Error("test setup failed");
-			const dbPath = path.join(tempDir, "agent.db");
-			await authStorage!.credentials.set("anthropic", [
-				{ type: "oauth", access: "old", refresh: "old-refresh", expires: 0 },
-			]);
-			const child = Bun.spawn(
-				[process.execPath, path.join(import.meta.dir, "fixtures/oauth-refresh-during-exit-child.ts"), dbPath],
-				{ stdout: "pipe", stderr: "pipe" },
-			);
-			try {
-				expect(await child.exited).toBe(0);
-				expect(store.listAuthCredentials("anthropic")[0]?.credential).toMatchObject({
-					type: "oauth",
-					access: "new",
-					refresh: "new-refresh",
-				});
-			} finally {
-				if (child.exitCode === null) child.kill();
-				await child.exited;
-			}
-		},
-	);
+	for (const stage of ["during-pass", "after-pass"] as const) {
+		test.skipIf(process.platform === "win32")(
+			`a refresh that starts once exit has begun never leaves a spent token (${stage})`,
+			async () => {
+				if (!store || !tempDir) throw new Error("test setup failed");
+				const dbPath = path.join(tempDir, "agent.db");
+				const marker = path.join(tempDir, "exchanged");
+				await authStorage!.credentials.set("anthropic", [
+					{ type: "oauth", access: "old", refresh: "old-refresh", expires: 0 },
+				]);
+				// `during-pass`: the refresh starts in another owner's cleanup; `after-pass`: just before the real exit.
+				const child = Bun.spawn(
+					[
+						process.execPath,
+						path.join(import.meta.dir, "fixtures/oauth-refresh-during-exit-child.ts"),
+						dbPath,
+						marker,
+						stage,
+					],
+					{ stdout: "pipe", stderr: "pipe" },
+				);
+				try {
+					expect(await child.exited).toBe(0);
+					expect(await Bun.file(`${marker}.started`).exists()).toBe(true);
+					// Either no exchange started, or the token it got was saved before exit.
+					const exchanged = await Bun.file(marker).exists();
+					expect(store.listAuthCredentials("anthropic")[0]?.credential).toMatchObject(
+						exchanged ? { access: "new", refresh: "new-refresh" } : { access: "old", refresh: "old-refresh" },
+					);
+				} finally {
+					if (child.exitCode === null) child.kill();
+					await child.exited;
+				}
+			},
+			30_000,
+		);
+	}
 
 	test("a 401 names the token of the request that failed, not of the last request started", async () => {
 		if (!authStorage) throw new Error("test setup failed");

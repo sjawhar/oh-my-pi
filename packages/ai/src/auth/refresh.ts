@@ -350,10 +350,7 @@ export class OAuthRefresher {
 		// Add before registering: a registration made while exit cleanup runs drains at
 		// once, and must find this work pending or the process exits without it.
 		this.#pendingRefreshes.add(pending);
-		this.#cancelRefreshCleanup ??= postmortem.register("oauth-refresh", () => this.#drainRefreshes(), {
-			exitOnly: true,
-			deadlineMs: OAUTH_REFRESH_SHUTDOWN_WAIT_MS,
-		});
+		this.#armShutdownDrain();
 		const settled = () => {
 			this.#pendingRefreshes.delete(pending);
 			if (this.#pendingRefreshes.size === 0 && !this.#shuttingDown) {
@@ -363,6 +360,17 @@ export class OAuthRefresher {
 		};
 		void pending.then(settled, settled);
 		return pending;
+	}
+
+	/**
+	 * Registers the shutdown drain if it is not registered yet. A registration made
+	 * once exit has begun drains at once, which sets `#shuttingDown`.
+	 */
+	#armShutdownDrain(): void {
+		this.#cancelRefreshCleanup ??= postmortem.register("oauth-refresh", () => this.#drainRefreshes(), {
+			exitOnly: true,
+			deadlineMs: OAUTH_REFRESH_SHUTDOWN_WAIT_MS,
+		});
 	}
 
 	async #drainRefreshes(): Promise<void> {
@@ -507,6 +515,9 @@ export class OAuthRefresher {
 			if (options.canRefresh && !options.canRefresh(current)) {
 				return { credential: current, refreshed: false, removed: false };
 			}
+			// Arm the drain first: once exit has begun, arming it sets `#shuttingDown`, so a
+			// refresh that starts then stops here instead of spending a token nobody saves.
+			this.#armShutdownDrain();
 			if (this.#shuttingDown || options.signal?.aborted) {
 				throw new AIError.AbortError("OAuth refresh stopped before token exchange");
 			}
