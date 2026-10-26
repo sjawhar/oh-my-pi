@@ -587,13 +587,29 @@ export class OAuthRefresher {
 							// Never release this lease afterwards: a hand-back that landed left
 							// nothing to release, and one that did not must leave a recent owner.
 							keepLease = true;
-							const handedBack = await this.#handBackLease(leaseStore, leasedCredentialId, owner, takenOverFrom);
-							logger.warn("OAuth refresh token rejected after taking over a stalled refresher; not disabling", {
-								provider,
-								credentialId: row.id,
-								spentRefresh: tokenFingerprint(current.refresh),
-								handedBack,
-							});
+							// The hand-back retries a busy store for the save window; the caller,
+							// which is failing this refresh, does not wait for it.
+							void this.#track(
+								this.#handBackLease(leaseStore, leasedCredentialId, owner, takenOverFrom).then(
+									handedBack => {
+										logger.warn(
+											"OAuth refresh token rejected after taking over a stalled refresher; not disabling",
+											{
+												provider,
+												credentialId: row.id,
+												spentRefresh: tokenFingerprint(current.refresh),
+												handedBack,
+											},
+										);
+									},
+									(error: unknown) => {
+										logger.warn("OAuth refresh could not hand a taken-over lease back", {
+											credentialId: row.id,
+											error: String(error),
+										});
+									},
+								),
+							);
 							// A transient failure, so the caller's failure policy applies to it.
 							return this.#refreshFailed(
 								options,

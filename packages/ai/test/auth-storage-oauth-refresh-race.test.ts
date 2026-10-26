@@ -1472,6 +1472,52 @@ describe("AuthStorage OAuth refresh race", () => {
 		}
 	});
 
+	test("a refresh rejected after a takeover does not wait for a busy lease hand-back", async () => {
+		if (!authStorage || !store) throw new Error("test setup failed");
+		const provider = "unit-oauth-rejected-detached-hand-back";
+		await seedLogin(provider);
+		const credentialId = store.listAuthCredentials(provider)[0]?.id;
+		if (credentialId === undefined) throw new Error("missing stored credential");
+		const takeLease = store.tryAcquireCredentialRefreshLease?.bind(store);
+		const handBack = store.handBackCredentialRefreshLease?.bind(store);
+		if (!takeLease || !handBack) throw new Error("test store does not support lease hand-back");
+		expect(takeLease(credentialId, "stalled-peer", Date.now() - 1_000)).toBe(true);
+		let storeBusy = true;
+		vi.spyOn(store, "handBackCredentialRefreshLease").mockImplementation((...args) => {
+			if (storeBusy) throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+			return handBack(...args);
+		});
+
+		const refresh = authStorage.oauth.refreshStored(provider, {
+			credentialId,
+			credentialFromRow: row => row,
+			forceRefresh: true,
+			refresh: async () => {
+				throw new Error('HTTP 400 invalid_grant {"error":"invalid_grant"}');
+			},
+			isDefinitiveFailure: error => error instanceof Error && error.message.includes("invalid_grant"),
+			disabledCause: () => "oauth refresh failed",
+			keepCredentialOnRefreshFailure: true,
+		});
+		try {
+			// The hand-back retries the busy store for up to a minute; the caller must not.
+			const first = await Promise.race([refresh.then(() => "returned"), Bun.sleep(2_000).then(() => "waiting")]);
+			expect(first).toBe("returned");
+			expect((await refresh).credential).toMatchObject({ type: "oauth", refresh: "refresh-0" });
+			expect(events).toHaveLength(0);
+			// The detached hand-back still lands once the store frees up.
+			storeBusy = false;
+			for (let poll = 0; poll < 100; poll++) {
+				if (store.getCredentialRefreshLeaseHolder?.(credentialId)?.owner === "stalled-peer") break;
+				await Bun.sleep(50);
+			}
+			expect(store.getCredentialRefreshLeaseHolder?.(credentialId)?.owner).toBe("stalled-peer");
+		} finally {
+			storeBusy = false;
+			await refresh.catch(() => undefined);
+		}
+	});
+
 	/** Refresh options for a 401 on access-0 whose refresh token the provider already rejects as spent. */
 	function refreshSpentToken(
 		credentialId: number,
@@ -1518,6 +1564,11 @@ describe("AuthStorage OAuth refresh race", () => {
 			);
 			expect(takeover).toContain("stalled refresher");
 			expect(busyHandBacks).toBe(1);
+			// The caller does not wait for the retried hand-back; it lands shortly after.
+			for (let poll = 0; poll < 100; poll++) {
+				if (store.getCredentialRefreshLeaseHolder?.(credentialId)?.owner === "stalled-peer") break;
+				await Bun.sleep(20);
+			}
 			expect(store.getCredentialRefreshLeaseHolder?.(credentialId)?.owner).toBe("stalled-peer");
 
 			// Another process has the same spent token rejected: the login stays.
