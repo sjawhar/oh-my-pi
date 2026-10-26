@@ -1671,6 +1671,11 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		},
 		// Headless hosts get the extension runner's no-op UI: hasUI=false, dialogs resolve to defaults.
 		uiContext: headless ? undefined : rpcUiContext,
+		// Start reading commands while a turn a startup handler triggered still runs:
+		// the client gets `negotiate_protocol`, `get_state` and `abort` answered (and an
+		// extension dialog that turn raises gets its response read) instead of waiting
+		// for the whole turn.
+		drainSends: false,
 	});
 
 	await goalController.reconcile();

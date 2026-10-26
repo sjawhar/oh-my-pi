@@ -53,6 +53,14 @@ export interface InitializeExtensionsOptions {
 	 * records a startup send writes.
 	 */
 	afterStartupDiscovery?: (session: AgentSession) => void | Promise<void>;
+	/**
+	 * Wait for every send a startup handler started (a `triggerTurn` send runs a
+	 * whole turn) before returning. Defaults to `true`: print mode prompts as soon
+	 * as this returns and would otherwise hit AgentBusyError. A host that keeps
+	 * reading commands while a turn runs (RPC) passes `false`, so its client can
+	 * steer, query or abort the startup turn like any other turn.
+	 */
+	drainSends?: boolean;
 }
 
 /**
@@ -77,6 +85,7 @@ export async function initializeExtensions(session: AgentSession, options: Initi
 		filterActiveTools,
 		wrapSessionChange = change => change(),
 		afterStartupDiscovery,
+		drainSends = true,
 	} = options;
 	const shutdown = onShutdown ?? (() => {});
 
@@ -241,9 +250,9 @@ export async function initializeExtensions(session: AgentSession, options: Initi
 		await session.discoverStartupSkillPaths();
 		await afterStartupDiscovery?.(session);
 	});
-	// Settle every extension-triggered send before returning. Without this the
-	// caller (print mode's immediate session.prompt(), print-mode.ts) can
-	// observe the session as still streaming and throw AgentBusyError, or
-	// reorder the initial turn.
-	await runner.sends.drain();
+	// Settle every extension-triggered send before returning unless the host
+	// opted out. Without this the caller (print mode's immediate
+	// session.prompt(), print-mode.ts) can observe the session as still
+	// streaming and throw AgentBusyError, or reorder the initial turn.
+	if (drainSends) await runner.sends.drain();
 }
