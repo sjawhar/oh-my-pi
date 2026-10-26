@@ -49,6 +49,8 @@ export type AsyncJobType = "bash" | "task" | "eval";
 export interface AsyncJobRunResult {
 	text: string;
 	structured?: StructuredSubagentOutput;
+	/** See {@link AsyncJob.agentOutputPublished}. */
+	agentOutputPublished?: boolean;
 }
 
 /**
@@ -109,6 +111,14 @@ export interface AsyncJob {
 	 * id differs from the agent id (vibe turn jobs, tan clones).
 	 */
 	agentId?: string;
+	/**
+	 * Whether this job's turn published the agent's `<agentId>.md` output. A
+	 * follow-up turn that neither yielded nor produced a message result writes
+	 * none, so `agent://<agentId>` still holds an earlier turn's output; job
+	 * bodies that know this report it so deliveries advertise only the handles
+	 * that answer for this turn. Undefined where the body does not report it.
+	 */
+	agentOutputPublished?: boolean;
 	/** The process the job runs, when it spawns one. */
 	process?: AsyncJobProcess;
 	/**
@@ -206,7 +216,15 @@ interface AsyncJobDelivery {
 	 */
 	jobSnapshot?: Pick<
 		AsyncJob,
-		"type" | "status" | "startTime" | "endTime" | "label" | "structured" | "agentId" | "latestDetails"
+		| "type"
+		| "status"
+		| "startTime"
+		| "endTime"
+		| "label"
+		| "structured"
+		| "agentId"
+		| "agentOutputPublished"
+		| "latestDetails"
 	>;
 }
 
@@ -410,6 +428,9 @@ export class AsyncJobManager {
 				const text = typeof outcome === "string" ? outcome : outcome.text;
 				const structured = typeof outcome === "string" ? undefined : outcome.structured;
 				if (structured) job.structured = structured;
+				if (typeof outcome !== "string" && outcome.agentOutputPublished !== undefined) {
+					job.agentOutputPublished = outcome.agentOutputPublished;
+				}
 				if (job.status === "cancelled") {
 					job.resultText = text;
 				} else {
@@ -461,6 +482,7 @@ export class AsyncJobManager {
 			agentId: options.agentId,
 			resultText: result.text,
 			structured: result.structured,
+			agentOutputPublished: result.agentOutputPublished,
 		};
 		this.#jobs.set(id, job);
 		this.#enqueueDelivery(id, result.text);
@@ -1120,6 +1142,7 @@ export class AsyncJobManager {
 						label: job.label,
 						structured: job.structured,
 						agentId: job.agentId,
+						agentOutputPublished: job.agentOutputPublished,
 						latestDetails: job.latestDetails,
 					}
 				: undefined,
@@ -1263,6 +1286,7 @@ export class AsyncJobManager {
 			resultText: delivery.text,
 			structured: snapshot.structured,
 			agentId: snapshot.agentId,
+			agentOutputPublished: snapshot.agentOutputPublished,
 			latestDetails: snapshot.latestDetails,
 		};
 	}
