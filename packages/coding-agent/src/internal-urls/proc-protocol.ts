@@ -150,8 +150,8 @@ export class ProcProtocolHandler implements ProtocolHandler {
 				daemons: services,
 			});
 		}
-		const job = jobs.find(item => item.id === id) ?? runningJobOfAgent(jobs, id);
 		const service = services.find(item => item.name === id);
+		const job = jobs.find(item => item.id === id) ?? (service ? undefined : runningJobOfAgent(jobs, id));
 		if (job && service) throw new Error(`proc://${id} is ambiguous: both job ${id} and service ${id} exist.`);
 		if (service) {
 			const header = `${serviceStatus(service)}\nready=${service.readyAt !== undefined || service.state === "ready" || service.state === "running"} persist=${service.persist} detached=${service.detached}${service.exitCode === undefined ? "" : ` exit=${service.exitCode}`}`;
@@ -206,7 +206,8 @@ export class ProcProtocolHandler implements ProtocolHandler {
 		if (!id) throw new Error("Write requires proc://<id>, proc://<id>/kill, or proc://<id>/mode");
 		const ownerId = session.getAgentId?.() ?? undefined;
 		const jobs = ownerJobs(session);
-		const job = jobs.find(item => item.id === id) ?? runningJobOfAgent(jobs, id);
+		const exactJob = jobs.find(item => item.id === id);
+		const agentJob = exactJob ? undefined : runningJobOfAgent(jobs, id);
 		const agent = runningAgentsOutsideJobs(session).find(item => item.id === id);
 		let service: DaemonSnapshot | undefined;
 		if (cfgLaunchEnabled.get(session.settings)) {
@@ -216,13 +217,15 @@ export class ProcProtocolHandler implements ProtocolHandler {
 				// Killing an in-process job or agent needs no broker. Skipping the
 				// lookup only loses the job/service collision check, which cannot be
 				// answered while the broker is down anyway.
-				if (context?.signal?.aborted || action !== "kill" || !(job || agent)) throw error;
+				if (context?.signal?.aborted || action !== "kill" || !(exactJob || agentJob || agent)) throw error;
 				logger.warn("Daemon broker lookup failed; cancelling in-process target", {
 					id,
 					error: error instanceof Error ? error.message : String(error),
 				});
 			}
 		}
+		// A service named like an agent wins over that agent's suffixed turn job.
+		const job = exactJob ?? (service ? undefined : agentJob);
 		if ((job || agent) && service)
 			throw new Error(`proc://${id} is ambiguous: both job ${id} and service ${id} exist.`);
 		if (action === "mode") {

@@ -103,11 +103,13 @@ function steeringContext(steeringSignal: AbortSignal): AgentToolContext {
  * Agent `Quick` finished its first run and was woken: its new turn's job asks for
  * the id `Quick`, but the settled first job still holds it, so the turn runs as `Quick-2`.
  */
-async function wokenAgentSession(): Promise<{ manager: AsyncJobManager; session: ToolSession }> {
+async function wokenAgentSession(
+	options: { launch?: boolean } = {},
+): Promise<{ manager: AsyncJobManager; session: ToolSession }> {
 	const manager = new AsyncJobManager({});
 	const registry = new AgentRegistry();
 	registry.register({ id: "Quick", displayName: "Quick", kind: "sub", parentId: "Main", session: null });
-	const session = toolSession(process.cwd(), manager, { launch: false });
+	const session = toolSession(process.cwd(), manager, { launch: options.launch ?? false });
 	session.agentRegistry = registry;
 	manager.register("task", "Quick", async () => "READY", { id: "Quick", agentId: "Quick", ownerId: "Main" });
 	await manager.getJob("Quick")?.promise;
@@ -347,6 +349,54 @@ describe("proc:// background jobs", () => {
 			expect(settled.details?.proc?.job).toMatchObject({ id: "Quick", status: "completed" });
 			expect(settled.content).toContain("running again as job Quick-2");
 		} finally {
+			await manager.dispose();
+		}
+	});
+
+	it("keeps a service named like a woken agent reachable for read and kill", async () => {
+		const now = Date.now();
+		const daemon: DaemonSnapshot = {
+			name: "Quick",
+			id: "quick-service",
+			state: "ready",
+			createdAt: now,
+			startedAt: now,
+			readyAt: now,
+			restartCount: 0,
+			outputBytes: 0,
+			persist: false,
+			detached: false,
+		};
+		const stopped: string[] = [];
+		const client = {
+			projectDir: process.cwd(),
+			onCompletion: () => () => {},
+			close() {},
+			async request(operation: DaemonOperation): Promise<DaemonRpcResult> {
+				if (operation.op === "list") return { op: "list", daemons: [daemon] };
+				if (operation.op === "logs")
+					return { op: "logs", name: "Quick", text: "serving\n", cursor: 8, timedOut: false, state: "ready" };
+				if (operation.op === "stop") {
+					stopped.push(operation.name);
+					return { op: "stop", daemon: { ...daemon, state: "exited", exitedAt: now } };
+				}
+				throw new Error(`Unexpected broker op ${operation.op}`);
+			},
+		} as unknown as DaemonBrokerClient;
+		const spy = vi.spyOn(daemonClient, "daemonClientForProject").mockResolvedValue(client);
+		const { manager, session } = await wokenAgentSession({ launch: true });
+		const protocol = new ProcProtocolHandler();
+		try {
+			manager.evictCompletedJobs({ ownerId: "Main" });
+			const read = await protocol.resolve(parseInternalUrl("proc://Quick"), { session });
+			expect(read.details?.proc).toMatchObject({ daemon: { name: "Quick" } });
+
+			const killed = await protocol.write(parseInternalUrl("proc://Quick/kill"), "", { session });
+			expect(killed.details?.proc).toMatchObject({ action: "stop", daemon: { name: "Quick" } });
+			expect(stopped).toEqual(["Quick"]);
+			expect(manager.getJob("Quick-2")?.status).toBe("running");
+		} finally {
+			spy.mockRestore();
 			await manager.dispose();
 		}
 	});
