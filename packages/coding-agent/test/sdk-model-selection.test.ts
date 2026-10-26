@@ -1202,6 +1202,54 @@ describe("createAgentSession deferred model pattern resolution", () => {
 		},
 	);
 
+	// A warm revival rebuilds the session from the same spawn options over the
+	// transcript the fallback wrote, its thinking entry included. That entry is
+	// the fallback's level: the requested model never ran in this session, so it
+	// comes back at the level a fresh spawn would start it at (here the settings
+	// default), not at the fallback's.
+	test.each([
+		{ source: "absent from the catalog", keyed: ["runtime-fallback-model", "ladder"], inCatalog: false },
+		{ source: "without working credentials", keyed: ["runtime-fallback-model"], inCatalog: true },
+	])(
+		"restores a revived subagent's requested model $source at its own level, not the fallback transcript's",
+		async ({ keyed, inCatalog }) => {
+			const keyedModelIds = [...keyed];
+			const { authStorage, modelRegistry, parentPattern } = registryWithKeys(keyedModelIds);
+			const settings = Settings.isolated({
+				"retry.fallbackChains": { "ladder-provider/ladder": ["runtime-provider/runtime-fallback-model:high"] },
+				defaultThinkingLevel: Effort.Low,
+			});
+			const sessionManager = SessionManager.inMemory();
+			sessionManager.appendModelChange("runtime-provider/runtime-fallback-model", undefined, true);
+			sessionManager.appendThinkingLevelChange(Effort.High);
+
+			const { session } = await createAgentSession({
+				...subagentSessionOptions(modelRegistry, authStorage, settings, "ladder-provider/ladder", parentPattern),
+				sessionManager,
+				extensions: inCatalog ? [providerExtension, ladderProviderExtension] : [providerExtension],
+			});
+
+			try {
+				expect(session.model?.id).toBe("runtime-fallback-model");
+				const requests: Array<{ model: string; reasoning: Effort | undefined }> = [];
+				const mock = createMockModel({ handler: { content: ["ok"] } });
+				session.agent.streamFn = (model, context, streamOptions) => {
+					requests.push({ model: `${model.provider}/${model.id}`, reasoning: streamOptions?.reasoning });
+					return mock.stream(model, context, streamOptions);
+				};
+				if (inCatalog) keyedModelIds.push("ladder");
+				else modelRegistry.registerProvider("ladder-provider", ladderProviderConfig, "ext://ladder");
+
+				await session.prompt("Follow-up after the requested model can serve again");
+				await session.waitForIdle();
+
+				expect(requests).toEqual([{ model: "ladder-provider/ladder", reasoning: Effort.Low }]);
+			} finally {
+				await session.dispose();
+			}
+		},
+	);
+
 	test("walks a non-empty fallback chain for a subagent model without working credentials and marks the fallback", async () => {
 		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["runtime-fallback-model"]);
 		const settings = Settings.isolated({

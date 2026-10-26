@@ -159,9 +159,10 @@ export interface InitialRetryFallbackState {
 	originalThinkingLevel: ConfiguredThinkingLevel | undefined;
 	/**
 	 * Picks the primary's level once restoration finds it, for a primary that
-	 * was not in the catalog at startup: session creation's own precedence
-	 * (task effort, `:level`, agent default, the model's own default level,
-	 * settings default) on that model.
+	 * was not in the catalog at startup: session creation's own precedence for
+	 * a fresh spawn (task effort, `:level`, agent default, the model's own
+	 * default level, settings default) on that model, never the level a revived
+	 * session persisted while the fallback served.
 	 * Replaces `originalThinkingLevel` when set.
 	 */
 	resolveOriginalThinkingLevel?: (primary: Model) => ConfiguredThinkingLevel | undefined;

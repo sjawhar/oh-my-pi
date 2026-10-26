@@ -2114,11 +2114,16 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 	// persisted session entry → restored model selector suffix → default role's
 	// explicit selector → selected model's defaultLevel → global settings
 	// default. Run again after extension role reclaim so the final model's own
-	// defaults aren't masked by an earlier fallback model's.
+	// defaults aren't masked by an earlier fallback model's. `sessionHistory: false`
+	// picks as a fresh spawn would, ignoring what this session persisted: a
+	// requested model a startup fallback replaced comes back at its own level,
+	// while a revived session's thinking entry records the level of whatever
+	// served last, normally the fallback.
 	let deferredSelectionThinkingLevel: ConfiguredThinkingLevel | undefined;
 	const pickInitialThinkingLevel = (
 		selectedModel: Model | undefined,
 		selectionThinkingLevel: ConfiguredThinkingLevel | undefined,
+		{ sessionHistory = true }: { sessionHistory?: boolean } = {},
 	): ConfiguredThinkingLevel | undefined => {
 		// Throws when the model has nothing at or below the ceiling, exactly as
 		// a spawn whose model was known at dispatch is rejected.
@@ -2131,15 +2136,21 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				: undefined) ??
 			selectionThinkingLevel ??
 			options.thinkingLevel;
-		if (level === undefined && hasExistingSession && hasThinkingEntry) {
+		const persistedThinkingEntry = sessionHistory && hasThinkingEntry;
+		if (level === undefined && hasExistingSession && persistedThinkingEntry) {
 			level =
 				parseConfiguredThinkingLevel(existingSession.configuredThinkingLevel) ??
 				parseThinkingLevel(existingSession.thinkingLevel);
 		}
-		if (level === undefined && !hasThinkingEntry && restoredSessionThinkingLevel !== undefined) {
+		if (level === undefined && sessionHistory && !hasThinkingEntry && restoredSessionThinkingLevel !== undefined) {
 			level = restoredSessionThinkingLevel;
 		}
-		if (level === undefined && !hasExplicitModel && !hasThinkingEntry && defaultRoleSpec.explicitThinkingLevel) {
+		if (
+			level === undefined &&
+			!hasExplicitModel &&
+			!persistedThinkingEntry &&
+			defaultRoleSpec.explicitThinkingLevel
+		) {
 			level = defaultRoleSpec.thinkingLevel;
 		}
 		if (level === undefined && selectedModel?.thinking?.defaultLevel !== undefined) {
@@ -3315,8 +3326,9 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				model = selectedModel;
 				// Restoring the requested model reapplies the level the spawn would
 				// have started it at, as restoring a runtime fallback's primary
-				// reapplies the level it ran at. A primary with nothing under the
-				// effort ceiling is never restored, and has no such level.
+				// reapplies the level it ran at; a revived session's persisted level
+				// is the fallback's, so it does not count. A primary with nothing
+				// under the effort ceiling is never restored, and has no such level.
 				const primaryHonorsCeiling =
 					options.thinkingLevelCeiling === undefined ||
 					modelSupportsEffortCeiling(primary.model, options.thinkingLevelCeiling);
@@ -3334,6 +3346,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 								? pickInitialThinkingLevel(
 										primary.model,
 										primary.explicitThinkingLevel ? primary.thinkingLevel : undefined,
+										{ sessionHistory: false },
 									)
 								: primary.thinkingLevel,
 						}
@@ -3358,14 +3371,14 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					startupReplacement = chainReplacement;
 					model = replacement.model;
 					// No model to pick the spawn's level on yet: restoration picks it
-					// on the model it finds, with this session's startup precedence,
+					// on the model it finds, with a fresh spawn's startup precedence,
 					// as the known-primary branch above does at startup.
 					initialRetryFallback = {
 						role: chainReplacement.role,
 						originalSelector: requestedSelector,
 						originalThinkingLevel: replacement.requestedThinkingLevel,
 						resolveOriginalThinkingLevel: primary =>
-							pickInitialThinkingLevel(primary, replacement.requestedThinkingLevel),
+							pickInitialThinkingLevel(primary, replacement.requestedThinkingLevel, { sessionHistory: false }),
 					};
 					if (replacement.thinkingLevel !== undefined) {
 						deferredSelectionThinkingLevel = replacement.thinkingLevel;
