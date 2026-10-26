@@ -834,7 +834,10 @@ describe("createAgentSession deferred model pattern resolution", () => {
 		const modelRegistry = new ModelRegistry(authStorage, path.join(tempDir, "unavailable-models.yml"));
 		vi.spyOn(modelRegistry, "getApiKey").mockImplementation(async requested => {
 			if (requested.provider === parentModel.provider) return "test-key";
-			return keyedModelIds.includes(requested.id) ? "runtime-key" : undefined;
+			// A bare id keys that id on any provider; `provider/id` keys one model.
+			return keyedModelIds.includes(requested.id) || keyedModelIds.includes(`${requested.provider}/${requested.id}`)
+				? "runtime-key"
+				: undefined;
 		});
 		return { authStorage, modelRegistry, parentPattern: `${parentModel.provider}/${parentModel.id}` };
 	}
@@ -989,7 +992,7 @@ describe("createAgentSession deferred model pattern resolution", () => {
 	});
 
 	test("skips a fallback chain candidate for a subagent model that cannot honor task.maxEffort", async () => {
-		const { authStorage, modelRegistry, parentPattern } = registryWithKeys([]);
+		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["high-only", "runtime-fallback-model"]);
 		const settings = Settings.isolated({
 			"retry.fallbackChains": {
 				"runtime-provider/runtime-model": ["effort-provider/high-only", "runtime-provider/runtime-fallback-model"],
@@ -1007,6 +1010,35 @@ describe("createAgentSession deferred model pattern resolution", () => {
 			extensions: [providerExtension, highOnlyProviderExtension],
 			taskEffort: "lo",
 			thinkingLevelCeiling: Effort.Low,
+		});
+
+		try {
+			expect(`${session.model?.provider}/${session.model?.id}`).toBe("runtime-provider/runtime-fallback-model");
+		} finally {
+			await session.dispose();
+		}
+	});
+
+	test("skips a fallback chain candidate whose configured key does not resolve for a subagent model without working credentials", async () => {
+		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["runtime-fallback-model"]);
+		const settings = Settings.isolated({
+			"retry.fallbackChains": {
+				"runtime-provider/runtime-model": ["ladder-provider/ladder", "runtime-provider/runtime-fallback-model"],
+			},
+		});
+
+		// The ladder provider has a key configured, which resolves to nothing (an
+		// expired token, a failing `!command`): starting on it would fail the
+		// first request while a later entry can serve.
+		const { session } = await createAgentSession({
+			...subagentSessionOptions(
+				modelRegistry,
+				authStorage,
+				settings,
+				"runtime-provider/runtime-model",
+				parentPattern,
+			),
+			extensions: [providerExtension, ladderProviderExtension],
 		});
 
 		try {
@@ -1218,7 +1250,7 @@ describe("createAgentSession deferred model pattern resolution", () => {
 	});
 
 	test("expands the provider wildcard chain that owns a subagent model without working credentials", async () => {
-		const { authStorage, modelRegistry, parentPattern } = registryWithKeys([]);
+		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["mirror-provider/runtime-model"]);
 		const settings = Settings.isolated({ "retry.fallbackChains": { "runtime-provider/*": ["mirror-provider/*"] } });
 		const mirrorProviderExtension: ExtensionFactory = pi => {
 			pi.registerProvider("mirror-provider", {
@@ -1260,7 +1292,7 @@ describe("createAgentSession deferred model pattern resolution", () => {
 	});
 
 	test("resolves a routed chain entry for a subagent model without working credentials as runtime recovery does", async () => {
-		const { authStorage, modelRegistry, parentPattern } = registryWithKeys([]);
+		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["openrouter/z-ai/glm-4.7"]);
 		authStorage.keys.setRuntime("openrouter", "openrouter-key");
 		const settings = Settings.isolated({
 			"retry.fallbackChains": { "runtime-provider/runtime-model": ["openrouter/z-ai/glm-4.7@chutes"] },

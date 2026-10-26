@@ -692,16 +692,18 @@ export type UnavailableModelReplacement =
  * chain expand against the requested model, as they do for a runtime failure,
  * and `resolveCandidate` resolves each entry to a model the way runtime
  * recovery does (routes, fuzzy ids). The first candidate `isUsable` accepts
- * replaces it; an empty chain, or one with no usable candidate, refuses it.
+ * replaces it; candidates are tried in chain order and the walk stops there,
+ * so a check that runs a credential lookup runs it only up to the chosen
+ * entry. An empty chain, or one with no usable candidate, refuses it.
  * Role and `default` chains do not decide startup: `undefined` when no key of
  * the model's own owns it, so the caller keeps its own default.
  */
-export function resolveUnavailableModelReplacement(
+export async function resolveUnavailableModelReplacement(
 	context: RetryFallbackResolutionContext,
 	requested: { selector: string; model: Model | undefined },
 	resolveCandidate: (selector: RetryFallbackSelector) => Model | undefined,
-	isUsable: (candidate: Model, selector: RetryFallbackSelector) => boolean,
-): UnavailableModelReplacement | undefined {
+	isUsable: (candidate: Model, selector: RetryFallbackSelector) => Promise<boolean>,
+): Promise<UnavailableModelReplacement | undefined> {
 	const chainKey = resolveRetryFallbackChainKey(context, requested.selector, requested.model);
 	if (chainKey === undefined || !isRetryFallbackModelKey(chainKey)) return undefined;
 	const candidates = findRetryFallbackCandidates(context, chainKey, requested.selector, requested.model, {
@@ -712,7 +714,7 @@ export function resolveUnavailableModelReplacement(
 		const model = resolveCandidate(candidate);
 		if (!model) continue;
 		if (requested.model && model.provider === requested.model.provider && model.id === requested.model.id) continue;
-		if (!isUsable(model, candidate)) continue;
+		if (!(await isUsable(model, candidate))) continue;
 		return {
 			kind: "replaced",
 			chainKey,
