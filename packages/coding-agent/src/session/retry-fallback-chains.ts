@@ -93,6 +93,15 @@ export function calculateRetryBackoffDelayMs(baseDelayMs: number, attempt: numbe
 	return cappedDelayMs * jitter;
 }
 
+/** Parses a fallback selector, keeping its configured thinking level (`auto` included). */
+function parseSelectorModelString(selector: string, modelLookup?: Pick<RetryFallbackModelLookup, "find">) {
+	return parseModelString(selector, {
+		allowMaxSuffix: true,
+		allowAutoAlias: true,
+		isLiteralModelId: (provider, id) => modelLookup?.find(provider, id) !== undefined,
+	});
+}
+
 /** Parses a configured retry fallback selector. */
 export function parseRetryFallbackSelector(
 	selector: string,
@@ -100,11 +109,7 @@ export function parseRetryFallbackSelector(
 ): RetryFallbackSelector | undefined {
 	const trimmed = selector.trim();
 	if (!trimmed) return undefined;
-	const parsed = parseModelString(trimmed, {
-		allowMaxSuffix: true,
-		allowAutoAlias: true,
-		isLiteralModelId: (provider, id) => modelLookup?.find(provider, id) !== undefined,
-	});
+	const parsed = parseSelectorModelString(trimmed, modelLookup);
 	if (!parsed) return undefined;
 	return {
 		raw: trimmed,
@@ -671,10 +676,13 @@ export type UnavailableModelReplacement =
 			/** The requested model's own key: exact `provider/id`, else a `provider/*` or prefixed wildcard. */
 			chainKey: string;
 			model: Model;
-			/** The candidate's own thinking level, else the requested selector's (bare entries inherit it). */
-			thinkingLevel: ThinkingLevel | undefined;
-			/** The requested selector's thinking level, restored if the requested model later serves again. */
-			requestedThinkingLevel: ThinkingLevel | undefined;
+			/**
+			 * The candidate's own thinking level, else the requested selector's
+			 * configured level, `auto` included (bare entries inherit it).
+			 */
+			thinkingLevel: ConfiguredThinkingLevel | undefined;
+			/** The requested selector's configured level, restored if the requested model later serves again. */
+			requestedThinkingLevel: ConfiguredThinkingLevel | undefined;
 	  }
 	| {
 			kind: "refused";
@@ -709,7 +717,12 @@ export async function resolveUnavailableModelReplacement(
 	const candidates = findRetryFallbackCandidates(context, chainKey, requested.selector, requested.model, {
 		allowMissingPrimary: true,
 	});
-	const requestedThinkingLevel = parseRetryFallbackSelector(requested.selector, context.modelLookup)?.thinkingLevel;
+	// The configured level, not the concrete retry selector's: a bare entry
+	// keeps a requested `auto`, as runtime fallback recovery does.
+	const requestedThinkingLevel = parseSelectorModelString(
+		requested.selector.trim(),
+		context.modelLookup,
+	)?.thinkingLevel;
 	for (const candidate of candidates) {
 		const model = resolveCandidate(candidate);
 		if (!model) continue;

@@ -907,6 +907,58 @@ describe("createAgentSession deferred model pattern resolution", () => {
 		}
 	});
 
+	test("keeps a requested `auto` level on a bare chain entry that replaces a subagent model without working credentials", async () => {
+		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["runtime-fallback-model"]);
+		const settings = Settings.isolated({
+			"retry.fallbackChains": { "runtime-provider/runtime-model": ["runtime-provider/runtime-fallback-model"] },
+		});
+
+		// The agent default (`low`) would apply if the bare entry lost the
+		// requested `auto`.
+		const { session } = await createAgentSession({
+			...subagentSessionOptions(
+				modelRegistry,
+				authStorage,
+				settings,
+				"runtime-provider/runtime-model:auto",
+				parentPattern,
+			),
+			thinkingLevel: Effort.Low,
+		});
+
+		try {
+			expect(session.model?.id).toBe("runtime-fallback-model");
+			expect(session.isAutoThinking).toBe(true);
+		} finally {
+			await session.dispose();
+		}
+	});
+
+	test("keeps a requested `auto` level on a bare chain entry that replaces an absent subagent model", async () => {
+		const { authStorage, modelRegistry, parentPattern } = registryWithKeys(["runtime-fallback-model"]);
+		const settings = Settings.isolated({
+			"retry.fallbackChains": { "runtime-provider/absent-model": ["runtime-provider/runtime-fallback-model"] },
+		});
+
+		const { session } = await createAgentSession({
+			...subagentSessionOptions(
+				modelRegistry,
+				authStorage,
+				settings,
+				"runtime-provider/absent-model:auto",
+				parentPattern,
+			),
+			thinkingLevel: Effort.Low,
+		});
+
+		try {
+			expect(session.model?.id).toBe("runtime-fallback-model");
+			expect(session.isAutoThinking).toBe(true);
+		} finally {
+			await session.dispose();
+		}
+	});
+
 	test("keeps the plain credential fallback for a subagent without the spawn opt-in, as cold revival does, under an empty chain", async () => {
 		const { authStorage, modelRegistry, parentPattern } = registryWithKeys([]);
 		const settings = Settings.isolated({ "retry.fallbackChains": { "runtime-provider/runtime-model": [] } });
