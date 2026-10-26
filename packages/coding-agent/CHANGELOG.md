@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Fixed the `history://` description not saying the transcript is condensed, which led agents to conclude something never happened when `grep history://<id>` missed it; it now says what is kept, that tool results, thinking and turns removed by compaction are left out or cut to one line, and where the session JSONL with the full record is
+- Fixed agents taking a `grep history://<id>` miss as proof that something never happened: the `history://` description now says the transcript is condensed and where the full record is kept
 - Fixed `read` middle-eliding large file pages into an artifact; a page past the output spill threshold now stops at a line boundary with an exact `:N` continuation ([#16277](https://github.com/can1357/oh-my-pi/issues/16277))
 - Fixed an edit after a restart replacing a line that `read` or `grep` had shown cut at the column cap and silently dropping the rest of that line; such edits now ask for a full `:raw` read of the line first, while edits to lines within the cap still apply ([#16171](https://github.com/can1357/oh-my-pi/issues/16171))
 - Fixed Enter on an unknown slash command such as `/not-a-command` running a command whose description happened to match it (e.g. `/loop`, which then resent every later prompt after each turn); Enter now sends what you typed, including as the deny-and-steer message for a pending tool approval, unless you select a suggestion first ([#16265](https://github.com/can1357/oh-my-pi/issues/16265))
