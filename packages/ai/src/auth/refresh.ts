@@ -364,6 +364,23 @@ export class OAuthRefresher {
 		await Promise.allSettled(this.#pendingRefreshes);
 	}
 
+	/** A refresh failed without disabling the login: apply the caller's failure policy. */
+	#refreshFailed<T extends OAuthCredential>(
+		options: StoredOAuthRefreshOptions<T>,
+		current: T,
+		error: unknown,
+	): StoredOAuthRefreshResult<T> {
+		options.onRefreshFailure?.(error);
+		const keepCredential =
+			typeof options.keepCredentialOnRefreshFailure === "function"
+				? options.keepCredentialOnRefreshFailure(error)
+				: options.keepCredentialOnRefreshFailure === true;
+		if (keepCredential) {
+			return { credential: current, refreshed: false, removed: false };
+		}
+		throw error;
+	}
+
 	async #refreshStored<T extends OAuthCredential = OAuthCredential>(
 		provider: string,
 		options: StoredOAuthRefreshOptions<T>,
@@ -570,9 +587,14 @@ export class OAuthRefresher {
 								spentRefresh: tokenFingerprint(current.refresh),
 								handedBack,
 							});
-							throw new AIError.OAuthError(
-								`OAuth refresh for ${provider} waits for a stalled refresher that may still save its token`,
-								{ kind: "token-refresh", provider },
+							// A transient failure, so the caller's failure policy applies to it.
+							return this.#refreshFailed(
+								options,
+								current,
+								new AIError.OAuthError(
+									`OAuth refresh for ${provider} waits for a stalled refresher that may still save its token`,
+									{ kind: "token-refresh", provider },
+								),
 							);
 						}
 						const disabledCause = options.disabledCause?.(error) ?? `oauth refresh failed: ${String(error)}`;
@@ -604,15 +626,7 @@ export class OAuthRefresher {
 							removed: false,
 						};
 					}
-					options.onRefreshFailure?.(error);
-					const keepCredential =
-						typeof options.keepCredentialOnRefreshFailure === "function"
-							? options.keepCredentialOnRefreshFailure(error)
-							: options.keepCredentialOnRefreshFailure === true;
-					if (keepCredential) {
-						return { credential: current, refreshed: false, removed: false };
-					}
-					throw error;
+					return this.#refreshFailed(options, current, error);
 				}
 			} finally {
 				stopLeaseRenewal = true;
