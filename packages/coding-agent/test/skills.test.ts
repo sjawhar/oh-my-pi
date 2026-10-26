@@ -26,7 +26,7 @@ import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-in
 import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { CombinedAutocompleteProvider } from "@oh-my-pi/pi-tui/autocomplete";
-import { __resetDirsFromEnvForTests, removeWithRetries, setAgentDir } from "@oh-my-pi/pi-utils";
+import { __resetDirsFromEnvForTests, removeWithRetries, setAgentDir, withTimeout } from "@oh-my-pi/pi-utils";
 import { createInMemoryAuthStorage } from "./helpers/agent-session-setup";
 import { restoreEnvValue } from "./helpers/settings-test-state";
 
@@ -2389,8 +2389,8 @@ export default function (pi) {
 		}
 	});
 
-	it("drains a reload-triggered resources_discover sendUserMessage via refreshSkills (regression: PR #9379 review, session-tools.ts refreshSkills)", async () => {
-		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-session-refresh-drain-"));
+	it("returns from refreshSkills while the turn a reload-triggered resources_discover send started still runs", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-session-refresh-no-drain-"));
 		const authStorage = createInMemoryAuthStorage();
 		// `AgentSession.prompt` preflights a provider key through the registry; the
 		// reload-triggered turn below must not depend on the developer's env.
@@ -2401,10 +2401,8 @@ export default function (pi) {
 			// *reload* pass (mirrors a real extension reacting to `/reload-plugins`),
 			// via `pi.sendUserMessage()` — the same shared action context every
 			// other handler uses. The handler returns synchronously, but
-			// `sendUserMessage` starts an async turn the action never exposes a
-			// promise for; `refreshSkills()`'s own call site went out of scope
-			// long before this fires, so nothing but the runner-level tracking
-			// this regresses can settle it.
+			// `sendUserMessage` starts a turn. The reload (and the `/reload-plugins`
+			// or RPC command waiting on it) must not wait for that turn to end.
 			const extensionsDir = path.join(tempDir, "ext");
 			await fs.mkdir(extensionsDir, { recursive: true });
 			const extPath = path.join(extensionsDir, "reload-announce.ts");
@@ -2426,15 +2424,13 @@ export default function (pi) {
 
 			const model = getBundledModel("anthropic", "claude-sonnet-4-5");
 			if (!model) throw new Error("Expected claude-sonnet-4-5 model to exist");
-			// The model call blocks on a manually-released gate, and
-			// `modelCallStarted` flips synchronously the instant the handler is
-			// invoked — a deterministic proof that `refreshSkills()` did or didn't
-			// wait for the turn, with no wall-clock race.
-			let modelCallStarted = false;
+			// The model call blocks on a manually-released gate, so the
+			// reload-triggered turn cannot end before the test releases it.
+			const modelCallStarted = Promise.withResolvers<void>();
 			const { promise: modelGate, resolve: releaseModelGate } = Promise.withResolvers<void>();
 			const mock = createMockModel({
 				handler: async () => {
-					modelCallStarted = true;
+					modelCallStarted.resolve();
 					await modelGate;
 					return { content: ["ack"] };
 				},
@@ -2463,8 +2459,8 @@ export default function (pi) {
 				// A fixed snapshot merged from resources_discover (rather than a
 				// full reloadable rescan) keeps `refreshSkills()`'s own skill-side
 				// work a no-op when the handler contributes no directories (as
-				// here), isolating the assertion below to the drain this
-				// regresses instead of racing an unrelated full-rescan cost.
+				// here), isolating the assertion below to whether the reload waits
+				// for the turn.
 				skills: [],
 				skillsReloadable: false,
 				mergeDiscoveredSkillPaths: true,
@@ -2482,21 +2478,17 @@ export default function (pi) {
 			// not "reload" — no send yet.
 			expect(session.isStreaming).toBe(false);
 
-			let refreshSettled = false;
-			const refreshPromise = session.refreshSkills({ rediscover: true }).then(() => {
-				refreshSettled = true;
-			});
-			while (!modelCallStarted) {
-				await Bun.sleep(1);
-			}
-			// The reload-triggered turn has started but is still gated — a caller
-			// that fails to drain pending sends would have already returned here.
-			expect(refreshSettled).toBe(false);
+			// Resolves while the gate is still closed only if the reload does not wait for its turn.
+			await withTimeout(
+				session.refreshSkills({ rediscover: true }),
+				10_000,
+				"refreshSkills waited for the reload-triggered turn",
+			);
+			await withTimeout(modelCallStarted.promise, 10_000, "reload-triggered turn did not start");
+			expect(session.isStreaming).toBe(true);
 
 			releaseModelGate();
-			await refreshPromise;
-
-			expect(session.isStreaming).toBe(false);
+			await session.waitForIdle();
 			expect(
 				session.messages.some(
 					m => m.role === "assistant" && m.content.some(c => c.type === "text" && c.text === "ack"),
@@ -2538,11 +2530,13 @@ export default function (pi) {
 			const model = getBundledModel("anthropic", "claude-sonnet-4-5");
 			if (!model) throw new Error("Expected claude-sonnet-4-5 model to exist");
 			const skillVisibleAtCallTime: boolean[] = [];
+			const modelCalled = Promise.withResolvers<void>();
 			const mock = createMockModel({
 				handler: () => {
 					skillVisibleAtCallTime.push(
 						session?.skills.some(skill => skill.name === "startup-discovered-skill") ?? false,
 					);
+					modelCalled.resolve();
 					return { content: ["ack"] };
 				},
 			});
@@ -2580,6 +2574,8 @@ export default function (pi) {
 			expect(skillVisibleAtCallTime).toEqual([]);
 
 			await session.refreshSkills({ rediscover: true });
+			// The reload does not wait for the turn it triggered; wait for its model call here.
+			await withTimeout(modelCalled.promise, 10_000, "reload-triggered turn did not call the model");
 
 			expect(skillVisibleAtCallTime).toEqual([true]);
 		} finally {

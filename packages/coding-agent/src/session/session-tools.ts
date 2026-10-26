@@ -1969,8 +1969,9 @@ export class SessionTools {
 		// A `resources_discover` handler can call sendMessage/sendUserMessage (e.g.
 		// to announce a directory it just found); a triggered turn would read the
 		// pre-reload skill snapshot (PR #9379 review). The runner holds those sends
-		// until the rediscovered skills and prompt are applied, then this settles
-		// them — each mode's startup scope is long gone by `/reload-plugins`.
+		// until the rediscovered skills and prompt are applied, then starts them.
+		// The reload does not wait for that turn: it runs like any other turn, and
+		// the command that asked for the reload returns once the reload is applied.
 		await runner.sends.withHeld(async () => {
 			const discoveredResources = await runner.emitResourcesDiscover(this.#host.sessionManager.getCwd(), "reload");
 			const extensionDirectories = discoveredResources.skillPaths.map(entry => entry.path);
@@ -1989,7 +1990,6 @@ export class SessionTools {
 			await this.refreshBaseSystemPrompt();
 			this.#host.notifyCommandMetadataChanged();
 		});
-		await runner.sends.drain();
 	}
 
 	/**
