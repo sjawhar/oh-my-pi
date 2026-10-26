@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added a `deadlineMs` cleanup registration option: shutdown waits longer for that callback, but only while it is still pending
+- Added `deadlineMs` and `waitMessage` cleanup registration options: shutdown waits longer for that callback, but only while it is still pending, and says so on stderr once nothing else is left to wait for
 
 ## [18.12.2] - 2026-10-18
 
