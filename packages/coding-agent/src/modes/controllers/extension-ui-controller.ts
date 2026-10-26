@@ -221,8 +221,8 @@ export class ExtensionUiController {
 		// a handler calling sendMessage/sendUserMessage starts an async session send
 		// the action itself never exposes a promise for. Every such send dispatches
 		// through the runner, which holds it until startup discovery below has
-		// rebuilt the prompt and tracks it so this call can drain it before the
-		// caller issues the first prompt (PR #9379 review).
+		// rebuilt the prompt (PR #9379 review); `InteractiveMode.init()` extends that
+		// hold until the TUI observes the session and accepts input.
 		const actions: ExtensionActions = {
 			sendMessage: (message, options) => {
 				if (this.#extensionMessageStartsTurn(options) && this.#rejectGuestExtensionTurn()) return;
@@ -231,24 +231,22 @@ export class ExtensionUiController {
 				const sendTask = extensionRunner.sends.dispatch(() =>
 					this.ctx.session.sendCustomMessage(normalized, options),
 				);
-				const trackedSend = sendTask
+				void sendTask
 					.then(() => this.#applyCustomMessageDisplay(wasStreaming, normalized.display))
 					.catch((err: unknown) => {
 						this.ctx.showError(
 							`Extension sendMessage failed: ${err instanceof Error ? err.message : String(err)}`,
 						);
 					});
-				extensionRunner.sends.track(trackedSend);
 			},
 			sendUserMessage: (content, options) => {
 				if (this.#rejectGuestExtensionTurn()) return;
 				const sendTask = extensionRunner.sends.dispatch(() => this.ctx.session.sendUserMessage(content, options));
-				const trackedSend = sendTask.catch((err: unknown) => {
+				void sendTask.catch((err: unknown) => {
 					this.ctx.showError(
 						`Extension sendUserMessage failed: ${err instanceof Error ? err.message : String(err)}`,
 					);
 				});
-				extensionRunner.sends.track(trackedSend);
 			},
 			appendEntry: (customType, data) => {
 				this.ctx.sessionManager.appendCustomEntry(customType, data);
@@ -403,8 +401,8 @@ export class ExtensionUiController {
 			// skill snapshot before the first prompt.
 			await this.ctx.session.discoverStartupSkillPaths();
 		});
-		// Settle every extension-triggered send before this call returns.
-		await extensionRunner.sends.drain();
+		// A turn those sends start is not awaited here: it runs like any other turn,
+		// rendered live and interruptible.
 	}
 
 	/**
@@ -492,31 +490,29 @@ export class ExtensionUiController {
 		}
 
 		// Same runner-routed dispatch as initHooksAndCustomTools: a reload
-		// discovery round (`refreshSkills`) holds and drains these sends too.
+		// discovery round (`refreshSkills`) holds these sends until it is applied.
 		const actions: ExtensionActions = {
 			sendMessage: (message, options) => {
 				if (this.#extensionMessageStartsTurn(options) && this.#rejectGuestExtensionTurn()) return;
 				const wasStreaming = this.ctx.session.isStreaming;
 				const normalized = normalizeCustomMessagePayload(message);
-				const trackedSend = extensionRunner.sends
+				void extensionRunner.sends
 					.dispatch(() => this.ctx.session.sendCustomMessage(normalized, options))
 					.then(() => this.#applyCustomMessageDisplay(wasStreaming, normalized.display))
 					.catch((err: unknown) => {
 						const errorText = `Extension sendMessage failed: ${err instanceof Error ? err.message : String(err)}`;
 						this.ctx.showError(errorText);
 					});
-				extensionRunner.sends.track(trackedSend);
 			},
 			sendUserMessage: (content, options) => {
 				if (this.#rejectGuestExtensionTurn()) return;
-				const trackedSend = extensionRunner.sends
+				void extensionRunner.sends
 					.dispatch(() => this.ctx.session.sendUserMessage(content, options))
 					.catch((err: unknown) => {
 						this.ctx.showError(
 							`Extension sendUserMessage failed: ${err instanceof Error ? err.message : String(err)}`,
 						);
 					});
-				extensionRunner.sends.track(trackedSend);
 			},
 			appendEntry: (customType, data) => {
 				this.ctx.sessionManager.appendCustomEntry(customType, data);

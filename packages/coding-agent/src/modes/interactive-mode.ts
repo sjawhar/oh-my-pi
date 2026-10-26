@@ -2089,7 +2089,17 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	async init(options: InteractiveModeInitOptions = {}): Promise<void> {
 		if (this.isInitialized) return;
+		// A turn a `session_start`/`resources_discover` handler starts must not run
+		// before the TUI observes it: hold extension sends until init has subscribed
+		// to the session, settled its mode, restored the draft and released input.
+		// The turn then starts as init returns, renders live and takes input like
+		// any other turn; init does not wait for it. A failed init discards them.
+		const sends = this.session.extensionRunner?.sends;
+		if (sends) await sends.withHeld(() => this.#init(options));
+		else await this.#init(options);
+	}
 
+	async #init(options: InteractiveModeInitOptions): Promise<void> {
 		// Fresh dialog lifetime: a previous stop (if this mode is ever
 		// re-initialized) left the old controller aborted, and approvals queued
 		// behind the approval mutex must prompt on a live signal, not a dead one.

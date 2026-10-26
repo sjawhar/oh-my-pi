@@ -569,8 +569,8 @@ export class ExtensionRunner {
 	#pendingMcpNotifications: Array<Omit<McpNotificationEvent, "type">> = [];
 
 	/**
-	 * Extension-originated sends, held during startup and reload discovery and
-	 * drained afterwards; see {@link ExtensionSendQueue}.
+	 * Extension-originated sends, held during startup and reload discovery;
+	 * see {@link ExtensionSendQueue}.
 	 */
 	readonly sends = new ExtensionSendQueue();
 

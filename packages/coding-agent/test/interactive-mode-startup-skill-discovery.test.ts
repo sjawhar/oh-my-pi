@@ -13,7 +13,7 @@ import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import type { AutocompleteProvider } from "@oh-my-pi/pi-tui";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
-import { removeWithRetries } from "@oh-my-pi/pi-utils";
+import { removeWithRetries, withTimeout } from "@oh-my-pi/pi-utils";
 import { createInMemoryAuthStorage } from "./helpers/agent-session-setup";
 
 /**
@@ -125,7 +125,7 @@ describe("InteractiveMode startup skill discovery (PR #9379 review)", () => {
 		}
 	});
 
-	it("drains a session_start-triggered turn, with visibility into startup-discovered skills, before initHooksAndCustomTools returns (regression: PR #9379 review)", async () => {
+	it("gives a session_start-triggered turn visibility into startup-discovered skills (regression: PR #9379 review)", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-interactive-startup-turn-"));
 		const authStorage = createInMemoryAuthStorage();
 		// `AgentSession.prompt` preflights a provider key through the registry; the
@@ -147,10 +147,7 @@ describe("InteractiveMode startup skill discovery (PR #9379 review)", () => {
 			// A `session_start` handler that triggers a turn (mirrors a real
 			// extension announcing itself at startup), alongside a
 			// `resources_discover` handler that contributes a skill directory.
-			// Pre-fix, the TUI startup path (`initHooksAndCustomTools`) had no
-			// tracking of the session_start-triggered send at all, so it could
-			// still be in flight — using the pre-discovery skill snapshot — when
-			// this call returned.
+			// The turn must not start against the pre-discovery skill snapshot.
 			const extensionsDir = path.join(tempDir, "ext");
 			await fs.mkdir(extensionsDir, { recursive: true });
 			const extPath = path.join(extensionsDir, "session-start-turn.ts");
@@ -173,9 +170,11 @@ describe("InteractiveMode startup skill discovery (PR #9379 review)", () => {
 			// Recorded from inside the handler — the exact state the model call
 			// actually saw, not a state read racing the assertion.
 			const skillVisibleAtCallTime: boolean[] = [];
+			const modelCalled = Promise.withResolvers<void>();
 			const mock = createMockModel({
 				handler: () => {
 					skillVisibleAtCallTime.push(session?.skills.some(skill => skill.name === "contributed-skill") ?? false);
+					modelCalled.resolve();
 					return { content: ["ack"] };
 				},
 			});
@@ -203,12 +202,8 @@ describe("InteractiveMode startup skill discovery (PR #9379 review)", () => {
 
 			mode = new InteractiveMode(session, "test");
 			await mode.initHooksAndCustomTools();
-
-			// The extension-triggered turn must be fully settled by the time
-			// `initHooksAndCustomTools` resolves — not merely started — or the
-			// interactive render loop's first prompt can observe the session as
-			// still streaming.
-			expect(session.isStreaming).toBe(false);
+			// The startup turn is not awaited by startup; wait for its model call here.
+			await withTimeout(modelCalled.promise, 10_000, "session_start-triggered turn did not call the model");
 			expect(skillVisibleAtCallTime).toEqual([true]);
 		} finally {
 			mode?.stop();
