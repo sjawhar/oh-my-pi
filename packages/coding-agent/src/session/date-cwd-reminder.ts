@@ -40,8 +40,39 @@ export function isDateCwdReminderControl(message: Message): boolean {
 	return reminderControls.has(message);
 }
 
-/** Trailing `#n` that tells apart turns of one request that are otherwise equal. */
-const ORDINAL_SUFFIX = /#\d+$/;
+/** Trailing `#n` that tells apart turns of one request that would otherwise share a key. */
+const ORDINAL_SUFFIX = /#(\d+)$/;
+
+/** A reminder already sent with one user turn, and the copy carrying it. */
+interface Injection {
+	reminder: string;
+	source: UserMessage;
+	injected: UserMessage;
+}
+
+/** A developer reminder and the key of the turn it was placed after. */
+interface AnchoredControl {
+	anchor: string;
+	message: Message;
+}
+
+/** Everything the injector remembers about one conversation. */
+interface RootState {
+	/** The reminder the conversation was last sent. */
+	reminder: string | undefined;
+	injections: Map<string, Injection>;
+	controls: AnchoredControl[];
+	seen: Set<string>;
+	/** How many turns of the previous request shared each key, before ordinals. */
+	counts: Map<string, number>;
+}
+
+/**
+ * How many conversations the injector keeps state for. A session interleaves its
+ * own requests with its advisors', which carry their own history, and each
+ * compaction starts another conversation; the oldest is forgotten first.
+ */
+const MAX_ROOTS = 8;
 
 /**
  * Keeps volatile date/cwd reminders append-only across provider requests.
@@ -54,16 +85,18 @@ const ORDINAL_SUFFIX = /#\d+$/;
  * obfuscation and conversion-cache resets hand the injector equal but newly
  * allocated messages on every request, and an identity miss on the first user
  * turn would read as a new conversation and rewrite the reminder that turn was
- * first sent with.
+ * first sent with. The key leaves content out, so a turn whose content a later
+ * request rewrites (a newly redacted secret, a clamped image) stays the same turn.
+ *
+ * One session sends more than one conversation through the same injector: an
+ * advisor shares the main loop's provider transform and carries its own
+ * history. State is therefore held per conversation root, so a request for one
+ * conversation leaves the reminders of the others alone.
  */
 export class DateCwdReminderInjector {
-	#root: string | undefined;
-	#rootStamp: string | undefined;
-	#currentReminder: string | undefined;
-	#injections = new Map<string, { reminder: string; source: UserMessage; injected: UserMessage }>();
-	#controls: Array<{ anchor: string; anchorBase: string; message: Message }> = [];
-	#seen = new Set<string>();
-	#contentHashes = new WeakMap<Message, string>();
+	#states = new Map<string, RootState>();
+	/** The root of the most recent request. */
+	#active: string | undefined;
 
 	/** Apply the current reminder while preserving all earlier injected bytes. */
 	transform(context: Context, date: string, cwd: string): Context {
@@ -74,44 +107,125 @@ export class DateCwdReminderInjector {
 	}
 
 	/**
-	 * One key per turn, equal for every copy of it: role and timestamp, a content
-	 * hash for user turns (the turns that carry injections), and an ordinal for
-	 * the second and later turns that would otherwise share a key.
+	 * One key per turn, equal for every copy of it: role, timestamp and, for user
+	 * and developer turns, attribution (the identity session persistence uses),
+	 * plus an ordinal for the second and later turns that would otherwise share a key.
 	 */
-	#keysOf(messages: Message[]): string[] {
+	#keysOf(messages: Message[]): { keys: string[]; counts: Map<string, number> } {
 		const counts = new Map<string, number>();
-		return messages.map(message => {
-			let key = `${message.role}:${message.timestamp}`;
-			if (message.role === "user") {
-				let hash = this.#contentHashes.get(message);
-				if (hash === undefined) {
-					hash = Bun.hash(JSON.stringify(message.content)).toString(36);
-					this.#contentHashes.set(message, hash);
-				}
-				key = `${key}:${hash}`;
-			}
+		const keys = messages.map(message => {
+			const key =
+				message.role === "user" || message.role === "developer"
+					? `${message.role}:${message.timestamp}:${message.attribution ?? ""}`
+					: `${message.role}:${message.timestamp}`;
 			const count = counts.get(key) ?? 0;
 			counts.set(key, count + 1);
 			return count === 0 ? key : `${key}#${count}`;
 		});
+		return { keys, counts };
 	}
 
 	/**
-	 * Follow an already placed reminder when its anchoring turn keeps its role and
-	 * timestamp but takes another ordinal, as it does when a compaction drops an
-	 * earlier turn the anchor shared a key with.
+	 * Move a conversation's state to the ordinals its turns hold now, for the keys
+	 * that fewer turns share than in its previous request.
+	 *
+	 * With a new first turn the history lost its start (a compaction), so every
+	 * survivor's ordinal falls by the number of turns lost and the state of the
+	 * dropped turns goes with them. With the same first turn the history only lost
+	 * its end (an aborted turn's messages are not resent), so the ordinals that
+	 * remain keep their state and the state above the new count is dropped.
 	 */
-	#reanchorControls(keys: string[]): void {
-		if (this.#controls.length === 0) return;
+	#followOrdinals(state: RootState, counts: Map<string, number>, rootChanged: boolean): void {
+		const shift = (key: string): string | undefined => {
+			const match = ORDINAL_SUFFIX.exec(key);
+			const base = match ? key.slice(0, match.index) : key;
+			const now = counts.get(base) ?? 0;
+			const lost = (state.counts.get(base) ?? 0) - now;
+			if (lost <= 0) return key;
+			const ordinal = match ? Number(match[1]) : 0;
+			if (!rootChanged) return ordinal < now ? key : undefined;
+			const shifted = ordinal - lost;
+			if (shifted < 0) return undefined;
+			return shifted === 0 ? base : `${base}#${shifted}`;
+		};
+		const injections = new Map<string, Injection>();
+		for (const [key, injection] of state.injections) {
+			const shifted = shift(key);
+			if (shifted !== undefined) injections.set(shifted, injection);
+		}
+		state.injections = injections;
+		const seen = new Set<string>();
+		for (const key of state.seen) {
+			const shifted = shift(key);
+			if (shifted !== undefined) seen.add(shifted);
+		}
+		state.seen = seen;
+		const controls: AnchoredControl[] = [];
+		for (const control of state.controls) {
+			const shifted = shift(control.anchor);
+			if (shifted !== undefined) controls.push({ anchor: shifted, message: control.message });
+		}
+		state.controls = controls;
+		state.counts = counts;
+	}
+
+	/**
+	 * The conversation a request with an unserved first turn continues: the most
+	 * recent one that sent any of this request's turns. A compaction keeps the end
+	 * of the history it summarises, so its state is the one to inherit, and it is
+	 * not always the last conversation served: an advisor request can sit between
+	 * a conversation's last request before a compaction and its first after it.
+	 */
+	#predecessorOf(keys: string[]): RootState | undefined {
 		const present = new Set(keys);
-		for (const control of this.#controls) {
-			if (present.has(control.anchor)) continue;
-			for (let index = keys.length - 1; index >= 0; index--) {
-				if (keys[index]!.replace(ORDINAL_SUFFIX, "") === control.anchorBase) {
-					control.anchor = keys[index]!;
-					break;
-				}
+		const states = [...this.#states.values()];
+		for (let index = states.length - 1; index >= 0; index--) {
+			const state = states[index]!;
+			for (const key of present) {
+				if (state.seen.has(key) || state.injections.has(key)) return state;
 			}
+		}
+		return undefined;
+	}
+
+	/**
+	 * State for a first user turn this injector has not served yet: a compaction
+	 * summary, another conversation, or the first request of all. Turns the
+	 * conversation it continues shares with this one keep the reminders they were
+	 * sent with, or their bytes change under signed thinking; its other turns are
+	 * left out. That conversation keeps its own state, because a later request can
+	 * return to it: an advisor request does not end the turn that asked for it.
+	 */
+	#newRootState(keys: string[], counts: Map<string, number>, reminder: string): RootState {
+		const previous = this.#predecessorOf(keys);
+		const state: RootState = {
+			reminder,
+			injections: new Map(previous?.injections),
+			controls: previous ? [...previous.controls] : [],
+			seen: new Set(previous?.seen),
+			counts: previous ? previous.counts : new Map(),
+		};
+		this.#followOrdinals(state, counts, true);
+		const present = new Set(keys);
+		for (const key of state.injections.keys()) {
+			if (!present.has(key)) state.injections.delete(key);
+		}
+		for (const key of state.seen) {
+			if (!present.has(key)) state.seen.delete(key);
+		}
+		state.controls = state.controls.filter(control => present.has(control.anchor));
+		return state;
+	}
+
+	/** Make `root` the most recent conversation, forgetting the oldest over the cap. */
+	#activate(root: string, state: RootState): void {
+		this.#states.delete(root);
+		this.#states.set(root, state);
+		this.#active = root;
+		while (this.#states.size > MAX_ROOTS) {
+			const oldest = this.#states.keys().next().value;
+			if (oldest === undefined) break;
+			this.#states.delete(oldest);
 		}
 	}
 
@@ -119,54 +233,33 @@ export class DateCwdReminderInjector {
 		const firstIndex = messages.findIndex(message => message.role === "user");
 		if (firstIndex === -1) return messages;
 		const firstUser = messages[firstIndex] as UserMessage;
-		const keys = this.#keysOf(messages);
+		const { keys, counts } = this.#keysOf(messages);
 		const root = keys[firstIndex]!;
-		this.#reanchorControls(keys);
-		if (this.#root !== undefined && this.#root !== root && this.#rootStamp === `user:${firstUser.timestamp}`) {
-			// The same first turn with rewritten content (a newly redacted secret):
-			// it keeps the reminder it was first sent with.
-			const injection = this.#injections.get(this.#root);
-			if (injection) {
-				this.#injections.delete(this.#root);
-				this.#injections.set(root, injection);
-			}
-			this.#seen.add(root);
-			this.#root = root;
-		}
-		if (this.#root !== root) {
-			// A new first user turn: a compaction summary or a different conversation.
-			// Turns kept from the earlier history must keep the reminders they were
-			// sent with, or their bytes change under signed thinking; reminders on
-			// turns that are gone are dropped. The new root gets the current reminder.
-			const present = new Set(keys);
-			for (const key of this.#injections.keys()) {
-				if (!present.has(key)) this.#injections.delete(key);
-			}
-			for (const key of this.#seen) {
-				if (!present.has(key)) this.#seen.delete(key);
-			}
-			this.#controls = this.#controls.filter(control => present.has(control.anchor));
-			this.#root = root;
-			this.#rootStamp = `user:${firstUser.timestamp}`;
-			this.#currentReminder = reminder;
-			if (!this.#injections.has(root) && !messageStartsWithReminder(firstUser, reminder)) {
-				this.#injections.set(root, {
+		let state = this.#states.get(root);
+		if (state) {
+			this.#followOrdinals(state, counts, false);
+		} else {
+			state = this.#newRootState(keys, counts, reminder);
+			if (!state.injections.has(root) && !messageStartsWithReminder(firstUser, reminder)) {
+				state.injections.set(root, {
 					reminder,
 					source: firstUser,
 					injected: injectReminder(firstUser, reminder),
 				});
 			}
-		} else if (this.#currentReminder !== reminder) {
+		}
+		this.#activate(root, state);
+		if (state.reminder !== reminder) {
 			let newUser: number | undefined;
 			for (let index = messages.length - 1; index >= 0; index--) {
-				if (messages[index]!.role === "user" && !this.#seen.has(keys[index]!)) {
+				if (messages[index]!.role === "user" && !state.seen.has(keys[index]!)) {
 					newUser = index;
 					break;
 				}
 			}
 			if (newUser !== undefined) {
 				const message = messages[newUser] as UserMessage;
-				this.#injections.set(keys[newUser]!, {
+				state.injections.set(keys[newUser]!, {
 					reminder,
 					source: message,
 					injected: injectReminder(message, reminder),
@@ -179,14 +272,13 @@ export class DateCwdReminderInjector {
 					timestamp: Date.now(),
 				};
 				reminderControls.add(control);
-				const anchor = keys.at(-1)!;
-				this.#controls.push({ anchor, anchorBase: anchor.replace(ORDINAL_SUFFIX, ""), message: control });
+				state.controls.push({ anchor: keys.at(-1)!, message: control });
 			}
-			this.#currentReminder = reminder;
+			state.reminder = reminder;
 		}
 
 		const controlsByAnchor = new Map<string, Message[]>();
-		for (const control of this.#controls) {
+		for (const control of state.controls) {
 			const controls = controlsByAnchor.get(control.anchor);
 			if (controls) controls.push(control.message);
 			else controlsByAnchor.set(control.anchor, [control.message]);
@@ -196,7 +288,7 @@ export class DateCwdReminderInjector {
 		const out: Message[] = [];
 		for (const [index, message] of messages.entries()) {
 			const key = keys[index]!;
-			const injection = this.#injections.get(key);
+			const injection = state.injections.get(key);
 			if (injection && message.role === "user") {
 				// A new copy of an injected turn gets the reminder that turn was first sent with.
 				if (injection.source !== message) {
@@ -213,7 +305,7 @@ export class DateCwdReminderInjector {
 				out.push(...controls);
 				changed = true;
 			}
-			this.#seen.add(key);
+			state.seen.add(key);
 		}
 		return changed ? out : messages;
 	}
