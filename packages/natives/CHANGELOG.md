@@ -9,6 +9,7 @@
 ### Fixed
 
 - Fixed the shell's `timeout` and a tool abort not stopping a built-in that was still reading: `timeout 1 cat /dev/zero`, `diff` or `grep -r` over a huge file, `cat /dev/zero | timeout 1 wc -c`, `timeout 1 mapfile < /dev/zero`, `timeout 1 ls -R /` and a read from a FIFO with no writer now stop at the limit, print nothing about it, and give no result for the part of the input they did read
+- Fixed a shell redirect to or from a FIFO whose other end is a background job, such as `echo hi > f & cat < f`, hanging the command; a tool abort now also stops a write redirect to a FIFO that has no reader
 
 ## [18.12.2] - 2026-10-18
 
