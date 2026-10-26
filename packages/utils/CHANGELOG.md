@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added a `deadlineMs` cleanup registration option: shutdown waits longer for that callback, but only while it is still pending
+
 ## [18.12.2] - 2026-10-18
 
 ### Added

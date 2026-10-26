@@ -6,6 +6,7 @@
 
 - Fixed finalized signed reasoning disappearing from displayed thinking when no deltas streamed ([#16227](https://github.com/can1357/oh-my-pi/issues/16227))
 - Fixed processes that share one credential store disabling a working OAuth login: a 401 recovery now uses the stored token while it is not the token the provider rejected, instead of exchanging the refresh token again (every needless exchange revoked the access token the other processes were using), and a token already exchanged is saved through a busy database (retried, with the refresh lease re-armed) instead of being dropped, which left a spent refresh token for the next process to fail on with `invalid_grant`. A refresher that takes over a lease whose owner stalled now hands it back rather than disabling the login when that owner's token is rejected. Each successful exchange logs short fingerprints of the spent and the new token, so a log names the process that rotated a shared login
+- Fixed quitting while a refreshed OAuth token waits on a busy credential database losing that token, which left the shared login with a spent refresh token
 
 ## [18.12.2] - 2026-10-18
 
