@@ -27,7 +27,7 @@ import { closeSessionIndex } from "@oh-my-pi/pi-coding-agent/session/session-ind
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { TaskTool } from "@oh-my-pi/pi-coding-agent/task";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
-import { getConfigRootDir, removeWithRetries, setAgentDir } from "@oh-my-pi/pi-utils";
+import { getConfigRootDir, removeWithRetries, setAgentDir, withTimeout } from "@oh-my-pi/pi-utils";
 import type {
 	AgentSideConnection,
 	ClientCapabilities,
@@ -47,6 +47,7 @@ import {
 } from "@oh-my-pi/pi-utils/acp";
 import { TOOL_NAME as DELAYED_MCP_TOOL_NAME } from "./fixtures/delayed-tool-mcp";
 import { createInMemoryAuthStorage } from "./helpers/agent-session-setup";
+import { rejectionOf } from "./helpers/rejection";
 
 import { cfgPlanAutosave, cfgPlanAutosaveDir, cfgPlanEnabled } from "@oh-my-pi/pi-coding-agent/plan-mode/settings";
 
@@ -3589,18 +3590,17 @@ describe("ACP agent", () => {
 	});
 });
 
-describe("ACP extension session_start/resources_discover send draining (PR #9379 round-6 review)", () => {
+describe("ACP extension session_start/resources_discover sends (PR #9379 round-6 review)", () => {
 	afterEach(() => {
 		resetSettingsForTest();
 	});
 
-	it("drains a resources_discover-triggered sendUserMessage before an immediate session/prompt", async () => {
+	it("answers session/new while the turn a session_start send started still runs", async () => {
 		// `#configureExtensions` wires the extension runner directly (not through
-		// `initializeExtensions`/`runtime-init.ts`), so it needs its own drain for
-		// sends a `session_start`/`resources_discover` handler triggers — a real
-		// `AgentSession` (not the harness's `FakeAgentSession`) is required to
-		// exercise the actual extension runtime and event pipeline.
-		const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-acp-configure-extensions-drain-"));
+		// `initializeExtensions`/`runtime-init.ts`) — a real `AgentSession` (not the
+		// harness's `FakeAgentSession`) is required to exercise the actual extension
+		// runtime and event pipeline.
+		const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-acp-startup-turn-"));
 		const agentDir = path.join(tempDir, "agent");
 		await fs.promises.mkdir(agentDir, { recursive: true });
 		setAgentDir(agentDir);
@@ -3610,23 +3610,21 @@ describe("ACP extension session_start/resources_discover send draining (PR #9379
 		// `AgentSession.prompt` preflights a provider key through the registry; the
 		// extension-triggered turn below must not depend on the developer's env.
 		authStorage.keys.setRuntime("anthropic", "test-key");
+		// The startup turn's model call blocks until the test releases it, so it
+		// is still running when `session/new` should already have answered.
+		const { promise: modelGate, resolve: releaseModelGate } = Promise.withResolvers<void>();
 		let session: AgentSession | undefined;
 		try {
-			// A `resources_discover` handler that announces itself via
-			// `pi.sendUserMessage()` — the same shared action context `session_start`
-			// uses (mirrors an extension posting a note about a directory it just
-			// discovered). The handler itself returns synchronously, but
-			// `sendUserMessage` starts an async turn the action never exposes a
-			// promise for.
+			// A `session_start` handler that starts a turn (an extension announcing
+			// itself). The client must get its session id without waiting for it.
 			const extensionsDir = path.join(tempDir, "ext");
 			await fs.promises.mkdir(extensionsDir, { recursive: true });
-			const extPath = path.join(extensionsDir, "discover-announce.ts");
+			const extPath = path.join(extensionsDir, "startup-announce.ts");
 			await fs.promises.writeFile(
 				extPath,
 				`export default function (pi) {
-	pi.on("resources_discover", () => {
-		pi.sendUserMessage("announcing a discovered directory");
-		return undefined;
+	pi.on("session_start", () => {
+		pi.sendUserMessage("extension started");
 	});
 }
 `,
@@ -3637,11 +3635,17 @@ describe("ACP extension session_start/resources_discover send draining (PR #9379
 
 			const model = getBundledModel("anthropic", "claude-sonnet-4-5");
 			if (!model) throw new Error("Expected claude-sonnet-4-5 model to exist");
-			// `delayMs` makes the extension-triggered turn's completion observably
-			// later than `#configureExtensions`'s synchronous `session_start` emit,
-			// so an immediate `session/prompt` that fails to wait for the drain
-			// would observe the session as still streaming and throw `AgentBusyError`.
-			const mock = createMockModel({ handler: () => ({ content: ["ack"], delayMs: 20 }) });
+			const modelCallStarted = Promise.withResolvers<void>();
+			let calls = 0;
+			const mock = createMockModel({
+				handler: async () => {
+					if (calls++ === 0) {
+						modelCallStarted.resolve();
+						await modelGate;
+					}
+					return { content: ["ack"] };
+				},
+			});
 			const agentCore = new Agent({
 				getApiKey: () => "test-key",
 				initialState: { model, systemPrompt: ["Test"], tools: [] },
@@ -3673,17 +3677,30 @@ describe("ACP extension session_start/resources_discover send draining (PR #9379
 			const acpSession = session;
 			const agent = new AcpAgent(connection, async () => acpSession);
 
-			const created = await agent.newSession({ cwd: tempDir, mcpServers: [] });
+			const created = await withTimeout(
+				agent.newSession({ cwd: tempDir, mcpServers: [] }),
+				10_000,
+				"session/new waited for the startup turn",
+			);
+			await withTimeout(modelCallStarted.promise, 10_000, "startup turn did not start");
+			expect(session.isStreaming).toBe(true);
 
-			// Prove it wasn't a lucky race: an immediate ACP `session/prompt` must
-			// not observe the startup turn still in flight (AgentBusyError) —
-			// it must resolve as its own settled turn.
+			// A prompt during the startup turn is handled as during any turn the
+			// client did not prompt: answered with session_busy, not queued behind it.
+			const busy = await rejectionOf(
+				agent.prompt({ sessionId: created.sessionId, prompt: [{ type: "text", text: "early" }] } as PromptRequest),
+			);
+			expect(busy).toMatchObject({ message: expect.stringContaining("already processing") });
+
+			releaseModelGate();
+			await session.waitForIdle();
 			const response = await agent.prompt({
 				sessionId: created.sessionId,
 				prompt: [{ type: "text", text: "next" }],
 			} as PromptRequest);
 			expect(response.stopReason).toBe("end_turn");
 		} finally {
+			releaseModelGate();
 			await session?.dispose();
 			authStorage.close();
 			await removeWithRetries(tempDir);
@@ -3728,9 +3745,11 @@ describe("ACP extension session_start/resources_discover send draining (PR #9379
 			if (!model) throw new Error("Expected claude-sonnet-4-5 model to exist");
 			// Recorded inside the model call: the state that turn actually saw.
 			const skillVisibleAtCallTime: boolean[] = [];
+			const modelCalled = Promise.withResolvers<void>();
 			const mock = createMockModel({
 				handler: () => {
 					skillVisibleAtCallTime.push(session?.skills.some(skill => skill.name === "acp-startup-skill") ?? false);
+					modelCalled.resolve();
 					return { content: ["ack"] };
 				},
 			});
@@ -3766,6 +3785,8 @@ describe("ACP extension session_start/resources_discover send draining (PR #9379
 			const agent = new AcpAgent(connection, async () => acpSession);
 
 			await agent.newSession({ cwd: tempDir, mcpServers: [] });
+			// session/new does not wait for the startup turn; wait for its model call here.
+			await withTimeout(modelCalled.promise, 10_000, "startup turn did not call the model");
 
 			expect(skillVisibleAtCallTime).toEqual([true]);
 		} finally {

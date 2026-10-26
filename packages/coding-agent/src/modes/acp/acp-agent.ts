@@ -2584,23 +2584,20 @@ export class AcpAgent implements Agent {
 		// a handler calling sendMessage/sendUserMessage starts an async session send
 		// that the action itself does not expose a promise for. Every such send
 		// dispatches through the runner, which holds it until startup discovery
-		// below has rebuilt the prompt and tracks it for draining — the same
-		// sequence `initializeExtensions` (runtime-init.ts) runs for print/RPC.
+		// below has rebuilt the prompt — the same hold `initializeExtensions`
+		// (runtime-init.ts) uses for print/RPC.
 		extensionRunner.initialize(
 			{
 				sendMessage: (message, options) => {
-					const trackedSend = extensionRunner.sends
+					extensionRunner.sends
 						.dispatch(() => record.session.sendCustomMessage(message, options))
 						.catch((error: unknown) => {
 							logger.warn("ACP extension sendMessage failed", { error });
 						});
-					extensionRunner.sends.track(trackedSend);
 				},
 				sendUserMessage: (content, options) => {
 					const sendTask = extensionRunner.sends.dispatch(() => record.session.sendUserMessage(content, options));
 					this.#trackExtensionUserMessage(record, sendTask);
-					const trackedSend = sendTask.catch(() => {});
-					extensionRunner.sends.track(trackedSend);
 				},
 				appendEntry: (customType, data) => {
 					record.session.sessionManager.appendCustomEntry(customType, data);
@@ -2684,10 +2681,10 @@ export class AcpAgent implements Agent {
 			// are folded into the session's skill snapshot before the first prompt.
 			await record.session.discoverStartupSkillPaths();
 		});
-		// The actions start sends but never expose their promises, so without this
-		// an immediate `session/prompt` could observe the session as still
-		// streaming and race the startup turn.
-		await extensionRunner.sends.drain();
+		// Session creation does not wait for a turn those sends start: the client
+		// gets its session id at once, and the startup turn runs like any other
+		// turn the client did not prompt (a `session/prompt` during it is answered
+		// with `session_busy`, as during any such turn).
 		record.extensionsConfigured = true;
 	}
 
