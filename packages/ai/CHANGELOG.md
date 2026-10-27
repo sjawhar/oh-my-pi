@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `UserMessage` has an optional `tag`, a caller correlation id that stays with the message and is never sent to providers ([#14323](https://github.com/can1357/oh-my-pi/pull/14323) by [@sjawhar](https://github.com/sjawhar))
+
 ### Fixed
 
 - Fixed a cancelled request whose OAuth credential was mid-refresh killing the whole session with `[Unhandled Rejection] AbortError: OAuth refresh ownership aborted by caller` ([#17290](https://github.com/can1357/oh-my-pi/pull/17290) by [@H4vC](https://github.com/H4vC))
