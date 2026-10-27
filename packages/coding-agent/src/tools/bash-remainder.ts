@@ -585,13 +585,8 @@ export function buildBashRemainder(
 			if (!step.readsOnly) return undefined;
 			const group = segments.slice(first, last + 1);
 			const workingSteps = working.map(index => segments[index]);
-			if (
-				namesWrittenPath(
-					group.flatMap(segment => pathWords(segment.text)),
-					workingSteps,
-				)
-			)
-				return undefined;
+			const groupFiles = group.flatMap(segment => pathWords(segment.text));
+			if (namesWrittenPath(groupFiles, workingSteps)) return undefined;
 			if (workingSteps.some(kept => namesWrittenPath(writtenPaths(kept.text), group))) return undefined;
 		}
 		// The group runs in whatever directory the kept steps before it left. Only
