@@ -12,6 +12,7 @@ import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { convertToLlm, USER_INTERRUPT_LABEL } from "@oh-my-pi/pi-coding-agent/session/messages";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { TurnRecovery } from "@oh-my-pi/pi-coding-agent/session/turn-recovery";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import * as imageLoading from "@oh-my-pi/pi-coding-agent/utils/image-loading";
 import { TempDir } from "@oh-my-pi/pi-utils";
@@ -402,5 +403,139 @@ describe("AgentSession triggerTurn aside", () => {
 		await session.prompt("CLIENT_TURN");
 		expect(mock.calls).toHaveLength(1);
 		expect(requestsContaining(mock, "LATE_CARD")).toBe(1);
+	});
+
+	interface HeldWorkPoolYieldWait {
+		/** Settles when a wake turn starts to wait for the work-pool yield change. */
+		reached: Promise<void>;
+		release(): void;
+		restore(): void;
+	}
+
+	/** Holds every wake turn in its work-pool yield wait, the window before it starts the turn. */
+	function holdWorkPoolYieldWait(target: AgentSession): HeldWorkPoolYieldWait {
+		const reached = Promise.withResolvers<void>();
+		const change = Promise.withResolvers<void>();
+		const spy = spyOn(target, "whenWorkPoolYieldSettled").mockImplementation(() => {
+			reached.resolve();
+			return change.promise;
+		});
+		return {
+			reached: reached.promise,
+			release: () => change.resolve(),
+			restore: () => spy.mockRestore(),
+		};
+	}
+
+	/** A card whose image normalization a test can hold, to outlast the run it was sent from. */
+	function imageCard(content: string) {
+		return {
+			customType: "ext-card",
+			content: [
+				{ type: "text" as const, text: content },
+				{ type: "image" as const, data: "iVBORw0KGgo=", mimeType: "image/png" },
+			],
+			display: false,
+			attribution: "agent" as const,
+		};
+	}
+
+	it("is dropped when a new session starts while its turn waits for a work-pool yield change", async () => {
+		let sent = false;
+		const harness = await createHarness(async () => {
+			if (sent) return;
+			sent = true;
+			await harness.session.sendCustomMessage(card("CARD_BEFORE_NEW"), { deliverAs: "aside", triggerTurn: true });
+		});
+		const { session, mock } = harness;
+		await session.abort({ reason: USER_INTERRUPT_LABEL });
+		const yieldWait = holdWorkPoolYieldWait(session);
+		try {
+			const extensionTurn = session.sendCustomMessage(card("EXTENSION_TURN"), { triggerTurn: true });
+			await yieldWait.reached;
+
+			// The new session clears the IRC queues and the transcript the aside belonged to.
+			await session.newSession();
+			yieldWait.release();
+			await extensionTurn;
+			await settle(session);
+		} finally {
+			yieldWait.release();
+			yieldWait.restore();
+		}
+
+		expect(mock.calls).toHaveLength(1);
+		expect(persisted(session, "CARD_BEFORE_NEW")).toBe(false);
+	});
+
+	it("keeps its run's agent_end open while image normalization outlasts the run", async () => {
+		const normalizeStarted = Promise.withResolvers<void>();
+		const releaseNormalize = Promise.withResolvers<void>();
+		const normalizeSpy = spyOn(imageLoading, "normalizeModelContextImages").mockImplementation(async images => {
+			if (!images?.length) return images;
+			normalizeStarted.resolve();
+			await releaseNormalize.promise;
+			return images;
+		});
+		let sent = false;
+		const harness = await createHarness(async () => {
+			if (sent) return;
+			sent = true;
+			// The extension API returns void: the send is not awaited, and its normalization runs on.
+			void harness.session.sendCustomMessage(imageCard("CARD_SLOW_IMAGE"), {
+				deliverAs: "aside",
+				triggerTurn: true,
+			});
+		});
+		const { session, mock, agentEnds } = harness;
+		try {
+			await session.abort({ reason: USER_INTERRUPT_LABEL });
+			await session.sendCustomMessage(card("EXTENSION_TURN"), { triggerTurn: true });
+			await normalizeStarted.promise;
+			await settle(session);
+
+			// The turn the aside asked for is still being prepared, so that run did not end the work.
+			expect(mock.calls).toHaveLength(1);
+			expect(agentEnds).toEqual([false]);
+
+			releaseNormalize.resolve();
+			await settle(session);
+		} finally {
+			releaseNormalize.resolve();
+			normalizeSpy.mockRestore();
+		}
+
+		expect(mock.calls).toHaveLength(2);
+		expect(requestsContaining(mock, "CARD_SLOW_IMAGE")).toBe(1);
+		expect(agentEnds).toEqual([false, true]);
+	});
+
+	it("folds when an Esc lands while its idle turn waits for the usage preflight", async () => {
+		const { session, mock } = await createHarness();
+		await session.abort({ reason: USER_INTERRUPT_LABEL });
+		const preflightReached = Promise.withResolvers<void>();
+		const releasePreflight = Promise.withResolvers<void>();
+		const preflightSpy = spyOn(TurnRecovery.prototype, "maybeApplyUsageAwareFallback").mockImplementation(
+			async () => {
+				preflightReached.resolve();
+				await releasePreflight.promise;
+				return false;
+			},
+		);
+		try {
+			const sent = session.sendCustomMessage(card("CARD_IN_PREFLIGHT"), { deliverAs: "aside", triggerTurn: true });
+			await preflightReached.promise;
+
+			await session.abort({ reason: USER_INTERRUPT_LABEL });
+			releasePreflight.resolve();
+			expect(await sent).toBe(false);
+			await settle(session);
+		} finally {
+			releasePreflight.resolve();
+			preflightSpy.mockRestore();
+		}
+
+		expect(mock.calls).toHaveLength(0);
+		expect(persisted(session, "CARD_IN_PREFLIGHT")).toBe(true);
 	});
 });
