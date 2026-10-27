@@ -7,6 +7,7 @@
 - Fixed `read` rejecting artifact URLs from truncation hints when cached approvals or restricted folders are configured ([#17282](https://github.com/can1357/oh-my-pi/pull/17282) by [@iliaal](https://github.com/iliaal)).
 - A failed Hindsight memory recall (for example `recall request timed out after 30s`) now shows a warning instead of silently sending the prompt without memories; `omp -p` writes it, and Hindsight retain failures, to stderr ([#17278](https://github.com/can1357/oh-my-pi/pull/17278) by [@enieuwy](https://github.com/enieuwy))
 - Fixed cancelling an MCP OAuth login or `/mcp` auth lookup at the wrong moment crashing the session with an unhandled rejection ([#17290](https://github.com/can1357/oh-my-pi/pull/17290) by [@H4vC](https://github.com/H4vC))
+- Fixed the status line pinning multiple CPU cores in worktrees created by `jj workspace add`. Their git index carries no file stat data, so every status call re-read and re-hashed the whole worktree (measured 2.2s and 47s of CPU per call on a 94k-file checkout) and leaked a `git-lfs filter-process` per call; the refreshed stat data is now written back, so the first call repairs the index and later calls are ~80x cheaper. Status refreshes also back off to five times the last call's duration, and a status call slower than a second is logged with its repository.
 
 ## [18.13.3] - 2026-10-28
 
