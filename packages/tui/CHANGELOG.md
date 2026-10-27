@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- A subagent's task result `retryFailure` (now the exported `TaskRetryFailure`) records the error kind (e.g. `usage-limit`) and, when the provider stated it, when the failing account's limit resets (`resetAtMs`)
+
 ## [18.13.2] - 2026-10-27
 
 ### Added
