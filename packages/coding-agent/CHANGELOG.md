@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Extension API: `api.agents` — list/get/ensureLive/prompt for named registry agents ([#9543](https://github.com/can1357/oh-my-pi/pull/9543) by [@sjawhar](https://github.com/sjawhar)).
+
 ### Fixed
 
 - Fixed `read` rejecting artifact URLs from truncation hints when cached approvals or restricted folders are configured ([#17282](https://github.com/can1357/oh-my-pi/pull/17282) by [@iliaal](https://github.com/iliaal)).
