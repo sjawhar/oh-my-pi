@@ -2,8 +2,13 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed `PruneResult.undo()` from `pruneToolOutputs` and `pruneSupersededToolResults`; persist `PruneResult.pruned` instead of rolling the prune back when saving it fails.
+
 ### Added
 
+- Added `PruneResult.pruned`, a list of exported `ToolResultPrune` records (each blanked tool result's entry id, notice, and `prunedAt`), and `blankToolResult()`, which applies one record to a loaded copy of its tool result.
 - `PI_INTENT_DESC` replaces the schema description of the injected `i` intent field
 - `AgentTool.approvalRestrictionPaths` reports paths a call reads, so restricted folders cover them without the approval being remembered per path ([#17133](https://github.com/can1357/oh-my-pi/pull/17133) by [@iliaal](https://github.com/iliaal))
 
