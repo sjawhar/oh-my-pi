@@ -751,6 +751,20 @@ type AgentContinueOutcome =
  */
 type PromptDispatchOutcome = { sessionClaimed: boolean };
 
+/**
+ * A `deliverAs: "aside"` send with `triggerTurn` between the call and the moment its record is
+ * queued, folded or prompted. While it is open, the turn it asks for is still promised but no
+ * record of it is queued yet, so `agent_end` must not be published as terminal.
+ */
+type TurnRequestingAsideAdmission = {
+	/** {@link AgentSession} `#userInterruptCount` when the send was made; a later interrupt folds the aside. */
+	userInterruptCount: number;
+	/** {@link AgentSession} `#sessionGeneration` of the session the record is sent to; a committed transition drops the aside. */
+	sessionGeneration: number;
+	/** Closes the window; safe to call more than once. */
+	settle: () => void;
+};
+
 /** One turn bracketed by the installed turn observer; see {@link AgentSession} `#startTurnObservation`. */
 type TurnObservation = {
 	finish: (error?: unknown) => void | Promise<void>;
@@ -1254,6 +1268,12 @@ export class AgentSession implements SettingsScope {
 	 *  enqueue and fold/resume normally across an in-session interrupt, only a session identity
 	 *  change should drop them. */
 	#sessionGeneration = 0;
+	/** Bumped by every user interrupt (abort with {@link USER_INTERRUPT_LABEL}), live run or not. */
+	#userInterruptCount = 0;
+	/** Extension asides sent with `triggerTurn`, each mapped to {@link #userInterruptCount} when it was sent. */
+	readonly #turnRequestingAsides = new WeakMap<AgentMessage, number>();
+	/** `triggerTurn` asides sent but not yet queued, folded or prompted (see {@link #admitTurnRequestingAside}). */
+	readonly #admittedTurnRequestingAsides = new Set<TurnRequestingAsideAdmission>();
 	/** Latest `session_init` of the transcript the model calls ran on; `init` is null when it has none. */
 	#sessionInit: { sessionFile: string | undefined; init: PersistedSessionInit | null } | undefined;
 	/** Settles when switchSession commits or restores its previous generation on rollback.
@@ -1467,34 +1487,41 @@ export class AgentSession implements SettingsScope {
 		// Parked wake records resume alongside ordinary stranded asides; they were
 		// already decided wake-intended at deferral time.
 		const records = [...this.#irc.drainDeferredWakes(), ...this.#irc.drainPending()];
-		if (this.#planModeState?.enabled) {
-			// Plan mode: fold stranded IRC asides into context without waking an
-			// autonomous turn. Convergence to ask/resolve stays user-driven.
-			this.#recordWithoutTurn(records);
-			return;
-		}
-		if (this.#advisors.autoResumeSuppressed) {
-			// A user interrupt is still in effect (it reclaimed advisor cards, and an
-			// editor-restoring one recorded the visible agent work it withdrew, to keep the run
-			// the user stopped from auto-resuming). Only a real peer IRC message justifies waking a fresh
-			// turn here; extension/user asides fold into context like the plan-mode branch above,
-			// staying user-driven until the next deliberate prompt.
-			const wake: AgentMessage[] = [];
-			const fold: AgentMessage[] = [];
-			for (const record of records) {
-				if (record.role === "custom" && record.customType === "irc:incoming") wake.push(record);
-				else fold.push(record);
-			}
-			this.#recordWithoutTurn(fold);
-			if (wake.length > 0) this.#wakeForIrc(wake);
-			return;
-		}
-		this.#wakeForIrc(records);
+		const wake = this.#foldStrandedIrcAsidesBeforeWake(records);
+		if (wake.length > 0) this.#wakeForIrc(wake);
+	}
+
+	/** Folds the records ahead of the first one that starts a turn (#strandedRecordWakes) into
+	 *  context and returns that record with every record after it, for one turn: records keep the
+	 *  order IrcBridge queued them in. Returns nothing to wake when no record starts a turn. */
+	#foldStrandedIrcAsidesBeforeWake(records: AgentMessage[]): AgentMessage[] {
+		const firstWake = records.findIndex(record => this.#strandedRecordWakes(record));
+		const foldCount = firstWake < 0 ? records.length : firstWake;
+		this.#recordWithoutTurn(records.slice(0, foldCount));
+		return records.slice(foldCount);
+	}
+
+	/** Whether a stranded IRC/aside record starts a turn, or folds into context when no earlier record starts one. */
+	#strandedRecordWakes(record: AgentMessage): boolean {
+		// An extension aside sent with `triggerTurn` asked for a turn, the way a steer or follow-up
+		// with `triggerTurn` does. It gets one unless a user interrupt happened after it was sent;
+		// an earlier interrupt still in effect, or plan mode, does not fold it.
+		if (this.#turnRequestingAsides.get(record) === this.#userInterruptCount) return true;
+		// Plan mode: fold stranded IRC asides into context without waking an
+		// autonomous turn. Convergence to ask/resolve stays user-driven.
+		if (this.#planModeState?.enabled) return false;
+		// A user interrupt is still in effect (it reclaimed advisor cards, and an
+		// editor-restoring one recorded the visible agent work it withdrew, to keep the run
+		// the user stopped from auto-resuming). Only a real peer IRC message justifies waking a fresh
+		// turn here; extension/user asides fold into context like plan mode above,
+		// staying user-driven until the next deliberate prompt.
+		if (this.#advisors.autoResumeSuppressed) return record.role === "custom" && record.customType === "irc:incoming";
+		return true;
 	}
 
 	/** Append messages to the transcript without starting a turn; the next turn sends them to the
-	 *  model. Used for stranded IRC/extension asides (the plan-mode and post-interrupt fold branches
-	 *  of #resumeStrandedIrcAsides), advisor cards, and messages an interrupt records. All records
+	 *  model. Used for stranded IRC/extension asides that do not start a turn (#strandedRecordWakes,
+	 *  via #foldStrandedIrcAsidesBeforeWake), advisor cards, and messages an interrupt records. All records
 	 *  (custom and non-custom alike) route through emitExternalEvent so message_end both appends to
 	 *  context and notifies event listeners — #persistMessageEnd handles custom-role persistence
 	 *  (sessionManager.appendCustomMessageEntry) from that event, and a displayable custom aside that
@@ -1616,6 +1643,10 @@ export class AgentSession implements SettingsScope {
 		// delaying the observation's finish and mis-attributing the successor's RPC
 		// progress to this now-dead wake monitor.
 		const generation = this.#promptGeneration;
+		// Captured with the records: a session transition that commits during the wait below owns
+		// them no more, and a user interrupt during it folds them (both rechecked before dispatch).
+		const sessionGeneration = this.#sessionGeneration;
+		const userInterruptCount = this.#userInterruptCount;
 		const inFlightEpoch = this.#beginInFlight();
 		let turnError: unknown;
 		// A pooled-turn yield transition (item-set mutation + prompt rebuild) may be
@@ -1623,8 +1654,38 @@ export class AgentSession implements SettingsScope {
 		// advertise one yield schema while the runtime enforces the other, so join
 		// the transition before building the turn from a consistent contract.
 		void this.whenWorkPoolYieldSettled()
-			.then(() => {
-				// Synchronous ownership check, atomic with the dispatch below:
+			.then(async () => {
+				// A session transition (/new, switchSession) can commit during the wait above: it
+				// clears the IRC queues and bumps #sessionGeneration so the outgoing transcript's
+				// records stay out of the new one. These records left those queues before the wait,
+				// so drop them here instead of prompting them into the new session. A rolled-back
+				// switch restores the generation, so wait that transition out before deciding.
+				if (
+					this.#sessionGeneration !== sessionGeneration &&
+					(await this.#sessionGenerationChanged(sessionGeneration))
+				) {
+					logger.debug("IRC wake turn dropped with its session");
+					return;
+				}
+				// A transition that disconnected the agent has not reached its reset yet: leave the
+				// records queued, where it clears them on success and restores them on rollback. A
+				// pooled contract still owns this worker, so park them where its turns cannot flush
+				// them unobserved, exactly as the pooled branch below and the AgentBusyError path do.
+				if (this.#unsubscribeAgent === undefined) {
+					if (this.#workPoolYieldItems.length > 0) this.#irc.queueDeferredWake(records);
+					else this.#irc.queueAside(records);
+					// The transition owns the queue from here: a commit clears it, and a rollback
+					// restores it and reconnects without draining it. Resume once the transition
+					// settles so a restored record waits for a turn of its own, not for the next
+					// unrelated prompt. After a commit the queue is empty and this is a no-op.
+					void this.waitForSessionTransition()
+						.then(() => this.#resumeStrandedIrcAsides())
+						.catch(error =>
+							logger.warn("IRC wake resume after a session transition failed", { error: String(error) }),
+						);
+					return;
+				}
+				// The checks below are synchronous and atomic with the dispatch:
 				// agent.prompt() claims streaming with no await in between, and the
 				// yield contract above mutates synchronously, so no install can
 				// interleave here.
@@ -1642,6 +1703,12 @@ export class AgentSession implements SettingsScope {
 					this.#irc.queueAside(records);
 					logger.debug("IRC wake turn deferred behind the running turn");
 					return;
+				}
+				// A user interrupt during the wait above folds the records it would have folded
+				// had it come first: a triggerTurn aside sent before it no longer starts this turn.
+				if (this.#userInterruptCount !== userInterruptCount) {
+					records = this.#foldStrandedIrcAsidesBeforeWake(records);
+					if (records.length === 0) return;
 				}
 				observation = this.#startTurnObservation(records);
 				return this.agent.prompt(records);
@@ -1670,7 +1737,10 @@ export class AgentSession implements SettingsScope {
 					turnError ??= error;
 					logger.warn("IRC wake turn recovery failed", { error: String(error) });
 				}
-				if (parkedFollowUps.length > 0) {
+				// The follow-up this wake parked belongs to the session that parked it: a transition
+				// that committed during the wait above dropped that session's queues on purpose. A
+				// switch that rolls back restores the generation, so wait that out before deciding.
+				if (parkedFollowUps.length > 0 && !(await this.#sessionGenerationChanged(sessionGeneration))) {
 					this.agent.replaceQueues(
 						[...this.agent.peekSteeringQueue()],
 						[...parkedFollowUps, ...this.agent.peekFollowUpQueue()],
@@ -1840,21 +1910,56 @@ export class AgentSession implements SettingsScope {
 		// subscribers wait through the queued steer/follow-up or stranded IRC wake.
 		// An abort flushes here before its own `finally` drain, which still delivers
 		// a queued steer (interrupt-and-send), so queued work counts during an abort
-		// too. Stranded IRC does not: a user interrupt folds most of it into context
-		// instead of waking.
+		// too. Stranded IRC counts only for the records the settle drain will wake
+		// (#strandedRecordWakes): plan mode and a user interrupt fold the rest into
+		// context instead of waking. A `triggerTurn` aside whose send is still in flight
+		// (#admittedTurnRequestingAsides, e.g. image normalization outlasting this run) has no
+		// record queued yet, and counts for the turn it was promised.
 		const canDrain = this.#unsubscribeAgent !== undefined && this.#modeExitDrainSuppressionDepth === 0;
 		const queuedContinuation =
 			canDrain &&
 			!this.#queuedMessageDrainBlocked &&
 			this.#canAutoContinueForFollowUp() &&
 			this.agent.hasQueuedMessages();
+		// In an ACP session that defers agent-initiated turns, an admitted aside lands in the
+		// client's run or its next turn (the aside branches of #dispatchCustomMessage), never in a
+		// turn of its own, so it holds no agent_end open there.
+		let admittedAsideTurn = false;
+		if (!(this.#clientBridge?.deferAgentInitiatedTurns === true && !this.#allowAcpAgentInitiatedTurns)) {
+			for (const aside of this.#admittedTurnRequestingAsides) {
+				if (
+					aside.userInterruptCount === this.#userInterruptCount &&
+					aside.sessionGeneration === this.#sessionGeneration
+				) {
+					admittedAsideTurn = true;
+					break;
+				}
+			}
+		}
 		const ircContinuation =
 			canDrain &&
 			!this.#abortInProgress &&
 			!this.#isDisposed &&
-			!this.#planModeState?.enabled &&
-			this.#irc.hasPending();
+			(this.#irc.somePending(record => this.#strandedRecordWakes(record)) || admittedAsideTurn);
 		this.#emit(queuedContinuation || ircContinuation ? { ...pending, isTerminal: false } : pending);
+	}
+
+	/**
+	 * Opens the window in which a `triggerTurn` aside is promised a turn but has no record queued
+	 * yet, for {@link #flushPendingAgentEnd}. The caller settles it once the record is queued,
+	 * folded or prompted. The admission belongs to the session its record is sent to (the dispatch
+	 * re-takes the generation after any startup-deferred extension load): a send still normalizing
+	 * across a committed `/new` or `switchSession` holds no `agent_end` of the replacement
+	 * transcript open, since its own record is dropped by the generation check.
+	 */
+	#admitTurnRequestingAside(userInterruptCount: number): TurnRequestingAsideAdmission {
+		const admission: TurnRequestingAsideAdmission = {
+			userInterruptCount,
+			sessionGeneration: this.#sessionGeneration,
+			settle: () => this.#admittedTurnRequestingAsides.delete(admission),
+		};
+		this.#admittedTurnRequestingAsides.add(admission);
+		return admission;
 	}
 
 	/**
@@ -9414,8 +9519,8 @@ export class AgentSession implements SettingsScope {
 		// while streaming) is a deliberate resume; re-enable advisor auto-resume that
 		// a user interrupt suppressed. An aside is non-interrupting by design — it must
 		// not re-enable auto-resume a user interrupt deliberately suppressed, so it stays
-		// user-driven (folds into context via #resumeStrandedIrcAsides's post-interrupt
-		// branch) until the next deliberate steer/follow-up/prompt, matching the
+		// user-driven (#resumeStrandedIrcAsides folds it into context, see #strandedRecordWakes)
+		// until the next deliberate steer/follow-up/prompt, matching the
 		// sendCustomMessage aside path (queueAside), which never touches this flag.
 		if (mode !== "aside") this.#advisors.autoResumeSuppressed = false;
 		// The pre-dispatch re-check in prompt() arrives with normalization and the
@@ -9988,17 +10093,39 @@ export class AgentSession implements SettingsScope {
 			acceptTerminalEmptyStop?: boolean;
 		},
 	): Promise<boolean> {
-		return this.#admitSubmission(() => this.#sendCustomMessage(message, options));
+		// Taken here, before #admitSubmission: an interrupt during anything that step waits for
+		// came after this send, so it must fold a `triggerTurn` aside instead of being read as an
+		// interrupt that preceded it.
+		const userInterruptCount = this.#userInterruptCount;
+		// A `triggerTurn` aside is promised a turn from this point on, but its record only becomes
+		// visible to #flushPendingAgentEnd once the awaits ahead land it in a queue, a fold or a
+		// turn. Hold the promise open across that window so the run it was sent from does not
+		// publish a terminal agent_end while the turn it asked for is still being prepared.
+		const admission =
+			options?.deliverAs === "aside" && options.triggerTurn === true
+				? this.#admitTurnRequestingAside(userInterruptCount)
+				: undefined;
+		try {
+			return await this.#admitSubmission(() =>
+				this.#sendCustomMessage(message, options, userInterruptCount, admission),
+			);
+		} finally {
+			admission?.settle();
+		}
 	}
 
 	async #sendCustomMessage<T = unknown>(
 		message: CustomMessagePayload<T>,
-		options?: {
-			triggerTurn?: boolean;
-			deliverAs?: "steer" | "followUp" | "nextTurn" | "aside";
-			queueChipText?: string;
-			acceptTerminalEmptyStop?: boolean;
-		},
+		options:
+			| {
+					triggerTurn?: boolean;
+					deliverAs?: "steer" | "followUp" | "nextTurn" | "aside";
+					queueChipText?: string;
+					acceptTerminalEmptyStop?: boolean;
+			  }
+			| undefined,
+		userInterruptCount: number,
+		admission: TurnRequestingAsideAdmission | undefined,
 	): Promise<boolean> {
 		// An extension command parked on a manual compaction may fire this
 		// (`pi.sendMessage(..., { triggerTurn: true })`) and return without awaiting
@@ -10008,9 +10135,9 @@ export class AgentSession implements SettingsScope {
 		// live agent turn this message was queued into, counts as a claim.
 		const release = this.#maintenance.claimPendingResume();
 		const outcome: PromptDispatchOutcome = { sessionClaimed: false };
-		if (!release) return this.#dispatchCustomMessage(message, options, outcome);
+		if (!release) return this.#dispatchCustomMessage(message, options, outcome, userInterruptCount, admission);
 		try {
-			return await this.#dispatchCustomMessage(message, options, outcome);
+			return await this.#dispatchCustomMessage(message, options, outcome, userInterruptCount, admission);
 		} finally {
 			release(outcome.sessionClaimed);
 		}
@@ -10027,9 +10154,16 @@ export class AgentSession implements SettingsScope {
 			  }
 			| undefined,
 		outcome: PromptDispatchOutcome,
+		userInterruptCount: number,
+		admission: TurnRequestingAsideAdmission | undefined,
 	): Promise<boolean> {
 		// Captured before the awaits below — see #sessionGeneration's doc comment.
 		const sessionGeneration = this.#sessionGeneration;
+		// The record belongs to the session current here, after any startup-deferred extension load
+		// the send waited for: count its admission in that session too.
+		if (admission) admission.sessionGeneration = sessionGeneration;
+		// `userInterruptCount` is the caller's parameter, taken at the public send (see
+		// sendCustomMessage): a triggerTurn aside folds only for a user interrupt after that point.
 		// A message that may start a turn waits out idle compaction, as prompt() does; plain appends do not.
 		const idleCompaction =
 			options?.triggerTurn || options?.deliverAs === "aside" ? this.#maintenance.waitForIdleCompaction() : undefined;
@@ -10083,11 +10217,30 @@ export class AgentSession implements SettingsScope {
 			}
 			if (options?.deliverAs === "aside") {
 				if (await this.#sessionGenerationChanged(sessionGeneration)) return false;
+				// Past the awaits above the record lands below, where agent_end can see it: close the
+				// admission window so this send no longer holds an agent_end open on its own.
+				admission?.settle();
+				// The generation await above can span the run's settle. As in the idle branch below, an
+				// ACP client cannot show or cancel a turn the agent starts after the client's turn ended,
+				// so keep the message for the client's next turn.
+				if (
+					!this.isStreaming &&
+					this.#clientBridge?.deferAgentInitiatedTurns &&
+					!this.#allowAcpAgentInitiatedTurns
+				) {
+					outcome.sessionClaimed = false;
+					this.#queueHiddenNextTurnMessage(normalizedAppMessage, false);
+					return false;
+				}
 				// Non-interrupting: the agent loop's step-boundary poll (see the setAsideMessageProvider
 				// registration in the constructor) picks this up without interrupting the current tool
 				// batch. Not an agent-core queue entry, so no drain-retry latch and no idle-queue drain
 				// scheduling here.
+				if (options.triggerTurn) this.#turnRequestingAsides.set(normalizedAppMessage, userInterruptCount);
 				this.#irc.queueAside([normalizedAppMessage]);
+				// The generation await above can span the run's settle, leaving no loop to drain the
+				// record; resuming is a no-op while streaming (see #queueCustomMessage's aside branch).
+				this.#resumeStrandedIrcAsides();
 				return false;
 			}
 			this.#allowQueuedMessageDrainRetry();
@@ -10125,7 +10278,15 @@ export class AgentSession implements SettingsScope {
 
 		if (options?.deliverAs === "aside") {
 			if (await this.#sessionGenerationChanged(sessionGeneration)) return false;
-			if (this.#planModeState?.enabled) {
+			// Past the awaits above the record lands below, where agent_end can see it (same as the
+			// busy branch): close the admission window.
+			admission?.settle();
+			// `triggerTurn` asks for a turn: plan mode and an earlier interrupt's suppression do not
+			// fold it, the way they do not stop a steer or follow-up sent with `triggerTurn`. A user
+			// interrupt since the send (the normalization await above, and anything #admitSubmission
+			// waited for before it) still folds it.
+			const turnRequested = options.triggerTurn === true && userInterruptCount === this.#userInterruptCount;
+			if (!turnRequested && this.#planModeState?.enabled) {
 				// Plan mode stays user-driven: fold into context without an autonomous turn, same as
 				// IrcBridge.deliver()/#resumeStrandedIrcAsides do in plan mode. Routed through the
 				// event-emitting fold path (not a direct append) so a displayable aside that began
@@ -10133,13 +10294,13 @@ export class AgentSession implements SettingsScope {
 				this.#recordWithoutTurn([normalizedAppMessage]);
 				return false;
 			}
-			if (this.#advisors.autoResumeSuppressed) {
-				// A user interrupt (Esc) is still in effect. isStreaming was true when this method
-				// was entered but image normalization above outlasted the interrupt, landing here
-				// instead of the streaming branch's queueAside — starting a fresh autonomous turn
-				// would undo the user's deliberate stop. Fold into context (same event-emitting path
-				// as the plan-mode branch above) and stay user-driven, matching
-				// #resumeStrandedIrcAsides's post-interrupt fold branch.
+			if (!turnRequested && this.#advisors.autoResumeSuppressed) {
+				// A user interrupt (Esc) is still in effect: it happened before this call (and the
+				// aside does not ask for a turn), or isStreaming was true when this method was entered
+				// but image normalization above outlasted the interrupt, landing here instead of the
+				// streaming branch's queueAside. Starting a fresh autonomous turn would undo the
+				// user's deliberate stop. Fold into context (same event-emitting path as the
+				// plan-mode branch above) and stay user-driven, matching #resumeStrandedIrcAsides.
 				this.#recordWithoutTurn([normalizedAppMessage]);
 				return false;
 			}
@@ -10153,12 +10314,26 @@ export class AgentSession implements SettingsScope {
 			// AgentBusyError; no await sits between this check and #beginInFlight below.
 			if (this.isStreaming) {
 				outcome.sessionClaimed = this.agent.state.isStreaming;
+				// Keep the turn request, as the streaming branch does, in case that turn ends
+				// before its aside poll and the settle drain has to decide.
+				if (options.triggerTurn) this.#turnRequestingAsides.set(normalizedAppMessage, userInterruptCount);
 				this.#irc.queueAside([normalizedAppMessage]);
 				return false;
 			}
 			outcome.sessionClaimed = await this.#promptAgentInitiatedMessage(normalizedAppMessage, {
 				acceptTerminalEmptyStop: options.acceptTerminalEmptyStop === true,
 			});
+			// An interrupt during the usage-aware preflight (quota-health lookup, fallback
+			// confirmation) returns before any dispatch. The message asked for a turn and the user
+			// stopped it, which is the documented fold: keep it instead of dropping it. A session
+			// change takes it with the outgoing transcript, as above (a rolled-back switch restores
+			// the generation, so wait that out first). A transition that has disconnected the agent
+			// but not yet cleared the queues leaves it in the aside queue, which the transition
+			// clears on commit and restores on rollback.
+			if (!outcome.sessionClaimed && !(await this.#sessionGenerationChanged(sessionGeneration))) {
+				if (this.#unsubscribeAgent === undefined) this.#irc.queueAside([normalizedAppMessage]);
+				else this.#recordWithoutTurn([normalizedAppMessage]);
+			}
 			return outcome.sessionClaimed;
 		}
 
@@ -11072,7 +11247,10 @@ export class AgentSession implements SettingsScope {
 	}): Promise<void> {
 		const userInterrupt = options?.reason === USER_INTERRUPT_LABEL;
 		this.#pendingAbortErrorId = userInterrupt ? AIError.create(AIError.Flag.UserInterrupt) : undefined;
-		if (userInterrupt) this.#advisors.autoResumeSuppressed = true;
+		if (userInterrupt) {
+			this.#advisors.autoResumeSuppressed = true;
+			this.#userInterruptCount++;
+		}
 		// Pull the agent work an editor-restoring interrupt withdrew (clearQueue({ forInterrupt:
 		// true })), and on a user interrupt advisor concerns, out of the steer/follow-up queues
 		// before any await so the post-abort stranded-message drain can't auto-resume the run on
