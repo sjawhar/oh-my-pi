@@ -51,7 +51,7 @@ import { requestTextPrediction, textPredictionBackend } from "../../predict/clie
 import { type AgentSession, SessionBusyError } from "../../session/agent-session";
 import type { RestoredQueuedMessage } from "../../session/agent-session-types";
 import { CACHE_WARMING_MODES } from "../../session/cache-warmer";
-import { findMostRecentNonEmptySession, findSessionContinuation } from "../../session/session-listing";
+import { findMostRecentNonEmptySession, findRecentSessionContinuation } from "../../session/session-listing";
 import { SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/messages";
 import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins";
 import { buildAvailableSlashCommands } from "../../slash-commands/available-commands";
@@ -906,7 +906,7 @@ export type RpcOpenSessionSession = Pick<
  * there — the runtime equivalent of `--session-dir <dir> --continue`, so a host
  * can bind a pre-spawned process to a conversation it keys by directory. Like
  * `--continue`, it opens the copy the conversation went on in when that session
- * moved off its file (see {@link findSessionContinuation}).
+ * moved off its file (see {@link findRecentSessionContinuation}).
  * Reopening the session that is already active is a no-op and does not abort a run.
  *
  * With `model`, the session uses that model instead of its saved one, like an
@@ -924,7 +924,7 @@ export async function openRpcSession(
 	if (!session.sessionFile) throw new Error("open_session requires session persistence (omit --no-session)");
 	const dir = path.resolve(sessionDir);
 	const recent = await findMostRecentNonEmptySession(dir);
-	const latest = recent ? ((await findSessionContinuation(recent))?.session.path ?? recent) : null;
+	const latest = recent ? ((await findRecentSessionContinuation(recent))?.session.path ?? recent) : null;
 	const current = path.resolve(session.sessionFile);
 	const alreadyOpen = latest
 		? current === path.resolve(latest)
