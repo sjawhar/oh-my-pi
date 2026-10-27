@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `CustomMessage` has an optional `tag`, a caller correlation id that stays with the message ([#14323](https://github.com/can1357/oh-my-pi/pull/14323) by [@sjawhar](https://github.com/sjawhar))
+
 ## [18.13.3] - 2026-10-28
 
 ### Changed
