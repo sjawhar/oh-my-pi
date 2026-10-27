@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed agents taking a `grep history://<id>` miss as proof that something never happened: the `history://` description now says the transcript is condensed and where the full record is kept ([#17106](https://github.com/can1357/oh-my-pi/pull/17106) by [@sjawhar](https://github.com/sjawhar))
+
 ## [18.13.2] - 2026-10-27
 
 ### Added
