@@ -1976,7 +1976,9 @@ export class SelectorController {
 			}
 		}
 		// The conversation may have gone on in a sibling file while another process held this one.
-		const continuation = options?.followContinuation ? await findSessionContinuation(sessionPath) : undefined;
+		const continuation =
+			options?.continuation ??
+			(options?.followContinuation ? await findSessionContinuation(sessionPath) : undefined);
 		const target = await this.#relocateFromRemovedWorktree(continuation?.session.path ?? sessionPath);
 		if (!target) return false;
 		await this.ctx.prepareSessionSwitch();
