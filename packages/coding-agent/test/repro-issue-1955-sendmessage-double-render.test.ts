@@ -8,6 +8,7 @@ import type {
 	ExtensionContextActions,
 	ExtensionUIContext,
 } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
+import { ExtensionSendQueue } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/send-queue";
 import { ExtensionUiController } from "@oh-my-pi/pi-coding-agent/modes/controllers/extension-ui-controller";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import type { InteractiveModeContext, RenderSessionContextOptions } from "@oh-my-pi/pi-coding-agent/modes/types";
@@ -85,6 +86,7 @@ function createHarness(): Harness {
 		getMessageRenderer: () => undefined,
 		getAssistantThinkingRenderers: () => undefined,
 		getComposerShapes: () => [],
+		sends: new ExtensionSendQueue(),
 	};
 
 	const messages: AgentMessage[] = [];
@@ -92,6 +94,7 @@ function createHarness(): Harness {
 		isStreaming: false,
 		messages,
 		extensionRunner: fakeRunner,
+		discoverStartupSkillPaths: async () => {},
 		/**
 		 * Mirror `AgentSession.sendCustomMessage` non-streaming
 		 * `deliverAs: "nextTurn"` / no-trigger path: persist the message as a
