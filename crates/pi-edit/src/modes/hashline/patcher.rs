@@ -103,7 +103,15 @@ fn mismatch(
 	store: &EditStore,
 ) -> EditError {
 	let actual = file_hash(normalized);
-	store.record(canonical, normalized, None);
+	let file_lines: Vec<String> = normalized.split('\n').map(str::to_owned).collect();
+	let anchor_lines = section.collect_anchor_lines().unwrap_or_default();
+	// The reply hands back the current tag and prints the rows around each
+	// anchor in full, so those rows count as seen for a resend under it.
+	record_reply_provenance(store, canonical, normalized, || {
+		super::messages::anchored_context_lines(&anchor_lines, file_lines.len())
+			.into_iter()
+			.collect()
+	});
 	// When the tag isn't from this exact path, list the other paths in this
 	// session that *did* issue the same tag — so the rejection can name the
 	// file the tag was actually for and the model doesn't follow a wrong-tree
@@ -118,8 +126,8 @@ fn mismatch(
 		path: Some(section.path.clone()),
 		expected_file_hash: expected.to_owned(),
 		actual_file_hash: actual,
-		file_lines: normalized.split('\n').map(str::to_owned).collect(),
-		anchor_lines: section.collect_anchor_lines().unwrap_or_default(),
+		file_lines,
+		anchor_lines,
 		hash_recognized: store.has_hash(canonical, expected),
 		tag_origin_paths,
 	})
@@ -493,7 +501,7 @@ fn stale_unseen_rejection(
 	};
 	// The reply prints no live rows, so a resend under the tag it hands back
 	// meets the guard instead of an unknown-provenance pass.
-	let live_tag = record_reply_provenance(store, canonical, current);
+	let live_tag = record_reply_provenance(store, canonical, current, Vec::new);
 	EditError::matched(stale_unseen_lines_message(
 		section.path.as_str(),
 		unseen,
@@ -504,23 +512,30 @@ fn stale_unseen_rejection(
 	))
 }
 
-/// Records `text`, whose tag a rejection hands back, as content no read has
-/// displayed; returns the tag.
+/// Records `text`, whose tag a rejection hands back, with the rows that reply
+/// `displayed` in full; returns the tag.
 ///
-/// Content no snapshot holds starts restricted: recording it with no seen set
-/// would let the guard accept every line. Line 0, never an anchor, carries the
-/// restriction, as `store.ts` does for a read whose every row was cut. Content
-/// already unrestricted (no seen set, or an empty one as a `write` records)
-/// stays so.
-fn record_reply_provenance(store: &EditStore, canonical: &Path, text: &str) -> String {
+/// Content no snapshot holds starts from those rows (recording it with no seen
+/// set would let the guard accept every line), and a read's seen set gains
+/// them. Line 0, never an anchor, keeps the set restrictive when the reply
+/// printed no rows, as `store.ts` does for a read whose every row was cut.
+/// Content already unrestricted (no seen set, or an empty one as a `write`
+/// records) stays so.
+fn record_reply_provenance(
+	store: &EditStore,
+	canonical: &Path,
+	text: &str,
+	displayed: impl FnOnce() -> Vec<u32>,
+) -> String {
 	let restricted = store
 		.by_content(canonical, text)
 		.is_none_or(|snapshot| snapshot.seen_lines.is_some_and(|seen| !seen.is_empty()));
-	if restricted {
-		store.record(canonical, text, Some(&[0]))
-	} else {
-		store.record(canonical, text, None)
+	if !restricted {
+		return store.record(canonical, text, None);
 	}
+	let mut lines = displayed();
+	lines.push(0);
+	store.record(canonical, text, Some(&lines))
 }
 
 /// `seen_line_guard` enables the displayed-line guard with its column cap
@@ -1447,5 +1462,43 @@ mod lifecycle {
 		assert_eq!(ctx.read("ext.ts", &(12..=57).collect::<Vec<_>>()), live_tag);
 		ctx.edit(&resend).await.unwrap();
 		assert_eq!(ctx.text("ext.ts").lines().count(), 16);
+	}
+
+	/// A mismatch reply also hands back the live tag. It prints only the rows
+	/// around its anchors, so an edit resent under that tag meets the guard on
+	/// every other line, and applies after the read it asks for.
+	#[tokio::test]
+	async fn mismatch_live_tag_covers_only_the_rows_it_printed() {
+		let ctx = Lifecycle::new("mm.ts", 60);
+		let tag0 = ctx.read("mm.ts", &(1..=5).collect::<Vec<_>>());
+		let replaced: String = (1..=60)
+			.map(|n| format!("const w{n:04} = \"{n}\";\n"))
+			.collect();
+		ctx.write_text("mm.ts", &replaced);
+		let before = ctx.text("mm.ts");
+		let err = ctx
+			.edit(&format!("[mm.ts#{tag0}]\nPUT 3.=3:\n+let v0003 = 300;\n"))
+			.await
+			.unwrap_err();
+		assert!(err.contains("file changed between read and edit"), "unexpected error: {err}");
+		// The tag the reply gives the caller, not one the test assumes.
+		let live_tag = err
+			.rsplit("hashes to #")
+			.next()
+			.and_then(|rest| rest.split('.').next())
+			.expect("reply names a tag")
+			.to_owned();
+		assert_eq!(ctx.text("mm.ts"), before);
+
+		let resend = format!("[mm.ts#{live_tag}]\nCUT 10.=55\n");
+		let err = ctx.edit(&resend).await.unwrap_err();
+		assert!(err.contains("never displayed"), "unexpected error: {err}");
+		assert_eq!(ctx.text("mm.ts"), before);
+
+		// The rows the reply printed (3 ±2) need no second read.
+		ctx.edit(&format!("[mm.ts#{live_tag}]\nPUT 3.=3:\n+const w0003 = \"three\";\n"))
+			.await
+			.unwrap();
+		assert_eq!(ctx.text("mm.ts").lines().nth(2), Some("const w0003 = \"three\";"));
 	}
 }
