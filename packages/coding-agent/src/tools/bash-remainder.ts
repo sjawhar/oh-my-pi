@@ -340,8 +340,10 @@ function operandWords(text: string): string[] {
 	const words: string[] = [];
 	let seenCommand = false;
 	for (const word of text.split(/\s+/)) {
-		if (LEADING_ASSIGNMENT.test(word)) continue;
+		// Only the words before the command are the call's own assignments; after
+		// it, `of=run` is an operand like any other (`dd if=/dev/zero of=run`).
 		if (!seenCommand) {
+			if (LEADING_ASSIGNMENT.test(word)) continue;
 			seenCommand = true;
 			continue;
 		}

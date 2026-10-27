@@ -496,6 +496,12 @@ describe("the refused call's runnable remainder", () => {
 			"a kept step between the rest removes the directory the blocked step reads from",
 			"cat /tmp/run/a.md; echo ======; cat /tmp/run/b.md; rm -rf /tmp/run",
 		],
+		[
+			"a kept step between the rest overwrites the blocked step's directory with dd",
+			"make; cat run/out.md; dd if=/dev/zero of=run",
+		],
+		["a kept step between the rest writes a device with dd", "make; grep -n x run/out.md; dd if=img of=/dev/sdb"],
+		["a kept step between the rest copies over the file with dd", "make; cat out.md; dd if=new.md of=out.md"],
 		["a sourced file could have set errexit before the blocked step", "source ./env.sh; cat log.txt"],
 
 		["the blocked step itself reads the previous step's exit status", "make; echo exit=$? > status.txt"],
