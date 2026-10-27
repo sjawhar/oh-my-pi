@@ -329,7 +329,10 @@ function isStreamFilter(text: string): boolean {
 		return !args.some(arg => IN_PLACE_FLAG.test(arg)) && !/['"/0-9,;}\s][wW]\s+[^\s;|&]/.test(text);
 	}
 	if (word === "sort") return !args.some(arg => /^-[A-Za-z]*o/.test(arg) || arg.startsWith("--output"));
-	if (word === "uniq" || word === "xxd") return args.filter(arg => !arg.startsWith("-")).length <= 1;
+	// Their second operand is an output file; a lone `-` is stdin, not an option.
+	if (word === "uniq" || word === "xxd") {
+		return args.filter(arg => arg === "-" || !arg.startsWith("-")).length <= 1;
+	}
 	// Comparisons (`$1>=76`) are fine; output redirection and pipes hang off `print`/`printf`.
 	if (word === "awk") {
 		return (

@@ -435,6 +435,7 @@ describe("the refused call's runnable remainder", () => {
 		["a dropped pipeline stage edits in place", "grep -l TODO src/*.ts | xargs sed -i 's/TODO/DONE/'; git diff"],
 		["a dropped sed stage writes its own file", "cat a.txt | sed -n '1,5w out.txt'; wc -l out.txt"],
 		["a dropped awk stage reads its program from a file", "cat a.txt | awk -f prog.awk; ls"],
+		["a dropped xxd stage writes its second operand", "cat a.txt | xxd - out.hex; ls"],
 		["a dropped awk stage writes a file", "cat a.txt | awk '{print $1 > \"ids.txt\"}'; ls"],
 		["the blocked step sits in a loop body", 'for f in a b; do echo "== $f"; grep -n foo "$f"; done'],
 		["the blocked step sits in an if body", "if [ -f x ]; then\n  cat x\nfi\necho done"],
