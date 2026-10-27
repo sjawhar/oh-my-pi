@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- A subagent whose auto-retry gives up now tells the parent why it stopped and, when the provider stated it, when the limit resets: the task result shows `<retry-failure kind="usage-limit" reset-at="…" />` for any retry failure with an error kind, and `auto_retry_end` carries `kind` and `resetAtMs` for extensions and RPC clients
+
 ### Fixed
 
 - Fixed `read` rejecting artifact URLs from truncation hints when cached approvals or restricted folders are configured ([#17282](https://github.com/can1357/oh-my-pi/pull/17282) by [@iliaal](https://github.com/iliaal)).
