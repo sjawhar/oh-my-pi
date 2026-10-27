@@ -84,7 +84,7 @@ const COMPOUND_OPENERS: Record<string, true> = {
 	while: true,
 };
 const COMPOUND_CLOSERS: Record<string, true> = { "}": true, done: true, esac: true, fi: true };
-const COMPOUND_CONTINUATIONS: Record<string, true> = { do: true, elif: true, else: true, then: true };
+const COMPOUND_CONTINUATION = /^(?:do|elif|else|then)$/;
 
 /**
  * For each segment, whether it belongs to a compound command: its opener, its
@@ -97,7 +97,7 @@ function compoundMembers(segments: FlatShellCommandSegment[]): boolean[] | undef
 	for (const segment of segments) {
 		const word = /^\S+/.exec(segment.text)?.[0] ?? "";
 		if (COMPOUND_OPENERS[word]) depth++;
-		inside.push(depth > 0 || Boolean(COMPOUND_CONTINUATIONS[word]));
+		inside.push(depth > 0 || COMPOUND_CONTINUATION.test(word));
 		if (COMPOUND_CLOSERS[word] && --depth < 0) return undefined;
 	}
 	return depth === 0 ? inside : undefined;

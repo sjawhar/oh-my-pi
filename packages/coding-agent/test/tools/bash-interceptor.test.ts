@@ -386,8 +386,16 @@ describe("the refused call's runnable remainder", () => {
 		["a backgrounded neighbour's `&`", "make build & cat log.txt; echo done", "make build & echo done"],
 		["a leading cd the bash tool would strip", "cd /srv && cat log.txt; ls", "cd /srv; ls"],
 		["a blocked step's own environment prefix", "LC_ALL=C grep -n x a.txt; ls", "ls"],
-		["a loop the blocked step follows", 'for f in a b; do echo "$f"; done; cat log.txt', 'for f in a b; do echo "$f"; done'],
-		["an awk filter that only compares", "ls src; grep -n x a.txt | awk -F: '$1>=76'; echo done", "ls src; echo done"],
+		[
+			"a loop the blocked step follows",
+			'for f in a b; do echo "$f"; done; cat log.txt',
+			'for f in a b; do echo "$f"; done',
+		],
+		[
+			"an awk filter that only compares",
+			"ls src; grep -n x a.txt | awk -F: '$1>=76'; echo done",
+			"ls src; echo done",
+		],
 	])("keeps %s", (_case, command, expected) => {
 		expect(remainderOf(command)).toBe(expected);
 	});
