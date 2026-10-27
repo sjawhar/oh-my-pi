@@ -1380,7 +1380,7 @@ export class AgentSession implements SettingsScope {
 		if (this.#planModeState?.enabled) {
 			// Plan mode: fold stranded IRC asides into context without waking an
 			// autonomous turn. Convergence to ask/resolve stays user-driven.
-			this.#foldStrandedIrcAsidesIntoContext(records);
+			this.#recordWithoutTurn(records);
 			return;
 		}
 		if (this.#advisors.autoResumeSuppressed) {
@@ -1395,21 +1395,22 @@ export class AgentSession implements SettingsScope {
 				if (record.role === "custom" && record.customType === "irc:incoming") wake.push(record);
 				else fold.push(record);
 			}
-			this.#foldStrandedIrcAsidesIntoContext(fold);
+			this.#recordWithoutTurn(fold);
 			if (wake.length > 0) this.#wakeForIrc(wake);
 			return;
 		}
 		this.#wakeForIrc(records);
 	}
 
-	/** Persist stranded IRC/extension asides into context without starting a turn — shared by the
-	 *  plan-mode branch and the post-interrupt fold branch of #resumeStrandedIrcAsides. All records
+	/** Append messages to the transcript without starting a turn; the next turn sends them to the
+	 *  model. Used for stranded IRC/extension asides (the plan-mode and post-interrupt fold branches
+	 *  of #resumeStrandedIrcAsides), advisor cards, and messages an interrupt records. All records
 	 *  (custom and non-custom alike) route through emitExternalEvent so message_end both appends to
 	 *  context and notifies event listeners — #persistMessageEnd handles custom-role persistence
 	 *  (sessionManager.appendCustomMessageEntry) from that event, and a displayable custom aside that
 	 *  went stranded mid-stream gets the message_end its sender's rebuild-skip decision expects
 	 *  (extension-ui-controller's #applyCustomMessageDisplay), matching IrcBridge.flushPending(). */
-	#foldStrandedIrcAsidesIntoContext(records: AgentMessage[]): void {
+	#recordWithoutTurn(records: readonly AgentMessage[]): void {
 		for (const record of records) {
 			this.agent.emitExternalEvent({ type: "message_start", message: record });
 			this.agent.emitExternalEvent({ type: "message_end", message: record });
@@ -1654,15 +1655,7 @@ export class AgentSession implements SettingsScope {
 			this.#pendingNextTurnMessages.push(card);
 			return;
 		}
-		this.#recordWithoutTurn(card);
-	}
-
-	/** Append a message to the transcript without starting a turn: message_start/message_end
-	 *  make #handleAgentEvent render it live and persist it, and the next turn sends it to the
-	 *  model. Callers ensure no turn is streaming. */
-	#recordWithoutTurn(message: AgentMessage): void {
-		this.agent.emitExternalEvent({ type: "message_start", message });
-		this.agent.emitExternalEvent({ type: "message_end", message });
+		this.#recordWithoutTurn([card]);
 	}
 
 	#resetInFlight(): void {
@@ -9285,7 +9278,7 @@ export class AgentSession implements SettingsScope {
 				// IrcBridge.deliver()/#resumeStrandedIrcAsides do in plan mode. Routed through the
 				// event-emitting fold path (not a direct append) so a displayable aside that began
 				// streaming still gets the message_end its sender's rebuild-skip decision expects.
-				this.#foldStrandedIrcAsidesIntoContext([normalizedAppMessage]);
+				this.#recordWithoutTurn([normalizedAppMessage]);
 				return false;
 			}
 			if (this.#advisors.autoResumeSuppressed) {
@@ -9295,7 +9288,7 @@ export class AgentSession implements SettingsScope {
 				// would undo the user's deliberate stop. Fold into context (same event-emitting path
 				// as the plan-mode branch above) and stay user-driven, matching
 				// #resumeStrandedIrcAsides's post-interrupt fold branch.
-				this.#foldStrandedIrcAsidesIntoContext([normalizedAppMessage]);
+				this.#recordWithoutTurn([normalizedAppMessage]);
 				return false;
 			}
 			if (this.#clientBridge?.deferAgentInitiatedTurns && !this.#allowAcpAgentInitiatedTurns) {
@@ -10256,7 +10249,7 @@ export class AgentSession implements SettingsScope {
 					// Requeued as ordinary work: a later abort must not take it out again.
 					this.#interruptWithdrawnMessages.delete(message);
 					this.agent.followUp(message);
-				} else this.#recordWithoutTurn(message);
+				} else this.#recordWithoutTurn([message]);
 			}
 		} finally {
 			this.#abortInProgress = false;
