@@ -35,6 +35,7 @@ import {
 	cfgShellPath,
 	type ShellMinimizerSettings,
 } from "./settings";
+import { forgetBashShellState } from "../tools/bash-shell-state";
 
 export interface BashExecutorOptions {
 	cwd?: string;
@@ -306,6 +307,8 @@ function quarantineShellSession(
  */
 export function releaseShellSessions(agentSessionKey: string | undefined): void {
 	if (!agentSessionKey) return;
+	// The shell goes, and with it the options an earlier call left in it.
+	forgetBashShellState(agentSessionKey);
 	const prefix = `${agentSessionKey}\n`;
 	for (const [key, shell] of shellSessions) {
 		if (!key.startsWith(prefix)) continue;

@@ -485,6 +485,14 @@ describe("the refused call's runnable remainder", () => {
 			"make > /dev/shm/build.log; grep -n error /dev/shm/build.log; echo done",
 		],
 		["a kept step truncates the file the blocked step reads", "true > log.txt; cat log.txt; make"],
+		[
+			"a blocked step between kept ones reads an extensionless file a later one deletes",
+			"echo start; cat notes; rm -f notes",
+		],
+		[
+			"a blocked step between kept ones reads a file a later one renames",
+			"echo start; cat README; mv README README2",
+		],
 	])("offers nothing when %s", (_case, command) => {
 		expect(checkBashInterception(command, tools, DEFAULT_BASH_INTERCEPTOR_RULES).block).toBe(true);
 		expect(remainderOf(command)).toBeUndefined();

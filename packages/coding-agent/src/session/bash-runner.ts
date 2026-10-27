@@ -116,6 +116,7 @@ export class BashRunner {
 					: undefined;
 
 			const abortController = new AbortController();
+			this.#abortControllers.add(abortController);
 			// This runs in the same persistent shell the bash tool uses for the
 			// session, so the options it leaves behind decide whether the next
 			// refusal there may offer a remainder.

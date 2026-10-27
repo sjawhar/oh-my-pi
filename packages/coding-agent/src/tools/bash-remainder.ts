@@ -330,6 +330,29 @@ function pathWords(text: string): string[] {
 }
 
 /**
+ * Every operand a step names, without its command word, its leading
+ * assignments and its option flags. Unlike {@link pathWords} this keeps a bare
+ * word (`notes`, `Makefile`): two steps naming the same one share a file
+ * whatever it looks like.
+ */
+const OPTION_FLAG = /^-{1,2}[A-Za-z][A-Za-z0-9-]*$/;
+function operandWords(text: string): string[] {
+	const words: string[] = [];
+	let seenCommand = false;
+	for (const word of text.split(/\s+/)) {
+		if (LEADING_ASSIGNMENT.test(word)) continue;
+		if (!seenCommand) {
+			seenCommand = true;
+			continue;
+		}
+		if (word === "--" || OPTION_FLAG.test(word)) continue;
+		const bare = unquote(word).replace(/["']+$/, "");
+		if (bare.length > 0 && !DEVICE_SINKS.test(bare)) words.push(bare);
+	}
+	return words;
+}
+
+/**
  * Whether a step acts on a tree of files the refusal's tool cannot act on: a
  * `find`/`fd` that deletes or runs a command per hit. The line would offer
  * `glob`, which only lists.
@@ -588,6 +611,10 @@ export function buildBashRemainder(
 			const groupFiles = group.flatMap(segment => pathWords(segment.text));
 			if (namesWrittenPath(groupFiles, workingSteps)) return undefined;
 			if (workingSteps.some(kept => namesWrittenPath(writtenPaths(kept.text), group))) return undefined;
+			const groupOperands = new Set(group.flatMap(segment => operandWords(segment.text)));
+			if (workingSteps.some(kept => operandWords(kept.text).some(word => groupOperands.has(word)))) {
+				return undefined;
+			}
 		}
 		// The group runs in whatever directory the kept steps before it left. Only
 		// one plain `cd`, reached without a condition, states that directory.

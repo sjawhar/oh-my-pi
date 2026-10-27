@@ -26,3 +26,8 @@ export function noteBashShellState(sessionId: string | undefined, command: strin
 export function bashShellStopsOnError(sessionId: string | undefined): boolean {
 	return stoppingOnError.has(sessionId ?? "");
 }
+
+/** Drops what a session's shell held, once that shell itself is gone. */
+export function forgetBashShellState(sessionId: string | undefined): void {
+	stoppingOnError.delete(sessionId ?? "");
+}
