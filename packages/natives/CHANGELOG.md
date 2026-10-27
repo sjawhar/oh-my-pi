@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- Fixed the built-in `sort` using many times its `-S` buffer size, or more memory than its container allows, on inputs of short lines, and ignoring `timeout` or a cancel while it sorts
+- Fixed the built-in `sort` using many times its `-S` buffer size, or more memory than its container allows or the machine has available, on inputs of short lines, and ignoring `timeout` or a cancel while it sorts
 - Fixed the built-in `sort -m` and `sort -c` splitting lines longer than their read buffer, and `sort` joining a file's unterminated last line to the next file's first line
 - Fixed the built-in `sort -S N%` using the wrong buffer size: `-S 50%` gave 0 bytes and `-S 100%` a thousand times the machine's memory; it is now N percent of physical memory as in GNU sort
 
