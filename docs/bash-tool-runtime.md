@@ -77,9 +77,11 @@ Named-service calls omit the rules whose suggested tool is `bash`, so service co
 
 ### Blocked-command remainder
 
-The whole call is refused, so the rest of it has to be re-sent. `checkBashInterception()` builds that text from the same segments it matched (`packages/coding-agent/src/tools/bash-remainder.ts`) and returns it as `InterceptionResult.remainder`, which the message repeats under a `Nothing ran. Use …` line naming each blocked step and its tool. The remainder is only ever offered: the tool still runs nothing.
+The whole call is refused, so the rest of it has to be re-sent. `checkBashInterception()` builds that text from the same segments it matched (`packages/coding-agent/src/tools/bash-remainder.ts`) and returns it as `InterceptionResult.remainder`. The message repeats it under one `Nothing ran.` line that names each blocked step and its tool, and says where those steps belong: before the remainder when every one of them came before its working steps (a leading `cd` does not count), after it when every one came after them, and otherwise that the original ran them between its steps. The remainder is only ever offered: the tool still runs nothing.
 
 A remainder is built by dropping every blocked step, plus every stage of a `|`/`|&` pipeline one of them belongs to, and rejoining the kept steps with the operator that separated them (`;` where a dropped step sat between two kept ones). Nothing is offered when the result would mean something else: a dropped step whose terminator is `&&` or `||` (its successor would become unconditional), a command that sets `errexit` (`set -e`, `set -o errexit`), under which every `;` already behaves like `&&`, a later step that reads `$?`/`$PIPESTATUS` or a file a dropped step wrote, a dropped `cd`/`set`/`export`/assignment whose shell state later steps inherit, a command the segment scanner declines to split, a remainder that only prepares the shell (a bare `cd`), a rejoined text that no longer parses into exactly the kept steps, or a remainder a rule would refuse in turn.
+
+When kept steps run on both sides of a blocked one, no single call keeps the written order, so nothing is offered if a blocked step names a file an earlier kept step writes (`make > build.log; grep error build.log; echo done`).
 
 ### Caveat
 

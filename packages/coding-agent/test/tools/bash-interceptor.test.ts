@@ -381,6 +381,7 @@ describe("the refused call's runnable remainder", () => {
 		["a step guarded by an earlier one", "make build && cat log.txt", "make build"],
 		["a backgrounded neighbour's `&`", "make build & cat log.txt; echo done", "make build & echo done"],
 		["a leading cd the bash tool would strip", "cd /srv && cat log.txt; ls", "cd /srv; ls"],
+		["a blocked step's own environment prefix", "LC_ALL=C grep -n x a.txt; ls", "ls"],
 	])("keeps %s", (_case, command, expected) => {
 		expect(remainderOf(command)).toBe(expected);
 	});
@@ -397,6 +398,14 @@ describe("the refused call's runnable remainder", () => {
 		["the blocked step is the whole command", "cat log.txt"],
 		["what is left only prepares the shell", "cd /srv && cat log.txt"],
 		["what is left would be refused in turn", "cat a.txt; sleep 9 &"],
+		[
+			"a blocked step between kept ones reads a file an earlier one wrote",
+			"make > build.log; grep -n error build.log; echo done",
+		],
+		[
+			"the earlier kept step writes that file from a nested shell",
+			"sh -c 'make > build.log'; grep -n error build.log; echo done",
+		],
 	])("offers nothing when %s", (_case, command) => {
 		expect(checkBashInterception(command, tools, DEFAULT_BASH_INTERCEPTOR_RULES).block).toBe(true);
 		expect(remainderOf(command)).toBeUndefined();
@@ -424,6 +433,40 @@ describe("the refused call's runnable remainder", () => {
 		const result = checkBashInterception("cat log.txt && rm log.txt", tools, DEFAULT_BASH_INTERCEPTOR_RULES);
 		expect(result.message).not.toContain("re-send");
 		expect(result.message).toContain("Original command: cat log.txt && rm log.txt");
+	});
+
+	it.each([
+		[
+			"before the rest when every blocked step came first",
+			"head -c 20 notes.md; echo; ls out*",
+			"Nothing ran. Use `read` for `head -c 20 notes.md`, then re-send the rest as one bash call:\necho; ls out*",
+		],
+		[
+			"before the rest when only a leading cd came first",
+			"cd /srv && cat log.txt; ls",
+			"Nothing ran. Use `read` for `cat log.txt`, then re-send the rest as one bash call:\ncd /srv; ls",
+		],
+		[
+			"after the rest when every blocked step came last",
+			"make build && cat log.txt",
+			"Nothing ran. Re-send the rest as one bash call, then use `read` for `cat log.txt`:\nmake build",
+		],
+		[
+			"between the rest's steps otherwise",
+			"ls src; cat a.txt; echo mid",
+			"Nothing ran. Re-send the rest as one bash call, and use `read` for `cat a.txt`, which the original ran between its steps:\nls src; echo mid",
+		],
+	])("places the blocked step %s", (_case, command, offer) => {
+		const message = checkBashInterception(command, tools, DEFAULT_BASH_INTERCEPTOR_RULES).message ?? "";
+		expect(message.endsWith(`\n\n${offer}`)).toBe(true);
+	});
+
+	it("keeps the offer to one line when a blocked step spans lines", () => {
+		const result = checkBashInterception('grep -n "a\nb" notes.txt; ls', tools, DEFAULT_BASH_INTERCEPTOR_RULES);
+		expect(result.remainder).toBe("ls");
+		expect((result.message ?? "").split("\n\n").at(-1)).toBe(
+			'Nothing ran. Use `grep` for `grep -n "a\\nb" notes.txt`, then re-send the rest as one bash call:\nls',
+		);
 	});
 
 	it("offers only remainders the interceptor itself would allow", () => {

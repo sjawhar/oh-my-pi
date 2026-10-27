@@ -15,7 +15,8 @@ import {
 
 /**
  * Commands whose effect the following segments inherit: a directory change, a
- * shell option, an environment or function definition, or a sourced file. If
+ * shell option, an environment or function definition, a sourced file, or an
+ * `exec` that replaces the shell or redirects its descriptors. If
  * the blocked group contains one, later steps would run in a different shell
  * state than the model wrote, so no remainder is offered.
  */
@@ -25,6 +26,7 @@ const STATEFUL_COMMANDS: Record<string, true> = {
 	cd: true,
 	declare: true,
 	eval: true,
+	exec: true,
 	export: true,
 	popd: true,
 	pushd: true,
@@ -99,20 +101,39 @@ function unquote(word: string): string {
 	return (quote === '"' || quote === "'") && word.endsWith(quote) ? word.slice(1, -1) : word;
 }
 
-/** Paths the given command text writes, excluding shell device sinks. */
+/**
+ * Paths the given command text writes, excluding shell device sinks. A target
+ * that ends in a quote sits inside a string another shell runs
+ * (`sh -c 'make > build.log'`); that shell still writes it, so the quote is
+ * dropped from the path.
+ */
 function writtenPaths(text: string): string[] {
 	const paths: string[] = [];
 	for (const match of text.matchAll(REDIRECT_TARGET)) {
-		const target = unquote(match[1] ?? "");
+		const target = unquote(match[1] ?? "").replace(/["']+$/, "");
 		if (target.length > 0) paths.push(target);
 	}
 	for (const match of text.matchAll(TEE_TARGETS)) {
 		for (const word of (match[2] ?? "").split(/\s+/)) {
-			const target = unquote(word);
+			const target = unquote(word).replace(/["']+$/, "");
 			if (target.length > 0) paths.push(target);
 		}
 	}
 	return paths.filter(path => !path.startsWith("/dev/"));
+}
+
+/**
+ * Where the blocked steps ran relative to the remainder's steps that do work
+ * (steps that only prepare the shell, such as a leading `cd`, do not count):
+ * all of them before, all of them after, or some between them. The caller
+ * must do the blocked steps with their tools in that place.
+ */
+export type BashRemainderOrder = "before" | "after" | "among";
+
+/** The text the caller can re-send, and where the blocked steps belong around it. */
+export interface BashRemainder {
+	text: string;
+	order: BashRemainderOrder;
 }
 
 /**
@@ -123,8 +144,11 @@ function writtenPaths(text: string): string[] {
  * Nothing is offered when a dropped step leaves shell state behind (a `cd`, an
  * assignment, a `set`), when a later step reads its exit status or a file it
  * wrote, when dropping it would make a `&&`/`||` chain's later command
- * unconditional, when the rejoined text no longer parses into exactly the kept
- * steps, or when the remainder would be refused in turn.
+ * unconditional, when the command sets errexit, when the rejoined text no
+ * longer parses into exactly the kept steps, when the remainder would be
+ * refused in turn, or when the blocked steps sit between kept steps and one of
+ * them reads a file an earlier kept step writes (no single call then keeps
+ * the order the caller wrote).
  *
  * @param command The command the interceptor matched, with its original text.
  * @param segments Its segments, as the interceptor matched them.
@@ -136,7 +160,7 @@ export function buildBashRemainder(
 	segments: FlatShellCommandSegment[],
 	blockedIndices: number[],
 	isBlocked: (candidate: string) => boolean,
-): string | undefined {
+): BashRemainder | undefined {
 	if (blockedIndices.length === 0 || blockedIndices.some(index => !segments[index])) return undefined;
 
 	// A pipeline's stages share one stdin/stdout chain, so each blocked stage is
@@ -151,13 +175,9 @@ export function buildBashRemainder(
 	}
 	const kept = segments.filter((_, index) => !drop.has(index));
 	// A command word that is itself an assignment (`X=1`) sets a variable and runs nothing.
-	if (
-		kept.every(
-			segment => PREPARATION_ONLY[commandWord(segment.text)] || LEADING_ASSIGNMENT.test(commandWord(segment.text)),
-		)
-	) {
-		return undefined;
-	}
+	const preparesOnly = (segment: FlatShellCommandSegment): boolean =>
+		Boolean(PREPARATION_ONLY[commandWord(segment.text)]) || LEADING_ASSIGNMENT.test(commandWord(segment.text));
+	if (kept.every(preparesOnly)) return undefined;
 
 	// Dropping a step must not change what the steps after it see.
 	for (const index of drop) {
@@ -167,7 +187,9 @@ export function buildBashRemainder(
 		if (later.length > 0 && segments.some(step => ERREXIT.test(step.text))) return undefined;
 		if (later.length === 0) continue;
 		if (later.some(kept => EXIT_STATUS.test(kept.text))) return undefined;
-		if (LEADING_ASSIGNMENT.test(segment.text) || STATEFUL_COMMANDS[commandWord(segment.text)]) return undefined;
+		// `NAME=value cmd` sets NAME for `cmd` alone; only a bare `NAME=value` outlives its step.
+		const word = commandWord(segment.text);
+		if (LEADING_ASSIGNMENT.test(word) || STATEFUL_COMMANDS[word]) return undefined;
 		const written = writtenPaths(segment.text);
 		if (later.some(kept => written.some(path => kept.text.includes(path)))) return undefined;
 	}
@@ -206,5 +228,22 @@ export function buildBashRemainder(
 	if (isBlocked(remainder)) return undefined;
 	const leadingCd = extractLeadingCdTarget(remainder);
 	if (leadingCd && isBlocked(leadingCd.rest)) return undefined;
-	return remainder;
+
+	// The blocked steps are done with other tools, outside this call, so the
+	// caller has to know whether they go before or after it.
+	const working = segments.flatMap((segment, index) => (drop.has(index) || preparesOnly(segment) ? [] : [index]));
+	const firstDropped = Math.min(...drop);
+	const lastDropped = Math.max(...drop);
+	if (working.every(index => index > lastDropped)) return { text: remainder, order: "before" };
+	if (working.every(index => index < firstDropped)) return { text: remainder, order: "after" };
+	// Kept steps run on both sides of a blocked one. One call cannot keep that
+	// order, which matters as soon as a blocked step reads what an earlier kept
+	// step wrote.
+	for (const index of drop) {
+		const earlierWrites = working
+			.filter(keptIndex => keptIndex < index)
+			.flatMap(keptIndex => writtenPaths(segments[keptIndex].text));
+		if (earlierWrites.some(path => segments[index].text.includes(path))) return undefined;
+	}
+	return { text: remainder, order: "among" };
 }

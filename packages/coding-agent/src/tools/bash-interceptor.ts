@@ -188,14 +188,20 @@ export function checkBashInterception(
 		steps.map(step => step.index),
 		candidate => findInterception(candidate, availableTools, compiled) !== undefined,
 	);
-	const offer =
-		remainder === undefined
-			? ""
-			: `\n\nNothing ran. Use ${steps.map(step => `\`${step.tool}\` for \`${step.text}\``).join(", ")}, then re-send the rest as one bash call:\n${remainder}`;
+	// One line, then the text. A step's own newlines are shown escaped so the
+	// line stays one line.
+	const uses = steps.map(step => `\`${step.tool}\` for \`${step.text.replaceAll("\n", "\\n")}\``).join(", ");
+	const instruction =
+		remainder?.order === "before"
+			? `Use ${uses}, then re-send the rest as one bash call:`
+			: remainder?.order === "after"
+				? `Re-send the rest as one bash call, then use ${uses}:`
+				: `Re-send the rest as one bash call, and use ${uses}, which the original ran between its steps:`;
+	const offer = remainder === undefined ? "" : `\n\nNothing ran. ${instruction}\n${remainder.text}`;
 	return {
 		block: true,
 		message: `Blocked: ${match.rule.message}\n\nOriginal command: ${originalCommand}${offer}`,
 		suggestedTool: match.rule.tool,
-		remainder,
+		remainder: remainder?.text,
 	};
 }
