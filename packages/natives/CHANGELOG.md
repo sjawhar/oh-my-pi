@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Fixed a `git status` that exceeded its deadline leaving a stale `.git/index.lock` behind, which made every later git or jj write in that worktree fail until the lock was deleted by hand ([#13405](https://github.com/can1357/oh-my-pi/pull/13405) by [@sjawhar](https://github.com/sjawhar)).
 - Fixed `wrapTextWithAnsi` continuing a wrapped styled underline (`4:3`, `4:4`) as a background colour, `4:0` setting background `40`, and colon-form colours (`38:2::r:g:b`) being dropped ([#16239](https://github.com/can1357/oh-my-pi/pull/16239) by [@materemias](https://github.com/materemias))
 
 ## [18.13.3] - 2026-10-28
