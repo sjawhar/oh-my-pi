@@ -13,6 +13,7 @@ import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { convertToLlm, USER_INTERRUPT_LABEL } from "@oh-my-pi/pi-coding-agent/session/messages";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
+import * as imageLoading from "@oh-my-pi/pi-coding-agent/utils/image-loading";
 import { TempDir } from "@oh-my-pi/pi-utils";
 
 /**
@@ -112,8 +113,15 @@ describe("AgentSession triggerTurn aside", () => {
 		return target.agent.state.messages.some(message => message.role === "custom" && message.content === text);
 	}
 
+	interface HeldKeyLookup {
+		/** Settles when the held lookup starts. */
+		requested: Promise<void>;
+		resolve(key: string | undefined): void;
+		restore(): void;
+	}
+
 	/** Holds the next API-key lookup, which a direct prompt's setup makes before its run starts. */
-	function holdNextKeyLookup(modelRegistry: ModelRegistry) {
+	function holdNextKeyLookup(modelRegistry: ModelRegistry): HeldKeyLookup {
 		const requested = Promise.withResolvers<void>();
 		const key = Promise.withResolvers<string | undefined>();
 		const spy = spyOn(modelRegistry, "getApiKey").mockImplementationOnce(async () => {
@@ -256,5 +264,143 @@ describe("AgentSession triggerTurn aside", () => {
 		expect(mock.calls).toHaveLength(2);
 		expect(JSON.stringify(mock.calls[1]!.context.messages)).toContain("PLAN_AFTER_POLL");
 		expect(agentEnds).toEqual([false, true]);
+	});
+
+	/** Strands a triggerTurn aside and then an aside without it after the extension turn's last aside poll. */
+	async function expectStrandedAsidesInQueueOrder(setup: (target: AgentSession) => Promise<void>): Promise<void> {
+		let sent = false;
+		const harness = await createHarness(async () => {
+			if (sent) return;
+			sent = true;
+			await harness.session.sendCustomMessage(card("TRIGGER_FIRST"), { deliverAs: "aside", triggerTurn: true });
+			await harness.session.sendCustomMessage(card("PASSIVE_SECOND"), { deliverAs: "aside" });
+		});
+		const { session, mock } = harness;
+		await setup(session);
+
+		await session.sendCustomMessage(card("EXTENSION_TURN"), { triggerTurn: true });
+		await settle(session);
+
+		expect(mock.calls).toHaveLength(2);
+		const request = JSON.stringify(mock.calls[1]!.context.messages);
+		expect(request).toContain("PASSIVE_SECOND");
+		expect(request.indexOf("TRIGGER_FIRST")).toBeGreaterThan(-1);
+		expect(request.indexOf("TRIGGER_FIRST")).toBeLessThan(request.indexOf("PASSIVE_SECOND"));
+		const persistedOrder = session.sessionManager
+			.getEntries()
+			.filter(entry => entry.type === "custom_message")
+			.map(entry => entry.content);
+		expect(persistedOrder).toEqual(["EXTENSION_TURN", "TRIGGER_FIRST", "PASSIVE_SECOND"]);
+	}
+
+	it("after an earlier interrupt, an aside without triggerTurn queued behind one with it rides that turn in queue order", async () => {
+		await expectStrandedAsidesInQueueOrder(target => target.abort({ reason: USER_INTERRUPT_LABEL }));
+	});
+
+	it("in plan mode, an aside without triggerTurn queued behind one with it rides that turn in queue order", async () => {
+		await expectStrandedAsidesInQueueOrder(async target => {
+			target.setPlanModeState({ enabled: true, planFilePath: "local://PLAN.md" });
+		});
+	});
+
+	it("folds without a turn when an Esc lands while its turn waits for a work-pool yield change", async () => {
+		let sent = false;
+		const harness = await createHarness(async () => {
+			if (sent) return;
+			sent = true;
+			await harness.session.sendCustomMessage(card("CARD_BEFORE_ESC"), { deliverAs: "aside", triggerTurn: true });
+		});
+		const { session, mock } = harness;
+		// The stranded aside's turn joins a pending work-pool yield change before it starts: hold that change.
+		const turnWaiting = Promise.withResolvers<void>();
+		const yieldChange = Promise.withResolvers<void>();
+		const yieldSpy = spyOn(session, "whenWorkPoolYieldSettled").mockImplementation(() => {
+			turnWaiting.resolve();
+			return yieldChange.promise;
+		});
+		try {
+			const extensionTurn = session.sendCustomMessage(card("EXTENSION_TURN"), { triggerTurn: true });
+			await turnWaiting.promise;
+
+			await session.abort({ reason: USER_INTERRUPT_LABEL });
+			yieldChange.resolve();
+			await extensionTurn;
+			await setImmediate();
+			await settle(session);
+		} finally {
+			yieldChange.resolve();
+			yieldSpy.mockRestore();
+		}
+
+		expect(mock.calls).toHaveLength(1);
+		expect(persisted(session, "CARD_BEFORE_ESC")).toBe(true);
+	});
+
+	it("in an ACP session, one that lands after the run it was sent during has ended waits for the client's next turn", async () => {
+		const { session, mock, modelRegistry } = await createHarness();
+		session.setClientBridge({ capabilities: {}, deferAgentInitiatedTurns: true });
+		// The aside's image normalization holds it until the switch below has changed the session generation.
+		// Prompts normalize too, with no images: those pass straight through.
+		const normalizeStarted = Promise.withResolvers<void>();
+		const releaseNormalize = Promise.withResolvers<void>();
+		const normalizeSpy = spyOn(imageLoading, "normalizeModelContextImages").mockImplementation(async images => {
+			if (!images?.length) return images;
+			normalizeStarted.resolve();
+			await releaseNormalize.promise;
+			return images;
+		});
+		// The switch changes the session generation, then fails and restores it.
+		const switchPaused = Promise.withResolvers<void>();
+		const failSwitch = Promise.withResolvers<void>();
+		const setSessionFileSpy = spyOn(SessionManager.prototype, "setSessionFile").mockImplementation(async () => {
+			switchPaused.resolve();
+			await failSwitch.promise;
+			throw new Error("forced switch failure");
+		});
+		let keyLookup: HeldKeyLookup | undefined;
+		try {
+			const sent = session.sendCustomMessage(
+				{
+					customType: "ext-card",
+					content: [
+						{ type: "text", text: "LATE_CARD" },
+						{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+					],
+					display: false,
+					attribution: "agent",
+				},
+				{ deliverAs: "aside", triggerTurn: true },
+			);
+			await normalizeStarted.promise;
+			const switched = session.switchSession(path.join(tempDir.path(), "target.jsonl"));
+			await switchPaused.promise;
+			// A client prompt's setup holds the session while the switch is paused.
+			keyLookup = holdNextKeyLookup(modelRegistry);
+			const refused = session.prompt("CLIENT_SETUP");
+			await keyLookup.requested;
+			expect(session.isStreaming).toBe(true);
+
+			// The aside finds the session busy and waits out the generation change, past the prompt's end.
+			releaseNormalize.resolve();
+			await setImmediate();
+			keyLookup.resolve(undefined);
+			await expect(refused).rejects.toThrow("No API key");
+			failSwitch.resolve();
+			await expect(switched).rejects.toThrow("forced switch failure");
+			expect(await sent).toBe(false);
+			await settle(session);
+		} finally {
+			releaseNormalize.resolve();
+			failSwitch.resolve();
+			keyLookup?.resolve(undefined);
+			keyLookup?.restore();
+			setSessionFileSpy.mockRestore();
+			normalizeSpy.mockRestore();
+		}
+		expect(mock.calls).toHaveLength(0);
+
+		await session.prompt("CLIENT_TURN");
+		expect(mock.calls).toHaveLength(1);
+		expect(requestsContaining(mock, "LATE_CARD")).toBe(1);
 	});
 });
