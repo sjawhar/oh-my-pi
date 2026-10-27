@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Stopped RPC mode from writing streamed output to a temporary spool file while the client was reading promptly; output now spills to disk only after 8 MiB is waiting on the client, and a stalled client still cannot grow memory past that
+
 ## [18.13.2] - 2026-10-27
 
 ### Added
