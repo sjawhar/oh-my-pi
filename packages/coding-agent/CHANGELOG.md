@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- When the bash interceptor refuses a call, the refusal now ends with the rest of the command to re-send as one call, and where to do the blocked steps, whenever that text is safe to run unchanged; nothing in the refused call runs either way
+
 ## [18.13.2] - 2026-10-27
 
 ### Added
