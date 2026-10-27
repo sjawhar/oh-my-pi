@@ -4,6 +4,7 @@
 
 ### Added
 
+- `CustomMessage` has an optional `tag`, a caller correlation id that stays with the message ([#14323](https://github.com/can1357/oh-my-pi/pull/14323) by [@sjawhar](https://github.com/sjawhar))
 - `PI_INTENT_DESC` replaces the schema description of the injected `i` intent field
 - `AgentTool.approvalRestrictionPaths` reports paths a call reads, so restricted folders cover them without the approval being remembered per path ([#17133](https://github.com/can1357/oh-my-pi/pull/17133) by [@iliaal](https://github.com/iliaal))
 
