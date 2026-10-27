@@ -390,7 +390,6 @@ describe("the refused call's runnable remainder", () => {
 		["the pipeline of filters a blocked step feeds", "ls src; cat a.txt | wc -l; echo done", "ls src; echo done"],
 		["a blocked step's own environment prefix", "LC_ALL=C grep -n x a.txt; ls", "ls"],
 		["the plain cd a blocked step ran in", "cd /srv; cat log.txt; ls", "cd /srv; ls"],
-		["a sourced file the blocked step followed", "source ./env.sh; cat log.txt", "source ./env.sh"],
 		[
 			"a loop the blocked step follows",
 			'for f in a b; do echo "$f"; done; cat log.txt',
@@ -493,6 +492,19 @@ describe("the refused call's runnable remainder", () => {
 			"a blocked step between kept ones reads a file a later one renames",
 			"echo start; cat README; mv README README2",
 		],
+		[
+			"a kept step between the rest removes the directory the blocked step reads from",
+			"cat /tmp/run/a.md; echo ======; cat /tmp/run/b.md; rm -rf /tmp/run",
+		],
+		["a sourced file could have set errexit before the blocked step", "source ./env.sh; cat log.txt"],
+
+		["the blocked step itself reads the previous step's exit status", "make; echo exit=$? > status.txt"],
+		["errexit is set and the blocked step is the last one", "set -e; make; cat out.txt"],
+		[
+			"an earlier kept step writes the file under another spelling",
+			"make > ./build.log; grep -n error build.log; ls",
+		],
+		["the blocked step sits in a loop body beside no shared name", "for f in a b; do date; cat log.txt; done"],
 	])("offers nothing when %s", (_case, command) => {
 		expect(checkBashInterception(command, tools, DEFAULT_BASH_INTERCEPTOR_RULES).block).toBe(true);
 		expect(remainderOf(command)).toBeUndefined();

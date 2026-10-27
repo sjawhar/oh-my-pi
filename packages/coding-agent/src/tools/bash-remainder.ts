@@ -367,6 +367,23 @@ function actsOnEveryMatch(text: string): boolean {
 }
 
 /**
+ * Commands that unlink or overwrite whatever their operands name, the
+ * directory a file sits in included (`rm -rf /tmp/run` against
+ * `cat /tmp/run/out.md`), which no name match can see.
+ */
+const FILE_REMOVERS: Record<string, true> = {
+	cp: true,
+	dd: true,
+	install: true,
+	mv: true,
+	rm: true,
+	rmdir: true,
+	shred: true,
+	truncate: true,
+	unlink: true,
+};
+
+/**
  * Whether a pipeline stage only filters its input: a stream filter whose shell
  * redirects write no file and which runs no command of its own (`sed -i`,
  * `sed …w file`, `sort -o`, `uniq in out`, `xxd in out`, an `awk` program read
@@ -538,15 +555,21 @@ export function buildBashRemainder(
 		(Boolean(PREPARATION_ONLY[commandWord(segment.text)]) || LEADING_ASSIGNMENT.test(commandWord(segment.text))) &&
 		writtenPaths(segment.text).length === 0;
 	if (kept.every(preparesOnly)) return undefined;
-	const stopsOnError = Boolean(shell.stopsOnError) || segments.some(segment => enablesErrexit(segment.text));
+	// Under errexit every `;` behaves like `&&`, so no step of the call can be
+	// dropped without making a later one unconditional — in this call, or in
+	// the shell an earlier call of the session left.
+	if (Boolean(shell.stopsOnError) || segments.some(segment => enablesErrexit(segment.text))) return undefined;
 
-	// Dropping a step must not change what the steps after it see.
+	// Dropping a step must not change what the steps after it see, and the step
+	// itself must not read what the step before it left.
 	for (const index of drop) {
 		const segment = segments[index];
 		if (actsOnEveryMatch(segment.text)) return undefined;
+		// The tool that replaces the group cannot produce an exit status, a last
+		// argument or a job, so a group that reads one cannot be handed over.
+		if (PREVIOUS_COMMAND.test(segment.text)) return undefined;
 		const later = segments.slice(index + 1).filter((_, offset) => !drop.has(index + 1 + offset));
 		if (later.length === 0) continue;
-		if (stopsOnError) return undefined;
 		if (later.some(step => PREVIOUS_COMMAND.test(step.text) || JOB_CONTROL.test(step.text))) return undefined;
 		// `NAME=value cmd` sets NAME for `cmd` alone; only a bare `NAME=value` outlives its step.
 		const word = commandWord(segment.text);
@@ -613,6 +636,11 @@ export function buildBashRemainder(
 			if (workingSteps.some(kept => namesWrittenPath(writtenPaths(kept.text), group))) return undefined;
 			const groupOperands = new Set(group.flatMap(segment => operandWords(segment.text)));
 			if (workingSteps.some(kept => operandWords(kept.text).some(word => groupOperands.has(word)))) {
+				return undefined;
+			}
+			// A kept step that unlinks or replaces its operands can take the group's
+			// file with a path the group never spells (its directory, a glob).
+			if (workingSteps.some(kept => FILE_REMOVERS[commandWord(kept.text)] && operandWords(kept.text).length > 0)) {
 				return undefined;
 			}
 		}
