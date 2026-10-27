@@ -441,7 +441,19 @@ export class IndexedSessionStorage implements SessionStorage {
 			await this.#enqueuePaths(paths, () => this.#backend.remove(paths), { trackDrain: false });
 			for (const [path] of previous) this.#dropFrame(path, sessionEntry.mtimeMs);
 		} catch (err) {
-			for (const [path] of previous) this.#failFrame(path, sessionEntry.mtimeMs);
+			// A backend remove can fail partway (Redis DEL then HDEL, SQL's
+			// per-path DELETE loop): a path whose row is already gone stays
+			// deleted, so a stat of it reports ENOENT. Restore only the rest.
+			for (const [path] of previous) {
+				let gone = false;
+				try {
+					gone = (await this.#backend.readFull(path)) === null;
+				} catch {
+					// Unreadable: treat as present.
+				}
+				if (gone) this.#dropFrame(path, sessionEntry.mtimeMs);
+				else this.#failFrame(path, sessionEntry.mtimeMs);
+			}
 			throw toError(err);
 		}
 	}
