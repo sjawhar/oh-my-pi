@@ -447,6 +447,7 @@ describe("the refused call's runnable remainder", () => {
 		["what is left would be refused in turn", "cat a.txt; sleep 9 &"],
 		["the directory the blocked step ran in is not one plain cd", "cd /srv; cd lib; cat log.txt; ls"],
 		["the directory the blocked step ran in came from an alternative", "cd /a || cd /b; cat log.txt; ls"],
+		["the directory the blocked step ran in is the one before it", "cd -; cat log.txt; ls"],
 		["the directory the blocked step ran in is computed", 'cd "$HOME/src"; cat log.txt; ls'],
 		["a sourced file ran before the blocked step", ". ./gen.sh > out.txt; cat out.txt; ls"],
 		[

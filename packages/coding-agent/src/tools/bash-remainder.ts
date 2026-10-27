@@ -79,11 +79,12 @@ const DIRECTORY_COMMANDS: Record<string, true> = { cd: true, popd: true, pushd: 
 
 /**
  * A `cd` to one plain literal path: the only context the refusal names. Shell
- * expansion, a second word or an operator would make the directory something
- * this module cannot state, and `cd a || cd b` is two segments, never one
- * sequence the dropped step ran after.
+ * expansion, a second word, an operator or `cd -` (the directory before this
+ * one, which nothing here knows) would make the directory something this
+ * module cannot state, and `cd a || cd b` is two segments, never one sequence
+ * the dropped step ran after.
  */
-const PLAIN_CD = /^cd\s+("[^"$`'\\]*"|'[^']*'|[^\s;|&<>$`"'\\]+)$/;
+const PLAIN_CD = /^cd\s+(?!-{1,2}$)("[^"$`'\\]*"|'[^']*'|[^\s;|&<>$`"'\\]+)$/;
 
 /**
  * The words that open and close a compound command (`if … fi`,
