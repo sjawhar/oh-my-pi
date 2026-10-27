@@ -76,7 +76,7 @@ import type { SessionEntry, SessionTreeNode } from "../../session/session-entrie
 import { findSessionContinuation, readSessionInfo, type SessionInfo } from "../../session/session-listing";
 import { SessionManager } from "../../session/session-manager";
 import { loadPinnedSessionIds } from "../../session/session-pins";
-import { FileSessionStorage } from "../../session/session-storage";
+import { defaultSessionStorage } from "../../session/session-storage";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
 import type { LogoutAccount } from "@oh-my-pi/pi-tui/overlays/logout-account-selector";
 import { describeRedeemOutcome, toResetUsageAccounts } from "../../slash-commands/helpers/reset-usage";
@@ -1838,7 +1838,7 @@ export class SelectorController {
 								if (!(await this.#detachActiveSessionBeforeDeletion(session.path))) {
 									return false;
 								}
-								const storage = new FileSessionStorage();
+								const storage = defaultSessionStorage();
 								try {
 									await storage.deleteSessionWithArtifacts(session.path);
 									return true;
@@ -1858,8 +1858,12 @@ export class SelectorController {
 									// row here pointing at the old path. Claim the
 									// lease up front and refuse while it is held by
 									// someone else.
-									const claim = new FileSessionStorage().claimSession(session.id, session.path);
-									if (!claim) {
+									// Through the configured store, not the file store by name: a
+									// backend without an ownership lease (the SQL and Redis stores)
+									// has nothing to claim and so nothing to refuse on.
+									const storage = defaultSessionStorage();
+									const claim = storage.claimSession?.(session.id, session.path) ?? null;
+									if (!claim && storage.claimSession) {
 										throw new Error(
 											"Failed to rename session: it is currently in use by another omp process",
 										);
@@ -1868,7 +1872,7 @@ export class SelectorController {
 										const renamed = await this.ctx.sessionManager.setSessionName(title, "user");
 										return renamed ? (this.ctx.sessionManager.getSessionName() ?? null) : null;
 									} finally {
-										claim();
+										claim?.();
 									}
 								}
 								const renamed = await SessionManager.renameSessionTitle(session.path, title, {
@@ -2090,7 +2094,7 @@ export class SelectorController {
 		}
 
 		// Check if session file exists (may not exist for brand new sessions)
-		const storage = new FileSessionStorage();
+		const storage = defaultSessionStorage();
 		const fileExists = await storage.exists(sessionFile);
 		if (!fileExists) {
 			this.ctx.showError("Session has not been saved yet");
