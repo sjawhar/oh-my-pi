@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Fixed the embedded shell skipping an EXIT trap set inside `( ... )`, `$( ... )`, a pipeline stage or a background job, so `trap 'rm -f "$f"' EXIT` cleanups there left their files behind
+- Fixed `exit`, `return`, `break`, `continue`, a failed expansion or a failed redirect in a pipeline stage or `$(< file)` of the embedded shell ending the whole command, so `cmd | { ...; exit 0; }; next` no longer drops `next`
 - Fixed `wrapTextWithAnsi` continuing a wrapped styled underline (`4:3`, `4:4`) as a background colour, `4:0` setting background `40`, and colon-form colours (`38:2::r:g:b`) being dropped ([#16239](https://github.com/can1357/oh-my-pi/pull/16239) by [@materemias](https://github.com/materemias))
 
 ## [18.13.3] - 2026-10-28
