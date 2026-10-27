@@ -65,6 +65,14 @@ const PREPARATION_ONLY: Record<string, true> = {
 /** `$?`, `${?}` and `$PIPESTATUS` all read the exit status of what ran before. */
 const EXIT_STATUS = /\$\?|\$\{\?\}|\$\{?PIPESTATUS/;
 
+/**
+ * `set -e` (in any flag spelling, or `set -o errexit`) makes every `;` behave
+ * like `&&`: the shell leaves on the first failure. A step dropped from under
+ * it would let the steps after it run where the caller's command would have
+ * stopped.
+ */
+const ERREXIT = /^set\s+(?:-[a-zA-Z]*e[a-zA-Z]*(?:\s|$)|-o\s+errexit)/;
+
 /** A leading `NAME=value` word, which sets a variable the following segments can read. */
 const LEADING_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
@@ -156,6 +164,7 @@ export function buildBashRemainder(
 		const segment = segments[index];
 		const later = segments.slice(index + 1).filter((_, offset) => !drop.has(index + 1 + offset));
 		if (!drop.has(index + 1) && (segment.terminator === "&&" || segment.terminator === "||")) return undefined;
+		if (later.length > 0 && segments.some(step => ERREXIT.test(step.text))) return undefined;
 		if (later.length === 0) continue;
 		if (later.some(kept => EXIT_STATUS.test(kept.text))) return undefined;
 		if (LEADING_ASSIGNMENT.test(segment.text) || STATEFUL_COMMANDS[commandWord(segment.text)]) return undefined;

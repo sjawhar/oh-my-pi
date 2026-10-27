@@ -388,6 +388,10 @@ describe("the refused call's runnable remainder", () => {
 	it.each([
 		["a later command would become unconditional", "cat log.txt && rm log.txt"],
 		["a later step reads the exit status", "cat log.txt; rc=$?; echo $rc"],
+		["a later step reads a pipeline's exit status", "cat log.txt; echo $PIPESTATUS"],
+		["errexit would have stopped the call at the blocked step", "set -e; grep -q TODO notes.txt; rm -rf build"],
+		["errexit is set in the long spelling", "set -o errexit; cat marker; git push origin main"],
+		["errexit is set among other flags", "set -euo pipefail; cat marker; rm -rf out"],
 		["a later step reads a file the blocked step wrote", "echo hi > out.txt; wc -l out.txt"],
 		["the command cannot be split", "cat $(ls); ls"],
 		["the blocked step is the whole command", "cat log.txt"],
