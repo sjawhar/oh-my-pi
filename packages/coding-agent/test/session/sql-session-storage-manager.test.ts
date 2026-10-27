@@ -13,6 +13,7 @@ import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manage
 import { SqlSessionStorage, type SqlSessionStorageClient } from "@oh-my-pi/pi-coding-agent/session/sql-session-storage";
 import { SessionWriteConflictError } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import { SQL } from "bun";
+import { readStoredSession } from "../helpers/sql-session-storage";
 
 // Storage keys are platform paths; `/sessions/...` is only drive-relative on Windows,
 // so a resolved `open()` would address a different key than `create()` wrote.
@@ -32,7 +33,7 @@ function fakeUsage(input: number, output: number): Usage {
 class HeldSqlClient implements SqlSessionStorageClient {
 	readonly options: SqlSessionStorageClient["options"];
 	holdNextReplace = false;
-	holdQueryPrefix = "UPDATE omp_session_files SET content";
+	holdQueryPrefix = "ON CONFLICT (path) DO UPDATE SET content = excluded.content";
 	readonly replaceStarted = Promise.withResolvers<void>();
 	readonly allowReplace = Promise.withResolvers<void>();
 	readonly #client: InstanceType<typeof SQL>;
@@ -43,7 +44,8 @@ class HeldSqlClient implements SqlSessionStorageClient {
 	}
 
 	unsafe(query: string, values?: unknown[]) {
-		if (this.holdNextReplace && query.startsWith(this.holdQueryPrefix)) {
+		// A full rewrite replaces the session row with an upsert, after its size check and before its parts.
+		if (this.holdNextReplace && query.includes(this.holdQueryPrefix)) {
 			this.holdNextReplace = false;
 			this.replaceStarted.resolve();
 			return this.allowReplace.promise.then(() => this.#client.unsafe(query, values));
@@ -86,11 +88,9 @@ describe("SessionManager + SqlSessionStorage (SQLite)", () => {
 		await storage.drain();
 		await manager.close();
 
-		const rows = (await client.unsafe(`SELECT content FROM omp_session_files WHERE path = ?`, [
-			sessionFilePath,
-		])) as Array<{ content: string }>;
-		expect(rows).toHaveLength(1);
-		const lines = rows[0].content.trim().split("\n");
+		const stored = await readStoredSession(client, "omp_session_files", sessionFilePath);
+		expect(stored).not.toBeNull();
+		const lines = (stored ?? "").trim().split("\n");
 		expect(lines.length).toBeGreaterThanOrEqual(3);
 		// The fixed-width title slot is always the first physical line; the session header follows.
 		const slot = JSON.parse(lines[0]);
