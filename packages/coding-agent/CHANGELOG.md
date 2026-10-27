@@ -7,6 +7,8 @@
 - Fixed `read` rejecting artifact URLs from truncation hints when cached approvals or restricted folders are configured ([#17282](https://github.com/can1357/oh-my-pi/pull/17282) by [@iliaal](https://github.com/iliaal)).
 - A failed Hindsight memory recall (for example `recall request timed out after 30s`) now shows a warning instead of silently sending the prompt without memories; `omp -p` writes it, and Hindsight retain failures, to stderr ([#17278](https://github.com/can1357/oh-my-pi/pull/17278) by [@enieuwy](https://github.com/enieuwy))
 - Fixed cancelling an MCP OAuth login or `/mcp` auth lookup at the wrong moment crashing the session with an unhandled rejection ([#17290](https://github.com/can1357/oh-my-pi/pull/17290) by [@H4vC](https://github.com/H4vC))
+- Fixed an extension message sent with `deliverAs: "aside"` and `triggerTurn: true` being folded into the conversation with no turn in plan mode or after an earlier interrupt, when it was sent to an idle session or no run picked it up (a prompt refused before its run, or the message arriving after the run's last check); it now starts a turn unless you interrupt after it was sent ([#17166](https://github.com/can1357/oh-my-pi/pull/17166) by [@sjawhar](https://github.com/sjawhar))
+- Fixed `agent_end` reporting `isTerminal: false` after an interrupt when the messages left over were only folded into the conversation and no turn followed ([#17166](https://github.com/can1357/oh-my-pi/pull/17166) by [@sjawhar](https://github.com/sjawhar))
 
 ## [18.13.3] - 2026-10-28
 
