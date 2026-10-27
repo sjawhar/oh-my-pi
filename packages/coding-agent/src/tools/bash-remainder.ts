@@ -3,9 +3,17 @@
  *
  * The bash interceptor refuses the whole call: nothing runs, so the model has
  * to re-send the steps the rule did not name. This module builds that re-send
- * text from the same segments the interceptor matched, and returns nothing
- * whenever the remainder would mean something different from what the model
- * wrote. A remainder is only ever *offered* in the refusal; it is never run.
+ * text from the same segments the interceptor matched.
+ *
+ * It withholds by default. A remainder is offered only where the shell's
+ * semantics are plainly safe: every dropped step is separated from the steps
+ * around it by `;` or a newline (or is a stage of a pipeline whose other
+ * stages only filter their input), and nothing a kept step does depends on a
+ * dropped one. Anything else — a `&&`, `||` or `&` next to a dropped step, a
+ * dropped step that leaves shell state behind or writes a file a kept step
+ * names, a shell that stops on the first error — is silence. A wrong
+ * remainder is worse than none, and a remainder is only ever *offered* in the
+ * refusal; it is never run.
  */
 import {
 	extractFlatShellCommandSegments,
@@ -43,13 +51,14 @@ const STATEFUL_COMMANDS: Record<string, true> = {
 };
 
 /**
- * Commands that only prepare the shell for the steps around them. A remainder
- * made of nothing but these (a lone `cd`, say) costs a round trip and produces
- * no output, so it is not worth offering. They are also the context a blocked
- * step ran in (its directory, its variables), which the refusal names.
+ * Commands that only prepare the shell for the steps around them and run no
+ * work of their own. A remainder made of nothing but these (a lone `cd`, say)
+ * costs a round trip and produces no output, so it is not worth offering, and
+ * a dropped group that sits among them did not run between two steps that do
+ * work. `source` and `.` are absent on purpose: they run a file nobody here
+ * can read, which is work.
  */
 const PREPARATION_ONLY: Record<string, true> = {
-	".": true,
 	":": true,
 	alias: true,
 	cd: true,
@@ -58,13 +67,23 @@ const PREPARATION_ONLY: Record<string, true> = {
 	pushd: true,
 	set: true,
 	shopt: true,
-	source: true,
 	true: true,
 	trap: true,
 	ulimit: true,
 	umask: true,
 	unset: true,
 };
+
+/** Commands that move the shell between directories, so the steps after them run somewhere else. */
+const DIRECTORY_COMMANDS: Record<string, true> = { cd: true, popd: true, pushd: true };
+
+/**
+ * A `cd` to one plain literal path: the only context the refusal names. Shell
+ * expansion, a second word or an operator would make the directory something
+ * this module cannot state, and `cd a || cd b` is two segments, never one
+ * sequence the dropped step ran after.
+ */
+const PLAIN_CD = /^cd\s+("[^"$`'\\]*"|'[^']*'|[^\s;|&<>$`"'\\]+)$/;
 
 /**
  * The words that open and close a compound command (`if … fi`,
@@ -153,6 +172,9 @@ const STREAM_FILTERS: Record<string, true> = {
  */
 const PREVIOUS_COMMAND = /\$\?|\$\{\?\}|\$\{?PIPESTATUS|\$_(?![A-Za-z0-9_])|\$\{_\}|\$!|\$\{!\}/;
 
+/** What a step says about the jobs the ones before it started (`kill %1`, `fg`, `wait %2`). */
+const JOB_CONTROL = /(?:^|[\s;|&])(?:fg|bg|disown|wait|kill|jobs)\b|%[0-9%+-]/;
+
 /** A leading `NAME=value` word, which sets a variable the following segments can read. */
 const LEADING_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
@@ -172,28 +194,55 @@ function commandWord(text: string): string {
 }
 
 /**
- * Whether a segment turns errexit on: `set` with an `e` among any of its short
- * flags (`set -e`, `set -euo pipefail`, `set -x -e`) or `-o errexit`, before
- * `--` ends the options. Under errexit every `;` behaves like `&&`, so a step
- * dropped from under it would let the steps after it run where the written
- * command would have stopped.
+ * Whether a segment makes the shell stop at the first failing command: `set`
+ * with an `e` among any of its short flags (`set -e`, `set -euo pipefail`,
+ * `set -x -e`) or `-o errexit`, the same through `shopt -s -o errexit`, or an
+ * `ERR` trap. Under any of them every `;` behaves like `&&`, so a step dropped
+ * from under it would let the steps after it run where the written command
+ * would have stopped. A `source`, `.` or `eval` runs text this module cannot
+ * read, so it counts too.
  */
-function setsErrexit(text: string): boolean {
-	if (commandWord(text) !== "set") return false;
+function enablesErrexit(text: string): boolean {
+	const word = commandWord(text);
+	if (word === "source" || word === "." || word === "eval") return true;
+	if (word === "trap") return /\bERR\b/.test(text);
+	if (word !== "set" && word !== "shopt") return false;
 	const words = text.split(/\s+/);
 	for (let index = 1; index < words.length; index++) {
-		const word = words[index];
-		if (word === "--" || word === "-") return false;
-		if (/^-[A-Za-z]*e[A-Za-z]*$/.test(word)) return true;
-		if (word === "-o" && words[index + 1] === "errexit") return true;
+		const option = words[index];
+		if (option === "--" || option === "-") return false;
+		if (word === "set" && /^-[A-Za-z]*e[A-Za-z]*$/.test(option)) return true;
+		if (/^-[A-Za-z]*o$/.test(option) && words[index + 1] === "errexit") return true;
+		if (/^-[A-Za-z]*o[A-Za-z]+$/.test(option) && option.endsWith("errexit")) return true;
 	}
 	return false;
 }
 
+/** The same spellings in text this module could not split into segments. */
+const ERREXIT_TEXT =
+	/(?:^|[\s;&|(])set\s+-[A-Za-z]*e|[-\s]o\s+errexit|\btrap\b[^;\n]*\bERR\b|\b(?:source|eval)\b|^\.\s/;
+
+/**
+ * Whether running `command` could leave the shell stopping on the first error.
+ * The session's foreground calls share one persistent shell, so a `set -e` in
+ * one call is still in force in the next, where a remainder built without it
+ * would run steps the written command would have skipped. Text this module
+ * cannot split is matched loosely rather than assumed harmless.
+ */
+export function commandEnablesErrexit(command: string): boolean {
+	const segments = extractFlatShellCommandSegments(command);
+	if (segments.length === 0) return ERREXIT_TEXT.test(command);
+	return segments.some(segment => enablesErrexit(segment.text));
+}
+
 /** An unquoted `>`/`>>`/`&>` target, or an argument of `tee`, written by the given text. */
-const REDIRECT_TARGET = /(?:^|[\s;|&])(?:\d*>{1,2}\|?|&>{1,2})\s*("[^"]*"|'[^']*'|[^\s;|&<>]+)/g;
+const REDIRECT_TARGET = /(?:\d*>{1,2}\|?|&>{1,2})\s*("[^"]*"|'[^']*'|[^\s;|&<>]+)/g;
 const TEE_TARGETS =
 	/(?:^|[\s|])tee\s+((?:-\S+\s+)*)((?:"[^"]*"|'[^']*'|[^\s;|&<>]+)(?:\s+(?:"[^"]*"|'[^']*'|[^\s;|&<>]+))*)/g;
+
+/** Editors that rewrite their file operands in place rather than their stream. */
+const IN_PLACE_EDITORS: Record<string, true> = { perl: true, ruby: true, sed: true };
+const IN_PLACE_FLAG = /^-[A-Za-z]*i/;
 
 function unquote(word: string): string {
 	const quote = word[0];
@@ -201,8 +250,9 @@ function unquote(word: string): string {
 }
 
 /**
- * Paths the given command text writes, excluding shell device sinks. A target
- * that ends in a quote sits inside a string another shell runs
+ * Paths the given command text writes, excluding shell device sinks: its
+ * redirect targets, its `tee` operands, and the file operands of an in-place
+ * edit. A target that ends in a quote sits inside a string another shell runs
  * (`sh -c 'make > build.log'`); that shell still writes it, so the quote is
  * dropped from the path.
  */
@@ -218,27 +268,74 @@ function writtenPaths(text: string): string[] {
 			if (target.length > 0) paths.push(target);
 		}
 	}
+	const words = text.split(/\s+/);
+	if (IN_PLACE_EDITORS[commandWord(text)] && words.some(word => IN_PLACE_FLAG.test(word))) {
+		// Everything after the script that is not an option is a file it rewrites.
+		let seenScript = false;
+		for (const word of words.slice(1)) {
+			if (word.startsWith("-")) continue;
+			if (!seenScript) {
+				seenScript = true;
+				continue;
+			}
+			paths.push(unquote(word));
+		}
+	}
 	return paths.filter(path => !path.startsWith("/dev/"));
+}
+
+/**
+ * Whether any of the given steps names a file one of `paths` is written to.
+ * A path is matched by its bare file name too, so `./out.txt` written and
+ * `out.txt` read are the same file.
+ */
+function namesWrittenPath(paths: string[], steps: FlatShellCommandSegment[]): boolean {
+	return paths.some(path => {
+		const base = path.split("/").filter(Boolean).pop();
+		const names = base && base !== path ? [path, base] : [path];
+		return names.some(name => steps.some(step => step.text.includes(name)));
+	});
+}
+
+/**
+ * Whether a step acts on a tree of files the refusal's tool cannot act on: a
+ * `find`/`fd` that deletes or runs a command per hit. The line would offer
+ * `glob`, which only lists.
+ */
+const FIND_ACTIONS = /(?:^|\s)-(?:delete|exec|execdir|ok|okdir|fls|fprintf?)(?=\s|$)/;
+const FD_ACTIONS = /(?:^|\s)(?:-x|-X|--exec|--exec-batch)(?=[\s=]|$)/;
+function actsOnEveryMatch(text: string): boolean {
+	const word = commandWord(text);
+	if (word === "find") return FIND_ACTIONS.test(text);
+	if (word === "fd" || word === "fdfind") return FD_ACTIONS.test(text);
+	return false;
 }
 
 /**
  * Whether a pipeline stage only filters its input: a stream filter whose shell
  * redirects write no file and which runs no command of its own (`sed -i`,
- * `sed …w file`, `sort -o`, `uniq in out`, or an `awk` program that
- * redirects, pipes or calls `system`). Quoted text is the filter's own
- * pattern or program, so a `>` there is a comparison, not a shell redirect.
+ * `sed …w file`, `sort -o`, `uniq in out`, `xxd in out`, an `awk` program read
+ * from a file or one that redirects, pipes or calls `system`). Quoted text is
+ * the filter's own pattern or program, so a `>` there is a comparison, not a
+ * shell redirect.
  */
 function isStreamFilter(text: string): boolean {
 	const word = commandWord(text);
 	if (!STREAM_FILTERS[word] || writtenPaths(text.replace(/'[^']*'|"[^"]*"/g, "''")).length > 0) return false;
 	const args = text.split(/\s+/).slice(1);
 	if (word === "sed") {
-		return !args.some(arg => /^-[A-Za-z]*i/.test(arg) || arg.startsWith("--in-place")) && !/[\s/;}][wW]\s/.test(text);
+		// A `w`/`W` command inside the script writes its file operand.
+		return !args.some(arg => IN_PLACE_FLAG.test(arg)) && !/['"/0-9,;}\s][wW]\s+[^\s;|&]/.test(text);
 	}
 	if (word === "sort") return !args.some(arg => /^-[A-Za-z]*o/.test(arg) || arg.startsWith("--output"));
-	if (word === "uniq") return args.every(arg => arg.startsWith("-"));
+	if (word === "uniq" || word === "xxd") return args.filter(arg => !arg.startsWith("-")).length <= 1;
 	// Comparisons (`$1>=76`) are fine; output redirection and pipes hang off `print`/`printf`.
-	if (word === "awk") return !/\bsystem\s*\(|\|\s*getline|\b(?:print|printf)\b[^;}]*[>|]/.test(text);
+	if (word === "awk") {
+		return (
+			!args.some(arg => arg === "-f" || arg.startsWith("--file")) &&
+			!/\bsystem\s*\(|\|\s*getline|\b(?:print|printf)\b[^;}]*[>|]/.test(text)
+		);
+	}
 	return true;
 }
 
@@ -253,8 +350,8 @@ export interface BashBlockedStep {
 /**
  * Where a dropped group ran relative to the remainder's steps that do work:
  * before all of them, after all of them, or between two of them. Steps that
- * only prepare the shell (a `cd`, an `export`) are not counted; they are named
- * in `context` instead.
+ * only prepare the shell (a `cd`, an `export`) are not counted; the single
+ * `cd` a group ran in is named in `context` instead.
  */
 export type BashRemainderPlace = "before" | "between" | "after";
 
@@ -265,10 +362,8 @@ export interface BashRemainderGroup {
 	/** The group's text as the caller wrote it. */
 	text: string;
 	place: BashRemainderPlace;
-	/** Kept steps that only prepare the shell and ran before the group (its `cd`, its variables). */
-	context: string[];
-	/** The kept working step just before the group, when `&&` or `||` made the group depend on it. */
-	condition?: { step: string; operator: "&&" | "||" };
+	/** The plain `cd` the group ran in, when a kept step made one before it. */
+	context?: string;
 }
 
 /** The text the caller can re-send, and where each dropped group belongs around it. */
@@ -277,42 +372,84 @@ export interface BashRemainder {
 	groups: BashRemainderGroup[];
 }
 
+/** What an earlier call in the same session shell left behind. */
+export interface BashShellState {
+	/** The shell stops at the first failing command (`set -e`, `trap … ERR`) from an earlier call. */
+	stopsOnError?: boolean;
+}
+
+/** Terminators that separate two top-level steps without making either depend on the other. */
+function separatesPlainly(terminator: FlatShellCommandSegment["terminator"]): boolean {
+	return terminator === ";" || terminator === "\n";
+}
+
+/**
+ * Whether the text between two segments holds an operator the scanner did not
+ * account for, which means the written command is not what the segments say it
+ * is (`cat a ;; ls`, `cat a; make &&`). The gap carries the first segment's
+ * terminator and nothing else but whitespace and comments.
+ */
+function gapIsClean(gap: string, terminator: string): boolean {
+	const rest = (terminator.length > 0 ? gap.replace(terminator, "") : gap).split("#")[0] ?? "";
+	return !/[;|&]/.test(rest);
+}
+
 /**
  * The text the caller can re-send after the interceptor refused the whole
  * call: `command` without every blocked step and the pipeline each one heads,
- * or `undefined` when that text would not mean what the caller wrote.
+ * or `undefined` when that text would not plainly mean what the caller wrote.
  *
- * Nothing is offered when a dropped step sits inside a compound command (`if`,
- * `for`, `while`, `case`), when a dropped pipeline stage does more than
- * filter its input, when a dropped step leaves shell state behind (a `cd`, a
- * bare assignment, a `set`, an `exec`), when a later step reads its exit
- * status, its last argument or its job, or a file it wrote, when dropping it
- * would make a `&&`/`||` chain's later command unconditional, when the command
- * sets errexit, when the rejoined text no longer parses into exactly the kept
- * steps, when the remainder would be refused in turn, or when a dropped group
- * sat between working steps and either does more than read or names a file one
- * of them writes (no single call then keeps the order the caller wrote).
+ * A remainder needs every dropped group to be separated from the steps around
+ * it by `;` or a newline. A `&&`, `||` or `&` beside one is silence: dropping
+ * a step out of a chain makes a conditional step unconditional, and `&`
+ * backgrounds what came before it, which no re-send reproduces.
+ *
+ * Beyond that, nothing is offered when a dropped step sits inside a compound
+ * command (`if`, `for`, `while`, `case`), when a dropped pipeline stage does
+ * more than filter its input, when a dropped step leaves shell state behind (a
+ * `cd`, a bare assignment, a `set`, an `exec`), when it deletes or runs
+ * something per match (`find … -delete`), when a later step reads its exit
+ * status, its last argument, its job or a file it wrote, when this call or an
+ * earlier one in the same shell makes it stop on the first error, when the
+ * written command does not parse into the segments it was matched as, when the
+ * rejoined text no longer parses into exactly the kept steps, when the
+ * remainder would be refused in turn, when a kept `cd` before a group leaves
+ * the group's directory unstated, or when a dropped group sat between working
+ * steps and either does more than read or names a file one of them writes (no
+ * single call then keeps the order the caller wrote).
  *
  * @param command The command the interceptor matched, with its original text.
  * @param segments Its segments, as the interceptor matched them.
  * @param blocked The segments a rule matches, ascending.
  * @param isBlocked Whether a candidate remainder would itself be refused.
+ * @param shell What an earlier call left in the shell this one would run in.
  */
 export function buildBashRemainder(
 	command: string,
 	segments: FlatShellCommandSegment[],
 	blocked: BashBlockedStep[],
 	isBlocked: (candidate: string) => boolean,
+	shell: BashShellState = {},
 ): BashRemainder | undefined {
 	if (blocked.length === 0 || blocked.some(step => !segments[step.index])) return undefined;
 	const inside = compoundMembers(segments);
 	if (!inside) return undefined;
-	// `;;` (or `& ;`) between two steps is a syntax error outside `case`, so
-	// the written command never ran; a remainder without it would.
-	const hasCase = segments.some(segment => /^case\s/.test(segment.text));
-	for (let index = 1; index < segments.length && !hasCase; index++) {
-		if (/;\s*;|(?<![&|])&\s*;/.test(command.slice(segments[index - 1].end, segments[index].start))) return undefined;
+	// `case` lists its branches with `;;`, which the operator checks below read
+	// as a syntax error; its branches are a compound body in any case.
+	if (segments.some(segment => commandWord(segment.text) === "case")) return undefined;
+	// An operator the segments do not carry means the written command is not the
+	// list it was matched as — bash rejects `cat a ;; ls`, but a remainder of it
+	// would run.
+	if (/[;|&]/.test(command.slice(0, segments[0].start))) return undefined;
+	for (let index = 1; index < segments.length; index++) {
+		const previous = segments[index - 1];
+		if (!gapIsClean(command.slice(previous.end, segments[index].start), previous.terminator)) return undefined;
 	}
+	const last = segments[segments.length - 1];
+	if (last.terminator === "&&" || last.terminator === "||" || last.terminator === "|" || last.terminator === "|&") {
+		return undefined;
+	}
+	if (!gapIsClean(command.slice(last.end), last.terminator)) return undefined;
 
 	// A pipeline's stages share one stdin/stdout chain, so each blocked stage is
 	// dropped together with every stage joined to it by `|` or `|&`. Only
@@ -329,6 +466,11 @@ export function buildBashRemainder(
 			if (index !== step.index && !isStreamFilter(segments[index].text)) return undefined;
 			drop.add(index);
 		}
+		// Only `;` and a newline separate a group from its neighbours without
+		// tying one to the other. `&&`/`||` make a kept step conditional on a
+		// dropped one; `&` backgrounds everything up to it.
+		if (!separatesPlainly(segments[last].terminator) && segments[last].terminator !== "") return undefined;
+		if (first > 0 && !separatesPlainly(segments[first - 1].terminator)) return undefined;
 		spans.push({ step, first, last });
 	}
 	const kept = segments.filter((_, index) => !drop.has(index));
@@ -336,41 +478,39 @@ export function buildBashRemainder(
 	const preparesOnly = (segment: FlatShellCommandSegment): boolean =>
 		Boolean(PREPARATION_ONLY[commandWord(segment.text)]) || LEADING_ASSIGNMENT.test(commandWord(segment.text));
 	if (kept.every(preparesOnly)) return undefined;
-	const errexit = segments.some(segment => setsErrexit(segment.text));
+	const stopsOnError = Boolean(shell.stopsOnError) || segments.some(segment => enablesErrexit(segment.text));
 
 	// Dropping a step must not change what the steps after it see.
 	for (const index of drop) {
 		const segment = segments[index];
+		if (actsOnEveryMatch(segment.text)) return undefined;
 		const later = segments.slice(index + 1).filter((_, offset) => !drop.has(index + 1 + offset));
-		if (!drop.has(index + 1) && (segment.terminator === "&&" || segment.terminator === "||")) return undefined;
 		if (later.length === 0) continue;
-		if (errexit) return undefined;
-		if (later.some(step => PREVIOUS_COMMAND.test(step.text))) return undefined;
+		if (stopsOnError) return undefined;
+		if (later.some(step => PREVIOUS_COMMAND.test(step.text) || JOB_CONTROL.test(step.text))) return undefined;
 		// `NAME=value cmd` sets NAME for `cmd` alone; only a bare `NAME=value` outlives its step.
 		const word = commandWord(segment.text);
 		if (LEADING_ASSIGNMENT.test(word) || STATEFUL_COMMANDS[word]) return undefined;
-		const written = writtenPaths(segment.text);
-		if (later.some(step => written.some(path => step.text.includes(path)))) return undefined;
+		if (namesWrittenPath(writtenPaths(segment.text), later)) return undefined;
 	}
 
-	// Rejoin the kept steps with the operator that separated them. Where a
-	// dropped step sat between two kept ones, the operator before it goes too:
-	// only `;` (or the `&` that backgrounds the step before) still describes
-	// what the kept steps do, and the `&&`/`||` case is already refused above.
-	const lastKept = segments.reduce((last, _, index) => (drop.has(index) ? last : index), -1);
-	const pieces: string[] = [];
-	for (const [index, segment] of segments.entries()) {
+	// Rejoin the runs of kept steps exactly as the caller wrote them, so the
+	// operators inside a run keep their own spacing, and put back the `;` or
+	// newline that separated a run from the dropped group after it.
+	const runs: Array<{ first: number; last: number }> = [];
+	for (let index = 0; index < segments.length; index++) {
 		if (drop.has(index)) continue;
-		pieces.push(segment.text);
-		if (index === lastKept) {
-			if (segment.terminator === "&") pieces.push(" &");
-			continue;
-		}
-		const operator =
-			drop.has(index + 1) && segment.terminator !== "&" && segment.terminator !== "\n" ? ";" : segment.terminator;
-		pieces.push(operator === "\n" ? "\n" : operator === ";" ? "; " : ` ${operator} `);
+		const open = runs[runs.length - 1];
+		if (open && open.last === index - 1) open.last = index;
+		else runs.push({ first: index, last: index });
 	}
-	const remainder = pieces.join("").trim();
+	const pieces: string[] = [];
+	for (const [position, run] of runs.entries()) {
+		if (position > 0) pieces.push(segments[runs[position - 1].last].terminator === "\n" ? "\n" : "; ");
+		pieces.push(command.slice(segments[run.first].start, segments[run.last].end));
+	}
+	const tail = segments[runs[runs.length - 1].last].terminator;
+	const remainder = `${pieces.join("")}${tail === "&" ? " &" : ""}`.trim();
 	if (remainder.length === 0 || remainder === command.trim()) return undefined;
 
 	// The rejoined text must parse back into exactly the kept steps: anything
@@ -389,7 +529,7 @@ export function buildBashRemainder(
 	if (leadingCd && isBlocked(leadingCd.rest)) return undefined;
 
 	// The dropped groups are done with other tools, outside this call, so the
-	// caller has to know where each one goes and what it ran after.
+	// caller has to know where each one goes and which directory it ran in.
 	const working = segments.flatMap((segment, index) => (drop.has(index) || preparesOnly(segment) ? [] : [index]));
 	const groups: BashRemainderGroup[] = [];
 	for (const { step, first, last } of spans) {
@@ -404,20 +544,23 @@ export function buildBashRemainder(
 		// step writes a file it names.
 		if (place === "between") {
 			if (!step.readsOnly) return undefined;
-			if (working.some(index => writtenPaths(segments[index].text).some(path => text.includes(path)))) {
-				return undefined;
-			}
+			const group = segments.slice(first, last + 1);
+			if (working.some(index => namesWrittenPath(writtenPaths(segments[index].text), group))) return undefined;
 		}
-		const context = segments
+		// The group runs in whatever directory the kept steps before it left. Only
+		// one plain `cd`, reached without a condition, states that directory.
+		const changers = segments
 			.slice(0, first)
-			.filter((segment, index) => !drop.has(index) && preparesOnly(segment))
-			.map(segment => segment.text);
-		const previous = segments[first - 1];
-		const condition =
-			previous && working.includes(first - 1) && (previous.terminator === "&&" || previous.terminator === "||")
-				? { step: previous.text, operator: previous.terminator }
-				: undefined;
-		groups.push({ blockedIndex: step.index, text, place, context, condition });
+			.filter((segment, index) => !drop.has(index) && DIRECTORY_COMMANDS[commandWord(segment.text)]);
+		if (changers.length > 1) return undefined;
+		const [changer] = changers;
+		if (changer) {
+			const index = segments.indexOf(changer);
+			if (!PLAIN_CD.test(changer.text)) return undefined;
+			if (!separatesPlainly(changer.terminator)) return undefined;
+			if (index > 0 && !separatesPlainly(segments[index - 1].terminator)) return undefined;
+		}
+		groups.push({ blockedIndex: step.index, text, place, context: changer?.text });
 	}
 	return { text: remainder, groups };
 }

@@ -39,6 +39,7 @@ import type { ToolSession } from ".";
 import { truncateForPrompt } from "./approval";
 import { type BashInteractiveResult, runInteractiveBashPty } from "./bash-interactive";
 import { checkBashInterception } from "./bash-interceptor";
+import { bashShellStopsOnError, noteBashShellState } from "./bash-shell-state";
 import { rewriteGitWorktreeAdd } from "./bash-worktree-rewrite";
 import { canUseInteractiveBashPty } from "./bash-pty-selection";
 import { resolveEvalBackends } from "./eval-backends";
@@ -1056,19 +1057,25 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 
 		// Check both the original command and the cwd-normalized command so
 		// leading `cd ... &&` wrappers do not hide either shell-navigation rules
-		// or the dedicated-tool command that follows the directory change.
+		// or the dedicated-tool command that follows the directory change. The
+		// refusal's remainder offer depends on what an earlier call left in this
+		// session's shell, so the recorded state goes with it.
 		if (cfgBashInterceptorEnabled.get(this.session.settings)) {
 			const rules = cfgBashInterceptorPatterns
 				.get(this.session.settings)
 				.filter(rule => !name || rule.tool !== "bash");
 			const commandsToCheck = rawCommand === command ? [command] : [rawCommand, command];
+			const shell = { stopsOnError: bashShellStopsOnError(sessionId) };
 			for (const commandToCheck of commandsToCheck) {
-				const interception = checkBashInterception(commandToCheck, ctx?.toolNames ?? [], rules, rawCommand);
+				const interception = checkBashInterception(commandToCheck, ctx?.toolNames ?? [], rules, rawCommand, shell);
 				if (interception.block) {
 					throw new ToolError(interception.message ?? "Command blocked");
 				}
 			}
 		}
+		// Nothing refused it, so it runs: whatever shell options it leaves behind
+		// are in force for the next call checked in this session.
+		noteBashShellState(sessionId, rawCommand);
 
 		if (cfgWorktreeClone.get(this.session.settings)) {
 			command = rewriteGitWorktreeAdd(command, resolveCliEntryCmd());

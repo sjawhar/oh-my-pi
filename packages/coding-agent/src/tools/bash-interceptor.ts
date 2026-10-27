@@ -5,7 +5,7 @@
  * this interceptor provides helpful error messages directing them to use
  * the specialized tools instead.
  */
-import { type BashRemainderGroup, buildBashRemainder } from "./bash-remainder";
+import { type BashRemainderGroup, type BashShellState, buildBashRemainder } from "./bash-remainder";
 import { extractFlatShellCommandSegments, type FlatShellCommandSegment } from "./shell-tokenize";
 import { type BashInterceptorRule, DEFAULT_BASH_INTERCEPTOR_RULES } from "../exec/settings";
 
@@ -170,21 +170,18 @@ function inline(text: string): string {
 
 /**
  * The single line above the remainder: which tool replaces each dropped group,
- * what it ran after (its `cd`, its variables), the step whose success it
- * depended on, and whether it goes before the re-sent call, after it, or ran
- * between its steps.
+ * the directory it ran in, and whether it goes before the re-sent call, after
+ * it, or ran between its steps. A group is only ever offered where `;` or a
+ * newline separated it from its neighbours, so the line never has a condition
+ * to state.
  */
 function describeOffer(groups: BashRemainderGroup[], toolFor: Map<number, string>): string {
 	const list = (place: BashRemainderGroup["place"]): string =>
 		groups
 			.filter(group => group.place === place)
 			.map(group => {
-				let text = `\`${toolFor.get(group.blockedIndex)}\` for \`${inline(group.text)}\``;
-				if (group.condition) {
-					text += ` if \`${inline(group.condition.step)}\` ${group.condition.operator === "&&" ? "succeeds" : "fails"}`;
-				}
-				if (group.context.length > 0) text += ` (it ran after \`${inline(group.context.join("; "))}\`)`;
-				return text;
+				const context = group.context ? ` (it ran after \`${inline(group.context)}\`)` : "";
+				return `\`${toolFor.get(group.blockedIndex)}\` for \`${inline(group.text)}\`${context}`;
 			})
 			.join(", ");
 	const before = list("before");
@@ -204,6 +201,9 @@ function describeOffer(groups: BashRemainderGroup[], toolFor: Map<number, string
  *
  * @param command The bash command to check
  * @param availableTools Set of tool names that are available
+ * @param rules The interceptor rules to match against
+ * @param originalCommand The command as the caller sent it, shown in the refusal
+ * @param shell What an earlier call left in the shell this command would run in
  * @returns InterceptionResult indicating if the command should be blocked
  */
 export function checkBashInterception(
@@ -211,6 +211,7 @@ export function checkBashInterception(
 	availableTools: string[],
 	rules: BashInterceptorRule[] = DEFAULT_BASH_INTERCEPTOR_RULES,
 	originalCommand = command,
+	shell: BashShellState = {},
 ): InterceptionResult {
 	const compiled = compileRules(rules);
 	const match = findInterception(command, availableTools, compiled);
@@ -226,6 +227,7 @@ export function checkBashInterception(
 		match.segments,
 		steps.map(step => ({ index: step.index, readsOnly: Boolean(READ_ONLY_TOOLS[step.tool]) })),
 		candidate => findInterception(candidate, availableTools, compiled) !== undefined,
+		shell,
 	);
 	const offer =
 		remainder === undefined
