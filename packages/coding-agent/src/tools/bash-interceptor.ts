@@ -5,7 +5,7 @@
  * this interceptor provides helpful error messages directing them to use
  * the specialized tools instead.
  */
-import { buildBashRemainder } from "./bash-remainder";
+import { type BashRemainderGroup, buildBashRemainder } from "./bash-remainder";
 import { extractFlatShellCommandSegments, type FlatShellCommandSegment } from "./shell-tokenize";
 import { type BashInterceptorRule, DEFAULT_BASH_INTERCEPTOR_RULES } from "../exec/settings";
 
@@ -150,14 +150,53 @@ function blockedSteps(
 	segments: FlatShellCommandSegment[],
 	availableTools: string[],
 	compiled: Array<{ rule: BashInterceptorRule; regex: RegExp }>,
-): Array<{ index: number; text: string; tool: string }> {
-	const steps: Array<{ index: number; text: string; tool: string }> = [];
+): Array<{ index: number; tool: string }> {
+	const steps: Array<{ index: number; tool: string }> = [];
 	for (const [index, segment] of segments.entries()) {
 		if (segment.pipedStdin) continue;
 		const match = findInterception(segment.text, availableTools, compiled);
-		if (match) steps.push({ index, text: segment.text, tool: match.rule.tool });
+		if (match) steps.push({ index, tool: match.rule.tool });
 	}
 	return steps;
+}
+
+/** Tools that only read, so the order they run in around other steps cannot change those steps. */
+const READ_ONLY_TOOLS: Record<string, true> = { glob: true, grep: true, read: true };
+
+/** Command text shown inside the one offer line: line breaks are escaped so the line stays one line. */
+function inline(text: string): string {
+	return text.replace(/\r|\n|\u2028|\u2029/g, match => JSON.stringify(match).slice(1, -1));
+}
+
+/**
+ * The single line above the remainder: which tool replaces each dropped group,
+ * what it ran after (its `cd`, its variables), the step whose success it
+ * depended on, and whether it goes before the re-sent call, after it, or ran
+ * between its steps.
+ */
+function describeOffer(groups: BashRemainderGroup[], toolFor: Map<number, string>): string {
+	const list = (place: BashRemainderGroup["place"]): string =>
+		groups
+			.filter(group => group.place === place)
+			.map(group => {
+				let text = `\`${toolFor.get(group.blockedIndex)}\` for \`${inline(group.text)}\``;
+				if (group.condition) {
+					text += ` if \`${inline(group.condition.step)}\` ${group.condition.operator === "&&" ? "succeeds" : "fails"}`;
+				}
+				if (group.context.length > 0) text += ` (it ran after \`${inline(group.context.join("; "))}\`)`;
+				return text;
+			})
+			.join(", ");
+	const before = list("before");
+	const after = list("after");
+	const between = list("between");
+	return [
+		before ? `Use ${before}, then re-send` : "Re-send",
+		" the rest as one bash call",
+		after ? `, then use ${after}` : "",
+		between ? `; use ${between} too, which the original ran between its steps` : "",
+		":",
+	].join("");
 }
 
 /**
@@ -185,19 +224,13 @@ export function checkBashInterception(
 	const remainder = buildBashRemainder(
 		command,
 		match.segments,
-		steps.map(step => step.index),
+		steps.map(step => ({ index: step.index, readsOnly: Boolean(READ_ONLY_TOOLS[step.tool]) })),
 		candidate => findInterception(candidate, availableTools, compiled) !== undefined,
 	);
-	// One line, then the text. A step's own newlines are shown escaped so the
-	// line stays one line.
-	const uses = steps.map(step => `\`${step.tool}\` for \`${step.text.replaceAll("\n", "\\n")}\``).join(", ");
-	const instruction =
-		remainder?.order === "before"
-			? `Use ${uses}, then re-send the rest as one bash call:`
-			: remainder?.order === "after"
-				? `Re-send the rest as one bash call, then use ${uses}:`
-				: `Re-send the rest as one bash call, and use ${uses}, which the original ran between its steps:`;
-	const offer = remainder === undefined ? "" : `\n\nNothing ran. ${instruction}\n${remainder.text}`;
+	const offer =
+		remainder === undefined
+			? ""
+			: `\n\nNothing ran. ${describeOffer(remainder.groups, new Map(steps.map(step => [step.index, step.tool])))}\n${remainder.text}`;
 	return {
 		block: true,
 		message: `Blocked: ${match.rule.message}\n\nOriginal command: ${originalCommand}${offer}`,

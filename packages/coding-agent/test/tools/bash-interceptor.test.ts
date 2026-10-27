@@ -371,17 +371,23 @@ describe("the refused call's runnable remainder", () => {
 	const tools = ["read", "grep", "glob", "edit", "write", "bash"];
 	const remainderOf = (command: string): string | undefined =>
 		checkBashInterception(command, tools, DEFAULT_BASH_INTERCEPTOR_RULES).remainder;
+	const offerOf = (command: string, availableTools = tools): string =>
+		(checkBashInterception(command, availableTools, DEFAULT_BASH_INTERCEPTOR_RULES).message ?? "").split(
+			"\n\nNothing ran. ",
+		)[1] ?? "";
 
 	it.each([
 		["a sequenced step", "head -c 20 notes.md; echo; ls out*", "echo; ls out*"],
 		["the last step", "make build; cat log.txt", "make build"],
 		["a step on its own line", "make build\ncat log.txt\necho done", "make build\necho done"],
 		["every blocked step at once", "ls src; cat a.txt; echo mid; grep -n x b.txt", "ls src; echo mid"],
-		["the whole pipeline a blocked step feeds", "ls src; cat a.txt | wc -l; echo done", "ls src; echo done"],
+		["the pipeline of filters a blocked step feeds", "ls src; cat a.txt | wc -l; echo done", "ls src; echo done"],
 		["a step guarded by an earlier one", "make build && cat log.txt", "make build"],
 		["a backgrounded neighbour's `&`", "make build & cat log.txt; echo done", "make build & echo done"],
 		["a leading cd the bash tool would strip", "cd /srv && cat log.txt; ls", "cd /srv; ls"],
 		["a blocked step's own environment prefix", "LC_ALL=C grep -n x a.txt; ls", "ls"],
+		["a loop the blocked step follows", 'for f in a b; do echo "$f"; done; cat log.txt', 'for f in a b; do echo "$f"; done'],
+		["an awk filter that only compares", "ls src; grep -n x a.txt | awk -F: '$1>=76'; echo done", "ls src; echo done"],
 	])("keeps %s", (_case, command, expected) => {
 		expect(remainderOf(command)).toBe(expected);
 	});
@@ -390,13 +396,23 @@ describe("the refused call's runnable remainder", () => {
 		["a later command would become unconditional", "cat log.txt && rm log.txt"],
 		["a later step reads the exit status", "cat log.txt; rc=$?; echo $rc"],
 		["a later step reads a pipeline's exit status", "cat log.txt; echo $PIPESTATUS"],
+		["a later step reads the blocked step's last argument", "cat a.txt; wc -l $_"],
 		["errexit would have stopped the call at the blocked step", "set -e; grep -q TODO notes.txt; rm -rf build"],
 		["errexit is set in the long spelling", "set -o errexit; cat marker; git push origin main"],
 		["errexit is set among other flags", "set -euo pipefail; cat marker; rm -rf out"],
+		["errexit is set in a later flag word", "set -x -e; cat marker; rm -rf out"],
 		["a later step reads a file the blocked step wrote", "echo hi > out.txt; wc -l out.txt"],
+		["a dropped pipeline stage runs a command of its own", "cat files.txt | xargs rm -f; ls"],
+		["a dropped pipeline stage writes a file", "cat a.txt | sort -o sorted.txt; wc -l sorted.txt"],
+		["a dropped pipeline stage edits in place", "grep -l TODO src/*.ts | xargs sed -i 's/TODO/DONE/'; git diff"],
+		["a dropped awk stage writes a file", "cat a.txt | awk '{print $1 > \"ids.txt\"}'; ls"],
+		["the blocked step sits in a loop body", 'for f in a b; do echo "== $f"; grep -n foo "$f"; done'],
+		["the blocked step sits in an if body", "if [ -f x ]; then\n  cat x\nfi\necho done"],
 		["the command cannot be split", "cat $(ls); ls"],
+		["the written command is a syntax error", "cat a ;; ls"],
 		["the blocked step is the whole command", "cat log.txt"],
 		["what is left only prepares the shell", "cd /srv && cat log.txt"],
+		["what is left only assigns a path", "X=/a/b; cat f.txt"],
 		["what is left would be refused in turn", "cat a.txt; sleep 9 &"],
 		[
 			"a blocked step between kept ones reads a file an earlier one wrote",
@@ -406,6 +422,10 @@ describe("the refused call's runnable remainder", () => {
 			"the earlier kept step writes that file from a nested shell",
 			"sh -c 'make > build.log'; grep -n error build.log; echo done",
 		],
+		["the earlier kept step writes that file through tee", "make 2>&1 | tee build.log; grep -n error build.log; ls"],
+		["a blocked step between kept ones reads a file a later one overwrites", "ls; cat log; make > log"],
+		["a blocked step between kept ones edits a file", "make clean; sed -i 's/x/y/' config.h; make"],
+		["a blocked step between kept ones writes a file", "ls; echo 1 > cfg.txt; make"],
 	])("offers nothing when %s", (_case, command) => {
 		expect(checkBashInterception(command, tools, DEFAULT_BASH_INTERCEPTOR_RULES).block).toBe(true);
 		expect(remainderOf(command)).toBeUndefined();
@@ -418,15 +438,32 @@ describe("the refused call's runnable remainder", () => {
 		expect(result.remainder).toBeUndefined();
 	});
 
-	it("names the tool and the step for each dropped step in the refusal", () => {
+	it("offers nothing when the remainder would be refused once its leading cd is stripped", () => {
+		const rules = [
+			{ pattern: "^\\s*cat\\s", tool: "read", message: "Use read." },
+			{ pattern: "^make && rm", tool: "bash", message: "No cleanup chains." },
+		];
+		expect(checkBashInterception("cd /srv && make && rm -f out", ["read", "bash"], rules).block).toBe(false);
+		const result = checkBashInterception("cat a.txt; cd /srv && make && rm -f out", ["read", "bash"], rules);
+		expect(result.block).toBe(true);
+		expect(result.remainder).toBeUndefined();
+	});
+
+	it("offers nothing when the caller checks a form other than the one it was sent", () => {
 		const result = checkBashInterception(
-			"ls src; cat a.txt; echo mid; grep -n x b.txt",
+			"cat a.txt; ls",
 			tools,
 			DEFAULT_BASH_INTERCEPTOR_RULES,
+			"cd /srv && cat a.txt; ls",
 		);
-		expect(result.message).toContain("`read` for `cat a.txt`");
-		expect(result.message).toContain("`grep` for `grep -n x b.txt`");
-		expect(result.message).toContain("ls src; echo mid");
+		expect(result.block).toBe(true);
+		expect(result.remainder).toBeUndefined();
+	});
+
+	it("keeps a trailing `&` when no rule refuses background syntax", () => {
+		expect(offerOf("cat log.txt; make build &", ["read"])).toBe(
+			"Use `read` for `cat log.txt`, then re-send the rest as one bash call:\nmake build &",
+		);
 	});
 
 	it("says nothing about a remainder when there is none", () => {
@@ -437,49 +474,43 @@ describe("the refused call's runnable remainder", () => {
 
 	it.each([
 		[
-			"before the rest when every blocked step came first",
+			"before the rest when it came first",
 			"head -c 20 notes.md; echo; ls out*",
-			"Nothing ran. Use `read` for `head -c 20 notes.md`, then re-send the rest as one bash call:\necho; ls out*",
+			"Use `read` for `head -c 20 notes.md`, then re-send the rest as one bash call:\necho; ls out*",
 		],
 		[
-			"before the rest when only a leading cd came first",
+			"before the rest, after the cd it ran in",
 			"cd /srv && cat log.txt; ls",
-			"Nothing ran. Use `read` for `cat log.txt`, then re-send the rest as one bash call:\ncd /srv; ls",
+			"Use `read` for `cat log.txt` (it ran after `cd /srv`), then re-send the rest as one bash call:\ncd /srv; ls",
 		],
 		[
-			"after the rest when every blocked step came last",
+			"after the rest, on the step it depended on",
 			"make build && cat log.txt",
-			"Nothing ran. Re-send the rest as one bash call, then use `read` for `cat log.txt`:\nmake build",
+			"Re-send the rest as one bash call, then use `read` for `cat log.txt` if `make build` succeeds:\nmake build",
 		],
 		[
-			"between the rest's steps otherwise",
-			"ls src; cat a.txt; echo mid",
-			"Nothing ran. Re-send the rest as one bash call, and use `read` for `cat a.txt`, which the original ran between its steps:\nls src; echo mid",
+			"on both ends when the blocked steps came first and last",
+			"cat a.txt; make; cat b.txt",
+			"Use `read` for `cat a.txt`, then re-send the rest as one bash call, then use `read` for `cat b.txt`:\nmake",
+		],
+		[
+			"between the rest's steps, with the filters it fed",
+			"ls src; cat a.txt | wc -l; echo done",
+			"Re-send the rest as one bash call; use `read` for `cat a.txt | wc -l` too, which the original ran between its steps:\nls src; echo done",
+		],
+		[
+			"between and after the rest, each where it ran",
+			"ls src; cat a.txt; echo mid; grep -n x b.txt",
+			"Re-send the rest as one bash call, then use `grep` for `grep -n x b.txt`; use `read` for `cat a.txt` too, which the original ran between its steps:\nls src; echo mid",
 		],
 	])("places the blocked step %s", (_case, command, offer) => {
-		const message = checkBashInterception(command, tools, DEFAULT_BASH_INTERCEPTOR_RULES).message ?? "";
-		expect(message.endsWith(`\n\n${offer}`)).toBe(true);
+		expect(offerOf(command)).toBe(offer);
 	});
 
 	it("keeps the offer to one line when a blocked step spans lines", () => {
-		const result = checkBashInterception('grep -n "a\nb" notes.txt; ls', tools, DEFAULT_BASH_INTERCEPTOR_RULES);
-		expect(result.remainder).toBe("ls");
-		expect((result.message ?? "").split("\n\n").at(-1)).toBe(
-			'Nothing ran. Use `grep` for `grep -n "a\\nb" notes.txt`, then re-send the rest as one bash call:\nls',
+		expect(offerOf('grep -n "a\nb" notes.txt; ls')).toBe(
+			'Use `grep` for `grep -n "a\\nb" notes.txt`, then re-send the rest as one bash call:\nls',
 		);
-	});
-
-	it("offers only remainders the interceptor itself would allow", () => {
-		for (const command of [
-			"head -c 20 notes.md; echo; ls out*",
-			"ls src; cat a.txt; echo mid; grep -n x b.txt",
-			"ls src; cat a.txt | wc -l; echo done",
-			"make build & cat log.txt; echo done",
-		]) {
-			const remainder = remainderOf(command);
-			expect(remainder).toBeDefined();
-			expect(checkBashInterception(remainder ?? "", tools, DEFAULT_BASH_INTERCEPTOR_RULES).block).toBe(false);
-		}
 	});
 
 	it("leaves a call the rules allow untouched", () => {

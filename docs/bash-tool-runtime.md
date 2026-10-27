@@ -77,15 +77,22 @@ Named-service calls omit the rules whose suggested tool is `bash`, so service co
 
 ### Blocked-command remainder
 
-The whole call is refused, so the rest of it has to be re-sent. `checkBashInterception()` builds that text from the same segments it matched (`packages/coding-agent/src/tools/bash-remainder.ts`) and returns it as `InterceptionResult.remainder`. The message repeats it under one `Nothing ran.` line that names each blocked step and its tool, and says where those steps belong: before the remainder when every one of them came before its working steps (a leading `cd` does not count), after it when every one came after them, and otherwise that the original ran them between its steps. The remainder is only ever offered: the tool still runs nothing.
+The whole call is refused, so the rest of it has to be re-sent. `checkBashInterception()` builds that text from the same segments it matched (`packages/coding-agent/src/tools/bash-remainder.ts`) and returns it as `InterceptionResult.remainder`. The message repeats it under one `Nothing ran.` line (line breaks inside a step are shown escaped). For each dropped group the line names its text and the tool that replaces it, the kept preparation steps it ran after (`(it ran after \`cd /srv\`)`: a `cd`, `export`, bare assignment or `trap`, since the dedicated tool does not inherit them), the kept step whose success or failure it depended on (`if \`make\` succeeds`), and where it goes: before the re-sent call when it ran before every kept working step, after the call when it ran after all of them, and otherwise that the original ran it between the call's steps. The remainder is only ever offered: the tool still runs nothing.
 
-A remainder is built by dropping every blocked step, plus every stage of a `|`/`|&` pipeline one of them belongs to, and rejoining the kept steps with the operator that separated them (`;` where a dropped step sat between two kept ones). Nothing is offered when the result would mean something else: a dropped step whose terminator is `&&` or `||` (its successor would become unconditional), a command that sets `errexit` (`set -e`, `set -o errexit`), under which every `;` already behaves like `&&`, a later step that reads `$?`/`$PIPESTATUS` or a file a dropped step wrote, a dropped `cd`/`set`/`export`/assignment whose shell state later steps inherit, a command the segment scanner declines to split, a remainder that only prepares the shell (a bare `cd`), a rejoined text that no longer parses into exactly the kept steps, or a remainder a rule would refuse in turn.
+A remainder is built by dropping every blocked step, plus every stage of the `|`/`|&` pipeline it heads, and rejoining the kept steps with the operator that separated them (`;` where a dropped step sat between two kept ones). Nothing is offered when the result would mean something else:
 
-When kept steps run on both sides of a blocked one, no single call keeps the written order, so nothing is offered if a blocked step names a file an earlier kept step writes (`make > build.log; grep error build.log; echo done`).
+- a dropped step whose operator is `&&` or `||` (its successor would become unconditional);
+- a command that turns on errexit in any spelling (`set -e`, `set -x -e`, `set -euo pipefail`, `set -o errexit`), under which every `;` already behaves like `&&`;
+- a later step that reads what a dropped step left: `$?`, `$PIPESTATUS`, `$_`, `$!`, or a path the dropped step wrote with a redirect (also inside a quoted `sh -c '…'`) or `tee` (found by name: other writes are not seen);
+- a dropped step that changes shell state later steps inherit (`cd`, `set`, `export`, `source`, `exec`, a bare `NAME=value`; a `NAME=value cmd` prefix does not count);
+- a dropped pipeline stage that does more than filter its input (`xargs`, `tee`, `sh`, `sed -i`, `sort -o`, an `awk` program that redirects or calls `system`);
+- a step inside a compound command (`if`, `for`, `while`, `until`, `case`, `select`, a function or `{ … }` body), a command the segment scanner declines to split, or a `;;` outside `case` (a syntax error, so the written command never ran);
+- a remainder that only prepares the shell (a bare `cd` or assignment), a rejoined text that no longer parses into exactly the kept steps, or a remainder a rule would refuse in turn, as written or with its leading `cd` stripped;
+- a dropped group that ran between two kept working steps and either is replaced by a tool other than `read`, `grep` or `glob`, or names a path one of the kept working steps writes: no single call keeps that order (`make > build.log; grep error build.log; echo done`).
 
 ### Caveat
 
-`InterceptionResult` includes `suggestedTool`, but `BashTool` currently surfaces only the message text (no structured suggested-tool field in `details`).
+`InterceptionResult` includes `suggestedTool` and `remainder`, but `BashTool` currently surfaces only the message text (no structured suggested-tool or remainder field in `details`).
 
 ## 3) CWD validation and timeout resolution
 
