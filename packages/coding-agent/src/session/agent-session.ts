@@ -8833,13 +8833,12 @@ export class AgentSession implements SettingsScope {
 		// Publish the complete group without yielding: removal owns contiguous companions.
 		// The session-agent notice rides via prependMessages (from prompt()),
 		// so it arrives alongside the user message in the same turn (#14093).
-		const queuedGroup: AgentMessage[] = [...prependMessages, ...attachmentSourceNotices];
-		if (imageDescriptionNotice) queuedGroup.push(imageDescriptionNotice);
+		let userMessage: AgentMessage;
 		if (mode === "followUp") {
 			for (const notice of prependMessages) this.agent.followUp(notice);
 			for (const notice of attachmentSourceNotices) this.agent.followUp(notice);
 			if (imageDescriptionNotice) this.agent.followUp(imageDescriptionNotice);
-			const userMessage: AgentMessage = {
+			userMessage = {
 				role: "user",
 				content,
 				attribution,
@@ -8847,12 +8846,11 @@ export class AgentSession implements SettingsScope {
 			};
 			this.#queuedMessageRawText.set(userMessage, rawText);
 			this.agent.followUp(userMessage);
-			queuedGroup.push(userMessage);
 		} else {
 			for (const notice of prependMessages) this.agent.steer(notice);
 			for (const notice of attachmentSourceNotices) this.agent.steer(notice);
 			if (imageDescriptionNotice) this.agent.steer(imageDescriptionNotice);
-			const userMessage: AgentMessage = {
+			userMessage = {
 				role: "user",
 				content,
 				steering: true,
@@ -8861,9 +8859,14 @@ export class AgentSession implements SettingsScope {
 			};
 			this.#queuedMessageRawText.set(userMessage, rawText);
 			this.agent.steer(userMessage);
-			queuedGroup.push(userMessage);
 		}
-		options?.onPromptQueued?.(queuedGroup);
+		// The optional call skips building the group when no caller asked for it.
+		options?.onPromptQueued?.([
+			...prependMessages,
+			...attachmentSourceNotices,
+			...(imageDescriptionNotice ? [imageDescriptionNotice] : []),
+			userMessage,
+		]);
 		options?.onPromptAdmitted?.();
 		this.#scheduleIdleQueueDrain();
 		return true;
