@@ -2502,6 +2502,7 @@ export class TurnRecovery {
 		const {
 			originalSelector: originalSelectorRaw,
 			originalThinkingLevel,
+			resolveOriginalThinkingLevel,
 			lastAppliedFallbackThinkingLevel,
 		} = this.#activeRetryFallback;
 		const originalSelector = parseRetryFallbackSelector(originalSelectorRaw, this.#host.modelRegistry);
@@ -2534,12 +2535,23 @@ export class TurnRecovery {
 		const primaryModel =
 			resolvedPrimary.model ?? this.#host.modelRegistry.find(originalSelector.provider, originalSelector.id);
 		if (!primaryModel) return false;
+		// A primary the session never ran on (startup chose its fallback) may have
+		// no effort at or below the session's ceiling; fallback selection skips
+		// such models, so restoration does too.
+		const ceiling = this.#host.thinkingLevelCeiling();
+		if (ceiling !== undefined && !modelSupportsEffortCeiling(primaryModel, ceiling)) return false;
 		const apiKey = await this.#host.modelRegistry.getApiKey(primaryModel, this.#host.sessionId());
 		if (!apiKey) return false;
 
 		const currentThinkingLevel = this.#host.configuredThinkingLevel();
+		// A primary unknown at startup gets its level picked now, on the model,
+		// as session creation picks one for the model it starts on. The ceiling
+		// check above keeps a task effort mapping from finding nothing.
+		const primaryThinkingLevel = resolveOriginalThinkingLevel
+			? resolveOriginalThinkingLevel(primaryModel)
+			: originalThinkingLevel;
 		const thinkingToApply =
-			currentThinkingLevel === lastAppliedFallbackThinkingLevel ? originalThinkingLevel : currentThinkingLevel;
+			currentThinkingLevel === lastAppliedFallbackThinkingLevel ? primaryThinkingLevel : currentThinkingLevel;
 		const primarySelector = formatModelStringWithRouting(primaryModel);
 		const previousEditMode = this.#host.resolveActiveEditMode();
 		// Clear before the swap: `setModelWithProviderSessionReset` and
