@@ -10,6 +10,9 @@ import { bashShellStopsOnError, noteBashShellState } from "@oh-my-pi/pi-coding-a
 import { DEFAULT_BASH_INTERCEPTOR_RULES } from "@oh-my-pi/pi-coding-agent/exec/settings";
 
 function createBashTool(rules: BashInterceptorRule[]): BashTool {
+	// Its own session id per tool: the shell state a call leaves behind is kept
+	// per session, so one test's `set -e` must not reach another's.
+	const sessionId = `bash-interceptor-test-${crypto.randomUUID()}`;
 	const session = {
 		settings: Settings.isolated({
 			"bashInterceptor.enabled": true,
@@ -19,6 +22,8 @@ function createBashTool(rules: BashInterceptorRule[]): BashTool {
 			"bash.autoBackground.thresholdMs": 60_000,
 		}),
 		getSessionFile: () => null,
+		getSessionId: () => sessionId,
+		cwd: process.cwd(),
 	} as unknown as ToolSession;
 
 	return new BashTool(session);
@@ -463,6 +468,23 @@ describe("the refused call's runnable remainder", () => {
 		["a blocked step between kept ones reads a file a later one overwrites", "ls; cat log; make > log"],
 		["a blocked step between kept ones edits a file", "make clean; sed -i 's/x/y/' config.h; make"],
 		["a blocked step between kept ones writes a file", "ls; echo 1 > cfg.txt; make"],
+		[
+			"a blocked step between kept ones reads a file a later one deletes",
+			"rmdir /tmp/scratch; cat /tmp/notes.txt; rm -f /tmp/notes.txt",
+		],
+		[
+			"a blocked step between kept ones reads a file an earlier one downloads",
+			"curl -sL -o /tmp/pkg.opam https://example.test/pkg; grep -n rocq /tmp/pkg.opam; echo done",
+		],
+		[
+			"a blocked step between kept ones reads a file an earlier one copies over",
+			"cp base/config.toml build/config.toml; cat build/config.toml; make",
+		],
+		[
+			"a blocked step between kept ones reads a file written under /dev/shm",
+			"make > /dev/shm/build.log; grep -n error /dev/shm/build.log; echo done",
+		],
+		["a kept step truncates the file the blocked step reads", "true > log.txt; cat log.txt; make"],
 	])("offers nothing when %s", (_case, command) => {
 		expect(checkBashInterception(command, tools, DEFAULT_BASH_INTERCEPTOR_RULES).block).toBe(true);
 		expect(remainderOf(command)).toBeUndefined();
@@ -500,6 +522,25 @@ describe("the refused call's runnable remainder", () => {
 		const result = checkBashInterception("export A=1; ls; echo done", ["bash"], exports);
 		expect(result.block).toBe(true);
 		expect(result.remainder).toBeUndefined();
+	});
+
+	it("offers no remainder in a session whose earlier call left the shell stopping on the first error", async () => {
+		const rules = [{ pattern: "^\\s*cat\\s", tool: "read", message: "Use read." }];
+		const tool = createBashTool(rules);
+		const ctx = { toolNames: ["read"] } as AgentToolContext;
+		const refusalOf = async (command: string): Promise<string> =>
+			await tool.execute("call", { command }, undefined, undefined, ctx).then(
+				() => "",
+				error => (error instanceof Error ? error.message : String(error)),
+			);
+		const refused = await refusalOf("cat notes.md; echo kept");
+		expect(refused).toContain("Nothing ran. ");
+		expect(refused).toContain("\necho kept");
+
+		await tool.execute("call-set", { command: "set -e" }, undefined, undefined, ctx);
+		const after = await refusalOf("cat notes.md; echo kept");
+		expect(after).toContain("Blocked: Use read.");
+		expect(after).not.toContain("Nothing ran.");
 	});
 
 	it("offers nothing when the remainder would be refused once its leading cd is stripped", () => {
@@ -574,6 +615,12 @@ describe("the refused call's runnable remainder", () => {
 	it("keeps the offer to one line when a blocked step spans lines", () => {
 		expect(offerOf('grep -n "a\nb" notes.txt; ls')).toBe(
 			'Use `grep` for `grep -n "a\\nb" notes.txt`, then re-send the rest as one bash call:\nls',
+		);
+	});
+
+	it("fences a blocked step that holds backticks so the line stays one code span", () => {
+		expect(offerOf("grep -n '```' notes.md; ls")).toBe(
+			"Use `grep` for ````grep -n '```' notes.md````, then re-send the rest as one bash call:\nls",
 		);
 	});
 

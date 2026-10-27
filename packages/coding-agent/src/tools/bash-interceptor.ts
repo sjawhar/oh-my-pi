@@ -169,6 +169,19 @@ function inline(text: string): string {
 }
 
 /**
+ * One command inside a code span, fenced with one backtick more than its
+ * longest run so a step that holds backticks (`grep -n '\`\`\`' notes.md`)
+ * still reads as one span.
+ */
+function code(text: string): string {
+	const shown = inline(text);
+	const runs = [...shown.matchAll(/`+/g)].map(match => match[0].length);
+	const fence = "`".repeat(Math.max(0, ...runs) + 1);
+	const pad = shown.startsWith("`") || shown.endsWith("`") ? " " : "";
+	return `${fence}${pad}${shown}${pad}${fence}`;
+}
+
+/**
  * The single line above the remainder: which tool replaces each dropped group,
  * the directory it ran in, and whether it goes before the re-sent call, after
  * it, or ran between its steps. A group is only ever offered where `;` or a
@@ -180,8 +193,8 @@ function describeOffer(groups: BashRemainderGroup[], toolFor: Map<number, string
 		groups
 			.filter(group => group.place === place)
 			.map(group => {
-				const context = group.context ? ` (it ran after \`${inline(group.context)}\`)` : "";
-				return `\`${toolFor.get(group.blockedIndex)}\` for \`${inline(group.text)}\`${context}`;
+				const context = group.context ? ` (it ran after ${code(group.context)})` : "";
+				return `\`${toolFor.get(group.blockedIndex)}\` for ${code(group.text)}${context}`;
 			})
 			.join(", ");
 	const before = list("before");

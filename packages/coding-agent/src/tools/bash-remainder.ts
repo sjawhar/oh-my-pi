@@ -245,6 +245,13 @@ const TEE_TARGETS =
 const IN_PLACE_EDITORS: Record<string, true> = { perl: true, ruby: true, sed: true };
 const IN_PLACE_FLAG = /^-[A-Za-z]*i/;
 
+/**
+ * The device files a write leaves nothing behind in. Everything else under
+ * `/dev` is an ordinary file: `/dev/shm/build.log` is read back like any
+ * other path.
+ */
+const DEVICE_SINKS = /^\/dev\/(?:null|zero|full|random|urandom|tty|console|std(?:in|out|err)|fd\/\d+)$/;
+
 function unquote(word: string): string {
 	const quote = word[0];
 	return (quote === '"' || quote === "'") && word.endsWith(quote) ? word.slice(1, -1) : word;
@@ -282,7 +289,7 @@ function writtenPaths(text: string): string[] {
 			paths.push(unquote(word));
 		}
 	}
-	return paths.filter(path => !path.startsWith("/dev/"));
+	return paths.filter(path => !DEVICE_SINKS.test(path));
 }
 
 /**
@@ -296,6 +303,30 @@ function namesWrittenPath(paths: string[], steps: FlatShellCommandSegment[]): bo
 		const names = base && base !== path ? [path, base] : [path];
 		return names.some(name => steps.some(step => step.text.includes(name)));
 	});
+}
+
+/**
+ * Files a step names, whoever writes them: its operands, without its options
+ * or its command word, kept only when a `/` or a file extension makes the word
+ * a path rather than a pattern (`grep -n error build.log` names `build.log`,
+ * not `error`).
+ */
+function pathWords(text: string): string[] {
+	const words: string[] = [];
+	let seenCommand = false;
+	for (const word of text.split(/\s+/)) {
+		if (LEADING_ASSIGNMENT.test(word)) continue;
+		if (!seenCommand) {
+			seenCommand = true;
+			continue;
+		}
+		if (word.startsWith("-")) continue;
+		const bare = unquote(word).replace(/["']+$/, "");
+		if (!bare.includes("/") && !/\.[A-Za-z0-9]{1,8}$/.test(bare)) continue;
+		if (DEVICE_SINKS.test(bare)) continue;
+		words.push(bare);
+	}
+	return words;
 }
 
 /**
@@ -478,9 +509,11 @@ export function buildBashRemainder(
 		spans.push({ step, first, last });
 	}
 	const kept = segments.filter((_, index) => !drop.has(index));
-	// A command word that is itself an assignment (`X=1`) sets a variable and runs nothing.
+	// A command word that is itself an assignment (`X=1`) sets a variable and
+	// runs nothing — unless it writes a file on the way (`true > log.txt`).
 	const preparesOnly = (segment: FlatShellCommandSegment): boolean =>
-		Boolean(PREPARATION_ONLY[commandWord(segment.text)]) || LEADING_ASSIGNMENT.test(commandWord(segment.text));
+		(Boolean(PREPARATION_ONLY[commandWord(segment.text)]) || LEADING_ASSIGNMENT.test(commandWord(segment.text))) &&
+		writtenPaths(segment.text).length === 0;
 	if (kept.every(preparesOnly)) return undefined;
 	const stopsOnError = Boolean(shell.stopsOnError) || segments.some(segment => enablesErrexit(segment.text));
 
@@ -544,12 +577,22 @@ export function buildBashRemainder(
 				? "after"
 				: "between";
 		// Between two working steps, one call cannot keep the written order, so
-		// the group must not depend on that order: it only reads, and no working
-		// step writes a file it names.
+		// the group must not depend on that order: it only reads, and it shares
+		// no file with a working step. Which of the two writes that file does not
+		// matter — a kept `rm`, `cp`, `curl -o` or `mv` destroys or replaces what
+		// the group was told to read, and the line puts the re-send first.
 		if (place === "between") {
 			if (!step.readsOnly) return undefined;
 			const group = segments.slice(first, last + 1);
-			if (working.some(index => namesWrittenPath(writtenPaths(segments[index].text), group))) return undefined;
+			const workingSteps = working.map(index => segments[index]);
+			if (
+				namesWrittenPath(
+					group.flatMap(segment => pathWords(segment.text)),
+					workingSteps,
+				)
+			)
+				return undefined;
+			if (workingSteps.some(kept => namesWrittenPath(writtenPaths(kept.text), group))) return undefined;
 		}
 		// The group runs in whatever directory the kept steps before it left. Only
 		// one plain `cd`, reached without a condition, states that directory.

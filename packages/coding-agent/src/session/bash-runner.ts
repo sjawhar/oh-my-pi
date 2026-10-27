@@ -9,6 +9,7 @@ import {
 	releaseShellSessions,
 } from "../exec/bash-executor";
 import type { ExtensionRunner } from "../extensibility/extensions";
+import { noteBashShellState } from "../tools/bash-shell-state";
 import { outputMeta } from "../tools/output-meta";
 import { clampTimeout } from "../tools/tool-timeouts";
 import type { BashExecutionMessage } from "./messages";
@@ -115,7 +116,10 @@ export class BashRunner {
 					: undefined;
 
 			const abortController = new AbortController();
-			this.#abortControllers.add(abortController);
+			// This runs in the same persistent shell the bash tool uses for the
+			// session, so the options it leaves behind decide whether the next
+			// refusal there may offer a remainder.
+			noteBashShellState(target.sessionId, command);
 			let result: BashResult;
 			try {
 				result = await executeBashCommand(command, {
