@@ -1,5 +1,46 @@
 import { describe, expect, it } from "bun:test";
-import { extractLeadingCdTarget, lexShellCommand, readShellWord } from "@oh-my-pi/pi-coding-agent/tools/shell-tokenize";
+import {
+	extractFlatShellCommandSegments,
+	extractLeadingCdTarget,
+	type FlatShellCommandTerminator,
+	lexShellCommand,
+	readShellWord,
+} from "@oh-my-pi/pi-coding-agent/tools/shell-tokenize";
+
+describe("extractFlatShellCommandSegments", () => {
+	it("locates each segment in the original command", () => {
+		const command = "  ls src &&  cat a.txt ; echo done";
+		for (const segment of extractFlatShellCommandSegments(command)) {
+			expect(command.slice(segment.start, segment.end)).toBe(segment.text);
+		}
+	});
+
+	const terminatorCases: Array<[string, FlatShellCommandTerminator[]]> = [
+		["ls src && cat a.txt", ["&&", ""]],
+		["ls src || cat a.txt", ["||", ""]],
+		["ls src; cat a.txt", [";", ""]],
+		["ls src\ncat a.txt", ["\n", ""]],
+		["ls src | cat", ["|", ""]],
+		["ls src |& cat", ["|&", ""]],
+		["make build & wait", ["&", ""]],
+		["make build &", ["&"]],
+		["ls src # note\ncat a.txt", ["\n", ""]],
+	];
+	it.each(terminatorCases)("records the operator that ends each segment of %s", (command, terminators) => {
+		expect(extractFlatShellCommandSegments(command).map(segment => segment.terminator)).toEqual(terminators);
+	});
+
+	it("keeps a pending pipe through a blank continuation line", () => {
+		expect(extractFlatShellCommandSegments("printf x |\n cat").map(segment => segment.pipedStdin)).toEqual([
+			false,
+			true,
+		]);
+	});
+
+	it("declines to split syntax it cannot place", () => {
+		expect(extractFlatShellCommandSegments("cat $(ls); ls")).toEqual([]);
+	});
+});
 
 describe("lexShellCommand", () => {
 	it("splits words from separators, keeping verbatim spelling beside the quote-removed value", () => {

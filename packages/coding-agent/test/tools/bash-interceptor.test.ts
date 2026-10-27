@@ -367,6 +367,81 @@ describe("default bash service rules", () => {
 	);
 });
 
+describe("the refused call's runnable remainder", () => {
+	const tools = ["read", "grep", "glob", "edit", "write", "bash"];
+	const remainderOf = (command: string): string | undefined =>
+		checkBashInterception(command, tools, DEFAULT_BASH_INTERCEPTOR_RULES).remainder;
+
+	it.each([
+		["a sequenced step", "head -c 20 notes.md; echo; ls out*", "echo; ls out*"],
+		["the last step", "make build; cat log.txt", "make build"],
+		["a step on its own line", "make build\ncat log.txt\necho done", "make build\necho done"],
+		["every blocked step at once", "ls src; cat a.txt; echo mid; grep -n x b.txt", "ls src; echo mid"],
+		["the whole pipeline a blocked step feeds", "ls src; cat a.txt | wc -l; echo done", "ls src; echo done"],
+		["a step guarded by an earlier one", "make build && cat log.txt", "make build"],
+		["a backgrounded neighbour's `&`", "make build & cat log.txt; echo done", "make build & echo done"],
+		["a leading cd the bash tool would strip", "cd /srv && cat log.txt; ls", "cd /srv; ls"],
+	])("keeps %s", (_case, command, expected) => {
+		expect(remainderOf(command)).toBe(expected);
+	});
+
+	it.each([
+		["a later command would become unconditional", "cat log.txt && rm log.txt"],
+		["a later step reads the exit status", "cat log.txt; rc=$?; echo $rc"],
+		["a later step reads a file the blocked step wrote", "echo hi > out.txt; wc -l out.txt"],
+		["the command cannot be split", "cat $(ls); ls"],
+		["the blocked step is the whole command", "cat log.txt"],
+		["what is left only prepares the shell", "cd /srv && cat log.txt"],
+		["what is left would be refused in turn", "cat a.txt; sleep 9 &"],
+	])("offers nothing when %s", (_case, command) => {
+		expect(checkBashInterception(command, tools, DEFAULT_BASH_INTERCEPTOR_RULES).block).toBe(true);
+		expect(remainderOf(command)).toBeUndefined();
+	});
+
+	it("offers nothing when a dropped step changes the shell's directory", () => {
+		const navigation = [{ pattern: "^\\s*cd\\s+", tool: "bash", message: "Use the tool's cwd parameter." }];
+		const result = checkBashInterception("cd /srv; ls; echo done", ["bash"], navigation);
+		expect(result.block).toBe(true);
+		expect(result.remainder).toBeUndefined();
+	});
+
+	it("names the tool and the step for each dropped step in the refusal", () => {
+		const result = checkBashInterception(
+			"ls src; cat a.txt; echo mid; grep -n x b.txt",
+			tools,
+			DEFAULT_BASH_INTERCEPTOR_RULES,
+		);
+		expect(result.message).toContain("`read` for `cat a.txt`");
+		expect(result.message).toContain("`grep` for `grep -n x b.txt`");
+		expect(result.message).toContain("ls src; echo mid");
+	});
+
+	it("says nothing about a remainder when there is none", () => {
+		const result = checkBashInterception("cat log.txt && rm log.txt", tools, DEFAULT_BASH_INTERCEPTOR_RULES);
+		expect(result.message).not.toContain("re-send");
+		expect(result.message).toContain("Original command: cat log.txt && rm log.txt");
+	});
+
+	it("offers only remainders the interceptor itself would allow", () => {
+		for (const command of [
+			"head -c 20 notes.md; echo; ls out*",
+			"ls src; cat a.txt; echo mid; grep -n x b.txt",
+			"ls src; cat a.txt | wc -l; echo done",
+			"make build & cat log.txt; echo done",
+		]) {
+			const remainder = remainderOf(command);
+			expect(remainder).toBeDefined();
+			expect(checkBashInterception(remainder ?? "", tools, DEFAULT_BASH_INTERCEPTOR_RULES).block).toBe(false);
+		}
+	});
+
+	it("leaves a call the rules allow untouched", () => {
+		const result = checkBashInterception("ls src; echo done", tools, DEFAULT_BASH_INTERCEPTOR_RULES);
+		expect(result.block).toBe(false);
+		expect(result.remainder).toBeUndefined();
+	});
+});
+
 describe("BashTool argument validation", () => {
 	it("preserves async requests so disabled async mode returns the explicit error", async () => {
 		const tool = createBashTool([]);

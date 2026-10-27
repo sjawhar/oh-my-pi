@@ -364,11 +364,17 @@ export function extractLiteralAndChainSegments(command: string): LiteralShellCom
 }
 
 /**
+ * The unquoted operator that ends a flat shell command segment. The empty
+ * string ends the last segment of a command.
+ */
+export type FlatShellCommandTerminator = "" | "&&" | "||" | ";" | "|" | "|&" | "&" | "\n";
+
+/**
  * A flat shell command segment with the context needed to decide interception.
  *
  * @see extractFlatShellCommandSegments
  */
-interface FlatShellCommandSegment {
+export interface FlatShellCommandSegment {
 	/** Original segment text with quoting and escaping preserved. */
 	text: string;
 	/**
@@ -379,6 +385,17 @@ interface FlatShellCommandSegment {
 	 * `&&` start an independent command and leave this false.
 	 */
 	pipedStdin: boolean;
+	/** Offset of `text` in the command the segments were extracted from. */
+	start: number;
+	/** Offset just past `text`, so `command.slice(start, end) === text`. */
+	end: number;
+	/**
+	 * The operator that ends this segment, so a caller can remove a segment
+	 * from the command and rejoin what is left without reparsing. A trailing
+	 * operator at the very end of the command (`make &`) still terminates its
+	 * segment; only the last segment of a command without one is `""`.
+	 */
+	terminator: FlatShellCommandTerminator;
 }
 
 /**
@@ -401,10 +418,16 @@ export function extractFlatShellCommandSegments(command: string): FlatShellComma
 	let currentPiped = false;
 
 	const pushSegment = (end: number): boolean => {
-		const segment = command.slice(segmentStart, end).trim();
-		if (segment.length === 0) return false;
-		segments.push({ text: segment, pipedStdin: currentPiped });
+		const raw = command.slice(segmentStart, end);
+		const text = raw.trim();
+		if (text.length === 0) return false;
+		const start = segmentStart + (raw.length - raw.trimStart().length);
+		segments.push({ text, pipedStdin: currentPiped, start, end: start + text.length, terminator: "" });
 		return true;
+	};
+	const setTerminator = (terminator: FlatShellCommandTerminator): void => {
+		const last = segments[segments.length - 1];
+		if (last) last.terminator = terminator;
 	};
 
 	for (let i = 0; i < command.length; i++) {
@@ -460,6 +483,7 @@ export function extractFlatShellCommandSegments(command: string): FlatShellComma
 			const pushed = pushSegment(i);
 			const newline = command.indexOf("\n", i + 1);
 			if (newline === -1) return segments;
+			if (pushed) setTerminator("\n");
 			i = newline;
 			segmentStart = newline + 1;
 			atWordStart = true;
@@ -477,6 +501,21 @@ export function extractFlatShellCommandSegments(command: string): FlatShellComma
 			const pushed = pushSegment(i);
 			const doubled = (ch === "|" || ch === "&") && command[i + 1] === ch;
 			const pipeStderr = ch === "|" && command[i + 1] === "&";
+			if (pushed) {
+				setTerminator(
+					ch === "\n" || ch === ";"
+						? ch
+						: ch === "|"
+							? doubled
+								? "||"
+								: pipeStderr
+									? "|&"
+									: "|"
+							: doubled
+								? "&&"
+								: "&",
+				);
+			}
 			if (doubled || pipeStderr) i++;
 			// `|` and `|&` pipe into the next segment. Blank continuation
 			// lines preserve that pending state; all other operators reset it.

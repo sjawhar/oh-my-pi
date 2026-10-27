@@ -5,7 +5,8 @@
  * this interceptor provides helpful error messages directing them to use
  * the specialized tools instead.
  */
-import { extractFlatShellCommandSegments } from "./shell-tokenize";
+import { buildBashRemainder } from "./bash-remainder";
+import { extractFlatShellCommandSegments, type FlatShellCommandSegment } from "./shell-tokenize";
 import { type BashInterceptorRule, DEFAULT_BASH_INTERCEPTOR_RULES } from "../exec/settings";
 
 export interface InterceptionResult {
@@ -15,6 +16,12 @@ export interface InterceptionResult {
 	message?: string;
 	/** Suggested tool to use instead */
 	suggestedTool?: string;
+	/**
+	 * The command without the blocked step, when that text is safe to re-send
+	 * unchanged; absent when it would not mean what the caller wrote. Nothing
+	 * runs either way: the remainder is offered in the message, never executed.
+	 */
+	remainder?: string;
 }
 
 /**
@@ -94,9 +101,9 @@ function withoutLeadingEnvironmentAssignments(command: string): string | null {
 	return commandWithoutAssignments.length > 0 ? commandWithoutAssignments : null;
 }
 
-function interceptionCandidates(command: string): string[] {
+function interceptionCandidates(command: string, segments: FlatShellCommandSegment[]): string[] {
 	const candidates = [command.trim()];
-	for (const segment of extractFlatShellCommandSegments(command)) {
+	for (const segment of segments) {
 		// A segment that consumes the previous stage's stdout via `|` reads piped
 		// stdin, which no path-based dedicated tool (read/grep/glob) — nor any
 		// other dedicated tool — can replace, so it is not an interception
@@ -107,6 +114,50 @@ function interceptionCandidates(command: string): string[] {
 		if (withoutAssignments) candidates.push(withoutAssignments);
 	}
 	return candidates;
+}
+
+/** The rule that blocks `command`, with the segments it was matched against. */
+function findInterception(
+	command: string,
+	availableTools: string[],
+	compiled: Array<{ rule: BashInterceptorRule; regex: RegExp }>,
+): { rule: BashInterceptorRule; regex: RegExp; segments: FlatShellCommandSegment[] } | undefined {
+	const segments = extractFlatShellCommandSegments(command);
+	const candidates = interceptionCandidates(command, segments);
+
+	for (const { rule, regex } of compiled) {
+		// Only block if the suggested tool is actually available
+		if (!availableTools.includes(rule.tool)) {
+			continue;
+		}
+
+		for (const candidate of candidates) {
+			// A configured global or sticky regex carries state across calls.
+			regex.lastIndex = 0;
+			if (regex.test(candidate)) return { rule, regex, segments };
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Every step a rule blocks on its own, with the tool that replaces it. A rule
+ * can match the whole command without matching any single segment (a trailing
+ * `&` belongs to the operator, not to a segment's text), and then the block
+ * cannot be attributed to a step and this is empty.
+ */
+function blockedSteps(
+	segments: FlatShellCommandSegment[],
+	availableTools: string[],
+	compiled: Array<{ rule: BashInterceptorRule; regex: RegExp }>,
+): Array<{ index: number; text: string; tool: string }> {
+	const steps: Array<{ index: number; text: string; tool: string }> = [];
+	for (const [index, segment] of segments.entries()) {
+		if (segment.pipedStdin) continue;
+		const match = findInterception(segment.text, availableTools, compiled);
+		if (match) steps.push({ index, text: segment.text, tool: match.rule.tool });
+	}
+	return steps;
 }
 
 /**
@@ -123,26 +174,28 @@ export function checkBashInterception(
 	originalCommand = command,
 ): InterceptionResult {
 	const compiled = compileRules(rules);
-	const candidates = interceptionCandidates(command);
+	const match = findInterception(command, availableTools, compiled);
+	if (!match) return { block: false };
 
-	for (const { rule, regex } of compiled) {
-		// Only block if the suggested tool is actually available
-		if (!availableTools.includes(rule.tool)) {
-			continue;
-		}
-
-		for (const candidate of candidates) {
-			// A configured global or sticky regex carries state across calls.
-			regex.lastIndex = 0;
-			if (regex.test(candidate)) {
-				return {
-					block: true,
-					message: `Blocked: ${rule.message}\n\nOriginal command: ${originalCommand}`,
-					suggestedTool: rule.tool,
-				};
-			}
-		}
-	}
-
-	return { block: false };
+	// The whole call is refused, so the rest of it has to be re-sent by hand.
+	// Offer that text when it is safe, so the caller does not re-derive it —
+	// only for the command as written, because a caller that strips a leading
+	// `cd <path> &&` before checking would be offered a remainder without it.
+	const steps = command === originalCommand ? blockedSteps(match.segments, availableTools, compiled) : [];
+	const remainder = buildBashRemainder(
+		command,
+		match.segments,
+		steps.map(step => step.index),
+		candidate => findInterception(candidate, availableTools, compiled) !== undefined,
+	);
+	const offer =
+		remainder === undefined
+			? ""
+			: `\n\nNothing ran. Use ${steps.map(step => `\`${step.tool}\` for \`${step.text}\``).join(", ")}, then re-send the rest as one bash call:\n${remainder}`;
+	return {
+		block: true,
+		message: `Blocked: ${match.rule.message}\n\nOriginal command: ${originalCommand}${offer}`,
+		suggestedTool: match.rule.tool,
+		remainder,
+	};
 }
