@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- When saving pruned tool output fails, the pruning now stays applied in the live context, and the session file catches up on the next successful save.
+
+### Fixed
+
+- Stopped long sessions from rewriting their entire session file on every turn that prunes tool output (superseded reads, uneventful results, or the context-size prune), so the disk writes of those turns no longer grow with session length.
+
 ## [18.13.2] - 2026-10-27
 
 ### Added

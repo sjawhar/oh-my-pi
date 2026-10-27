@@ -12,6 +12,7 @@ import { isAdvisorTranscriptName } from "../advisor/transcript-recorder";
 import { getAgentTombstonePath } from "../registry/agent-tombstone";
 import { resolveSessionLeafId, type SessionEntry, type SessionHeader } from "./session-entries";
 import { loadSessionFile } from "./session-loader";
+import { applyToolResultPrunes } from "./tool-result-prunes";
 
 /** Persisted subagent session transcript, keyed by slash-joined agent path. */
 export interface SubSession {
@@ -75,6 +76,7 @@ async function collectSubSessionsFromDir(
 		// Empty files load as [] and are skipped; a corrupt or missing header is reported so exports do
 		// not look complete while omitting the transcript.
 		if (fileEntries.length > 0) {
+			applyToolResultPrunes(fileEntries);
 			const header = (fileEntries.find(e => e.type === "session") as SessionHeader | undefined) ?? null;
 			const entries = fileEntries.filter((e): e is SessionEntry => e.type !== "session");
 			out[key] = {
