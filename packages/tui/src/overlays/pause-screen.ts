@@ -13,6 +13,7 @@
  */
 import { agentPauseGate } from "@oh-my-pi/pi-agent-core";
 import { type Component, matchesKey, type OverlayFocusOwner, type OverlayHandle, type OverlayOptions } from "../index";
+import { decodePrintableKey } from "../keys";
 import { formatCoarseDuration } from "../chrome/format";
 import { centerLine, visibleWidth } from "../utils";
 import { theme } from "../theme/theme";
@@ -69,6 +70,51 @@ const BODY_LINES = [
 	"In-flight calls finish; nothing new starts until you resume.",
 ] as const;
 
+const TYPED_INPUT_NOTICE = "typed input ignored — esc resumes";
+
+/**
+ * Printable input while this screen is up can only come from something typing
+ * at the pane: a human sees no composer to type into. The enter or space that
+ * follows within this window is that sender's line terminator, not a person
+ * asking to resume — without it, a script that types `/pause` at an
+ * already-paused pane resumes the session it meant to pause.
+ */
+const TYPED_INPUT_GRACE_MS = 2_000;
+
+/**
+ * True when the chunk carries characters someone typed, rather than a key the
+ * terminal encodes as an escape sequence (arrows, mouse reports, focus events).
+ * A bracketed paste counts: `tmux paste-buffer` types just as surely as
+ * `send-keys -l` does.
+ */
+function hasTypedText(data: string): boolean {
+	if (data.includes("\x1b[200~")) return true;
+	// A terminal using the Kitty keyboard protocol or `modifyOtherKeys` reports
+	// a typed character as an escape sequence; decode before rejecting those.
+	if (decodePrintableKey(data) !== undefined) return true;
+	if (data.startsWith("\x1b")) return false;
+	for (const char of data) {
+		const code = char.codePointAt(0) ?? 0;
+		if (code >= 0x20 && code !== 0x7f) return true;
+	}
+	return false;
+}
+
+/**
+ * True when the chunk is nothing but resume keys — one or more spaces, CRs or
+ * LFs. A pty read coalesces bytes that arrive faster than the TUI drains them,
+ * so a held or double-tapped space reaches us as `"  "`, which matches no
+ * single key: without this the person pressing it would be classified as a
+ * machine typing text and locked out of enter and space for the grace window.
+ */
+function isResumeKeyBurst(data: string): boolean {
+	if (data.length === 0) return false;
+	for (const char of data) {
+		if (char !== " " && char !== "\r" && char !== "\n") return false;
+	}
+	return true;
+}
+
 /** What the hold means, one fact per row of the native sheet: icon, what, detail. */
 const HOLD_FACTS = [
 	["users", "Every agent holds", "Main agent, subagents and advisor stop at their next step."],
@@ -89,6 +135,7 @@ function formatClock(ms: number): string {
 
 /**
  * Paint the pause scene as exactly `height` rows, vertically centered.
+ * `notice` is shown under the resume hint when input was swallowed.
  * Exported for tests.
  */
 export function renderPauseScreen(
@@ -97,6 +144,7 @@ export function renderPauseScreen(
 	elapsedMs: number,
 	sessionName?: string,
 	workStatus: PauseWorkStatus = EMPTY_WORK_STATUS,
+	notice?: string,
 ): string[] {
 	const screenWidth = Math.max(1, Math.floor(width));
 	const screenHeight = Math.max(1, Math.floor(height));
@@ -125,6 +173,7 @@ export function renderPauseScreen(
 		if (outstanding)
 			fullContent.push(...workCounts.map(line => centerLine(theme.fg("muted", line), screenWidth).trimEnd()));
 		fullContent.push(resumeLine);
+		if (notice) fullContent.push(centerLine(theme.fg("warning", notice), screenWidth).trimEnd());
 
 		if (screenHeight >= fullContent.length) {
 			content.push(...fullContent);
@@ -187,6 +236,7 @@ export function renderPauseScreen(
 		content.push("");
 		const resumeHint = `${esc} · ${formatKeyHint("enter")} · ${formatKeyHint("space")} — resume`;
 		content.push(centerLine(theme.fg("dim", resumeHint), screenWidth).trimEnd());
+		if (notice) content.push(centerLine(theme.fg("warning", notice), screenWidth).trimEnd());
 	}
 
 	const topPad = Math.max(0, Math.floor((screenHeight - content.length) / 2));
@@ -205,6 +255,12 @@ export class PauseScreenComponent implements Component, OverlayFocusOwner {
 	#startedAt = Date.now();
 	#native: NativeNode | undefined;
 	#workSnapshot: PauseWorkStatus;
+	/** Epoch ms of the last chunk of typed text, 0 before any. */
+	#typedTextAt = 0;
+	/** Whether the swallowed-input notice is currently on screen. */
+	#noticeVisible = false;
+	/** Repaint scheduled for the moment the grace window expires. */
+	#noticeTimer: NodeJS.Timeout | undefined;
 
 	constructor(
 		readonly host: PauseScreenHost,
@@ -221,7 +277,8 @@ export class PauseScreenComponent implements Component, OverlayFocusOwner {
 		this.#timer ??= setInterval(() => {
 			if (this.#disposed) return;
 			const statusChanged = this.#refreshWorkSnapshot();
-			if (statusChanged || !isNativeRendering()) this.host.ui.requestRender();
+			const noticeChanged = this.#refreshTypedNotice();
+			if (statusChanged || noticeChanged || !isNativeRendering()) this.host.ui.requestRender();
 		}, TICK_MS);
 		this.host.ui.requestRender();
 		return this.#done.promise;
@@ -233,6 +290,8 @@ export class PauseScreenComponent implements Component, OverlayFocusOwner {
 			clearInterval(this.#timer);
 			this.#timer = undefined;
 		}
+		clearTimeout(this.#noticeTimer);
+		this.#noticeTimer = undefined;
 	}
 
 	ownsOverlayFocusTarget(component: Component): boolean {
@@ -240,18 +299,56 @@ export class PauseScreenComponent implements Component, OverlayFocusOwner {
 	}
 
 	handleInput(data: string): void {
-		// Every dismissal path resumes — including ctrl+c, which must never
-		// double as "abort agents" while the whole point of the screen is that
-		// nothing gets lost.
+		if (this.#disposed) return;
+		// Esc and ctrl+c always release: they are what the screen advertises,
+		// and ctrl+c must never double as "abort agents" while the whole point
+		// of the screen is that nothing gets lost. A pty read can batch the key
+		// into the same chunk as machine-typed text, so the chunk is searched
+		// too: a ctrl+c byte appears in no escape sequence, and a trailing bare
+		// esc ends no sequence either.
+		if (matchesAppInterrupt(data) || matchesKey(data, "ctrl+c") || data.includes("\x03") || data.endsWith("\x1b")) {
+			this.#done.resolve();
+			return;
+		}
 		if (
-			matchesAppInterrupt(data) ||
 			matchesKey(data, "enter") ||
 			matchesKey(data, "return") ||
 			matchesKey(data, "space") ||
-			matchesKey(data, "ctrl+c")
+			isResumeKeyBurst(data)
 		) {
-			if (!this.#disposed) this.#done.resolve();
+			// Within the grace window this key terminates a line something typed
+			// at the pane, so it asks for nothing. The notice says so on screen.
+			if (!this.#typedInputSwallowed()) this.#done.resolve();
+			else this.host.ui.requestRender();
+			return;
 		}
+		if (!hasTypedText(data)) return;
+		this.#typedTextAt = Date.now();
+		this.#refreshTypedNotice();
+		// Clear the notice when the window ends rather than on the next tick:
+		// the native sheet paints from a cached tree, so it would otherwise keep
+		// a stale warning for up to a second.
+		clearTimeout(this.#noticeTimer);
+		this.#noticeTimer = setTimeout(() => {
+			this.#noticeTimer = undefined;
+			if (this.#disposed) return;
+			if (this.#refreshTypedNotice()) this.host.ui.requestRender();
+		}, TYPED_INPUT_GRACE_MS);
+		this.host.ui.requestRender();
+	}
+
+	/** True while typed text is swallowing the enter or space that follows it. */
+	#typedInputSwallowed(): boolean {
+		return Date.now() - this.#typedTextAt < TYPED_INPUT_GRACE_MS;
+	}
+
+	/** Track the notice across the grace window; true when it changed. */
+	#refreshTypedNotice(): boolean {
+		const visible = this.#typedInputSwallowed();
+		if (visible === this.#noticeVisible) return false;
+		this.#noticeVisible = visible;
+		this.#native = undefined;
+		return true;
 	}
 
 	invalidate(): void {
@@ -316,6 +413,14 @@ export class PauseScreenComponent implements Component, OverlayFocusOwner {
 									role: "omp.pause.unfinished-job-count",
 								}),
 								"unfinished-jobs",
+							),
+						]
+					: []),
+				...(this.#noticeVisible
+					? [
+							keyed(
+								text([span(TYPED_INPUT_NOTICE, "warning")], { role: "omp.pause.typed-input-notice" }),
+								"typed-input-notice",
 							),
 						]
 					: []),
@@ -405,6 +510,7 @@ export class PauseScreenComponent implements Component, OverlayFocusOwner {
 			elapsed,
 			this.host.sessionName,
 			this.#workSnapshot,
+			this.#typedInputSwallowed() ? TYPED_INPUT_NOTICE : undefined,
 		);
 	}
 }

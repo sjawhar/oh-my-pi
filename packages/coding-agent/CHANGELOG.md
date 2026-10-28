@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- `/pause` now records itself in the session transcript as a `pause_state` custom entry on every transition of the pause gate, so a tool outside the process can tell a session someone paused on purpose from one that is merely idle; `docs/session.md` documents the payload and the rule a reader applies. A restart comes up running.
+
+### Fixed
+
+- The pause screen no longer resumes on an Enter or space that follows typed text within two seconds, and says so on screen: a script that typed `/pause` at an already-paused pane resumed the session instead of leaving it paused. Esc and ctrl+c still resume, as does a chunk of nothing but spaces or newlines — a held or double-tapped key once the pty has coalesced it.
+- A paused session no longer calls the provider. `/pause` is polled inside the agent loop, but automatic session titles and the other side turns — the composer prediction, the idle recap, the completion probe, `/btw`, `/omfg` and an extension's `runEphemeralTurn` — run outside it, so a paused session still sent its first message to the title model and paid for it. Each now waits for the resume instead of being dropped, so the title still appears.
+
 ## [18.13.3] - 2026-10-28
 
 ### Added

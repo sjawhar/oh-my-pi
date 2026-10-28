@@ -3,6 +3,7 @@ import {
 	Agent,
 	type AgentMessage,
 	type AgentTool,
+	agentPauseGate,
 	AppendOnlyContextManager,
 	type StreamFn,
 	ThinkingLevel,
@@ -109,7 +110,7 @@ describe("AgentSession message pipeline", () => {
 		}
 	});
 
-	function sideSession(chunks: string[], finalFlush = false): AgentSession {
+	function sideSession(chunks: string[], finalFlush = false, onStream?: () => void): AgentSession {
 		const session = new AgentSession({
 			agent: new Agent({
 				initialState: { model: getBundledModel("openai", "gpt-4o-mini"), systemPrompt: [], tools: [] },
@@ -119,6 +120,7 @@ describe("AgentSession message pipeline", () => {
 			modelRegistry: createModelRegistryStub() as never,
 			obfuscator: finalFlush ? new SecretObfuscator([{ type: "plain", content: "test-secret" }]) : undefined,
 			sideStreamFn: () => {
+				onStream?.();
 				const stream = new AssistantMessageEventStream();
 				const message = createAssistantMessage(chunks.join(""));
 				for (const delta of chunks) stream.push({ type: "text_delta", contentIndex: 0, delta, partial: message });
@@ -129,6 +131,26 @@ describe("AgentSession message pipeline", () => {
 		sessions.push(session);
 		return session;
 	}
+
+	// A side turn runs outside `agentLoop`, which is where `/pause` is polled:
+	// a paused session was still paying for automatic titles and predictions.
+	it("holds an ephemeral side turn until the pause gate releases", async () => {
+		let streams = 0;
+		const session = sideSession(["A"], false, () => {
+			streams++;
+		});
+		agentPauseGate.pause();
+		try {
+			const turn = session.runEphemeralTurn({ promptText: "Question?" });
+			for (let tick = 0; tick < 50; tick++) await Promise.resolve();
+			expect(streams).toBe(0);
+			agentPauseGate.resume();
+			expect((await turn).replyText).toBe("A");
+			expect(streams).toBe(1);
+		} finally {
+			agentPauseGate.resume();
+		}
+	});
 
 	function capturingAnthropicSideSession(model: Model) {
 		const bodies: Array<{

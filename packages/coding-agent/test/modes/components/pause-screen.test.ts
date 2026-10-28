@@ -575,5 +575,66 @@ describe("pause screen", () => {
 			expect(shown.length).toBe(0);
 			expect(agentPauseGate.paused).toBe(true); // foreign pause not stolen
 		});
+
+		it("ignores typed text and the Enter that terminates it", async () => {
+			// `tmux send-keys -l '/pause'` then `Enter` at an already-paused pane
+			// resumed the session it meant to pause.
+			const { host, shown } = makeHost();
+			const run = runPauseScreen(host);
+			const component = shown[0];
+			if (!(component instanceof PauseScreenComponent)) throw new Error("expected the pause screen");
+
+			component.handleInput("/pause");
+			component.handleInput("\r");
+
+			expect(agentPauseGate.paused).toBe(true);
+			expect(component.render(80).map(stripAnsi).join("\n")).toContain("typed input ignored");
+
+			component.handleInput("\x1b"); // esc always resumes
+			await run;
+			expect(agentPauseGate.paused).toBe(false);
+		});
+
+		it("still resumes on a bare Enter or space, however the pty coalesced it", async () => {
+			// A pty read batches bytes that arrive faster than the TUI drains
+			// them, so a held or double-tapped key reaches handleInput as one
+			// multi-character chunk that matches no single key id.
+			for (const key of ["\r", " ", "  ", "\r\r", "\n", " \r"]) {
+				const { host, shown } = makeHost();
+				const run = runPauseScreen(host);
+				const component = shown[0];
+				if (!(component instanceof PauseScreenComponent)) throw new Error("expected the pause screen");
+				component.handleInput(key);
+				await run;
+				expect(agentPauseGate.paused).toBe(false);
+			}
+		});
+
+		it("resumes on ctrl+c inside the typed-input grace window", async () => {
+			const { host, shown } = makeHost();
+			const run = runPauseScreen(host);
+			const component = shown[0];
+			if (!(component instanceof PauseScreenComponent)) throw new Error("expected the pause screen");
+
+			component.handleInput("/pause");
+			component.handleInput("\x03");
+
+			await run;
+			expect(agentPauseGate.paused).toBe(false);
+		});
+
+		it("resumes on an esc or ctrl+c the pty batched into the typed text", async () => {
+			// A person reaching for the key while a machine types lands in the
+			// same pty read; the chunk must still resume.
+			for (const chunk of ["/pause\x1b", "/pause\x03"]) {
+				const { host, shown } = makeHost();
+				const run = runPauseScreen(host);
+				const component = shown[0];
+				if (!(component instanceof PauseScreenComponent)) throw new Error("expected the pause screen");
+				component.handleInput(chunk);
+				await run;
+				expect(agentPauseGate.paused).toBe(false);
+			}
+		});
 	});
 });
