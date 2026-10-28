@@ -10,6 +10,7 @@ import {
 	type SessionOwners,
 	waitForPromiseWithCancellation,
 } from "./executor-base";
+import { SupersededKernelReaper } from "./superseded-reclaim";
 
 interface KernelSessionRegistryOptions {
 	sessionId?: string;
@@ -151,7 +152,7 @@ export function createKernelSessionRegistry<
 	const startingSessions = new Map<string, StartingKernelSession<TSession>>();
 	const resettingSessions = new Map<string, Promise<void>>();
 	const replacingSessionKernels = new Map<TSession, { kernel: TKernel; promise: Promise<TKernel> }>();
-	const reclaiming = new Set<Promise<void>>();
+	const reaper = new SupersededKernelReaper<TSession>();
 
 	const context: KernelSessionRegistryContext<TKernel, TOptions, TSession> = {
 		sessions,
@@ -187,6 +188,8 @@ export function createKernelSessionRegistry<
 		const existing = sessions.get(sessionKey);
 		if (existing) {
 			attachSessionOwner(existing, sessionId, options.kernelOwnerId);
+			// Reacquired inside its grace: keep the kernel and its namespace.
+			reaper.cancel(existing);
 			// Held before this function returns, so no reclaim can run between
 			// the lookup and the caller taking its hold. The caller releases it.
 			existing.activeUses += 1;
@@ -372,11 +375,14 @@ export function createKernelSessionRegistry<
 		if (ownerId === undefined) return;
 		for (const [key, session] of Array.from(sessions.entries())) {
 			if (key === sessionKey) continue;
-			if (session.ownerIds.size !== 1 || !session.ownerIds.has(ownerId)) continue;
-			if (session.activeUses > 0 || session.kernel.hasPendingWork()) continue;
-			descriptor.invalidateSession?.(session);
-			if (sessions.get(key) === session) sessions.delete(key);
-			const reclaim = settleShutdown(session, false).then(result => {
+			if (!isReclaimable(key, session, ownerId)) continue;
+			reaper.schedule(session, async () => {
+				// Re-checked at the far end of the grace: a cell, a borrow or
+				// another agent may have taken the kernel in the meantime.
+				if (!isReclaimable(key, session, ownerId)) return;
+				descriptor.invalidateSession?.(session);
+				if (sessions.get(key) === session) sessions.delete(key);
+				const result = await settleShutdown(session, false);
 				if (result.status === "fulfilled" && result.value?.confirmed !== false) return;
 				logger.warn(`${descriptor.languageLabel} kernel left behind by its session did not confirm exit`, {
 					sessionId: session.sessionId,
@@ -387,9 +393,14 @@ export function createKernelSessionRegistry<
 				// Put it back so a later dispose retries, matching disposeAll.
 				if (!sessions.has(key)) sessions.set(key, session);
 			});
-			reclaiming.add(reclaim);
-			void reclaim.finally(() => reclaiming.delete(reclaim));
 		}
+	}
+
+	/** Whether this owner's superseded `session` may be shut down right now. */
+	function isReclaimable(key: string, session: TSession, ownerId: string): boolean {
+		if (sessions.get(key) !== session) return false;
+		if (session.ownerIds.size !== 1 || !session.ownerIds.has(ownerId)) return false;
+		return session.activeUses === 0 && !session.kernel.hasPendingWork();
 	}
 
 	/**
@@ -413,6 +424,9 @@ export function createKernelSessionRegistry<
 	}
 
 	async function disposeAll(): Promise<void> {
+		// A disposal never waits out a grace: the timers go, and the sessions
+		// they were holding are shut down below like any other.
+		reaper.cancelAll();
 		const pending = [...startingSessions.values()].map(starting => starting.promise);
 		startingSessions.clear();
 		if (descriptor.clearResetsOnDisposeAll) resettingSessions.clear();
@@ -433,7 +447,7 @@ export function createKernelSessionRegistry<
 			shutdowns.push(settleShutdown(session, false));
 		}
 		const results = await Promise.all(shutdowns);
-		await Promise.all(reclaiming);
+		await reaper.settle();
 		for (let i = 0; i < all.length; i += 1) {
 			const [id, session] = all[i];
 			const result = results[i];
@@ -451,6 +465,9 @@ export function createKernelSessionRegistry<
 
 	async function disposeByOwner(ownerId: string): Promise<void> {
 		const toShutdown: TSession[] = [];
+		for (const session of sessions.values()) {
+			if (session.ownerIds.has(ownerId)) reaper.cancel(session);
+		}
 		const startingToShutdown: StartingKernelSession<TSession>[] = [];
 		for (const session of Array.from(sessions.values())) {
 			if (!session.ownerIds.has(ownerId)) continue;

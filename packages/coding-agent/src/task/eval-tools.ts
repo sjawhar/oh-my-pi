@@ -1,7 +1,7 @@
 import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import { EvalKernelNotRunningError } from "../eval/executor-base";
-import { invokeJsTool } from "../eval/js/context-manager";
+import { borrowVmContext, invokeJsTool } from "../eval/js/context-manager";
 import { resolveJsKernelIdentity } from "../eval/js";
 import { borrowPythonKernelSession, callPythonTool, describePythonTools } from "../eval/py/executor";
 import { resolvePythonKernelIdentity } from "../eval/py";
@@ -149,12 +149,19 @@ function errorResult(
  * release. The tools resolve `session`'s kernel identity, so a consumer that
  * can call them after the cell that created them — a background subagent —
  * must hold its kernel for as long as that is true, or the owner's next cell in
- * another directory reclaims it mid-run. Only Python runs in a subprocess the
- * reclaim can shut down; JavaScript tools need no hold.
+ * another directory reclaims it mid-run.
  */
 export function borrowEvalToolKernels(session: ToolSession, descriptors: readonly EvalToolDescriptor[]): () => void {
-	if (!descriptors.some(descriptor => descriptor.language === "python")) return () => {};
-	return borrowPythonKernelSession(resolvePythonKernelIdentity(session));
+	const releases: Array<() => void> = [];
+	if (descriptors.some(descriptor => descriptor.language === "python")) {
+		releases.push(borrowPythonKernelSession(resolvePythonKernelIdentity(session)));
+	}
+	if (descriptors.some(descriptor => descriptor.language === "js")) {
+		releases.push(borrowVmContext(resolveJsKernelIdentity(session).sessionKey));
+	}
+	return () => {
+		for (const release of releases) release();
+	};
 }
 
 /** Materialize kernel-defined descriptors as custom tools for a child session. */

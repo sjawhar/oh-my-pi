@@ -1,4 +1,5 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { setSupersededKernelGraceMs } from "../../src/eval/superseded-reclaim";
 import { createKernelSessionRegistry, type KernelSession } from "../../src/eval/kernel-session-registry";
 
 interface TestOptions {
@@ -494,7 +495,19 @@ describe("kernel session recovery", () => {
 	});
 });
 
+// The reclaim is deliberately deferred, so these exercise a real timer. The
+// grace is shortened to milliseconds and `settleGrace` waits several of them,
+// which is the behaviour under test rather than a guess at a race.
+const TEST_GRACE_MS = 5;
+
+async function settleGrace(): Promise<void> {
+	await Bun.sleep(TEST_GRACE_MS * 8);
+}
+
 describe("kernel session reclamation", () => {
+	beforeEach(() => setSupersededKernelGraceMs(TEST_GRACE_MS));
+	afterEach(() => setSupersededKernelGraceMs());
+
 	it("shuts down the kernel an owner left behind under another session key", async () => {
 		const { kernels, registry } = createFakeRegistry(async (_kernel, code) => ({ cancelled: false, value: code }));
 		try {
@@ -507,6 +520,8 @@ describe("kernel session reclamation", () => {
 				kernelOwnerId: "agent-session:one",
 			});
 			expect(kernels).toHaveLength(2);
+			expect(kernels[0]?.alive).toBe(true);
+			await settleGrace();
 			expect(kernels[0]?.shutdowns).toBe(1);
 			expect(kernels[0]?.alive).toBe(false);
 			expect(kernels[1]?.alive).toBe(true);
@@ -538,6 +553,7 @@ describe("kernel session reclamation", () => {
 				sessionId: "still-busy:cwd:/tmp/b",
 				kernelOwnerId: "agent-session:one",
 			});
+			await settleGrace();
 			expect(kernels[0]?.shutdowns).toBe(0);
 			expect(kernels[0]?.alive).toBe(true);
 			release.resolve();
@@ -560,6 +576,7 @@ describe("kernel session reclamation", () => {
 				sessionId: "borrowed:cwd:/tmp/b",
 				kernelOwnerId: "agent-session:one",
 			});
+			await settleGrace();
 			expect(kernels[0]?.shutdowns).toBe(0);
 			expect(kernels[0]?.alive).toBe(true);
 
@@ -568,11 +585,57 @@ describe("kernel session reclamation", () => {
 				sessionId: "borrowed:cwd:/tmp/b",
 				kernelOwnerId: "agent-session:one",
 			});
+			await settleGrace();
 			expect(kernels[0]?.shutdowns).toBe(1);
 			expect(kernels[0]?.alive).toBe(false);
 		} finally {
 			await registry.disposeAll();
 		}
+	});
+
+	it("keeps a superseded kernel and its state when the owner returns inside the grace", async () => {
+		setSupersededKernelGraceMs(60_000);
+		const { kernels, registry } = createFakeRegistry(async (kernel, code) => {
+			kernel.executions.push(code);
+			return { cancelled: false, value: code };
+		});
+		try {
+			await registry.executeOnSession("in first dir", "/tmp/a", {
+				sessionId: "roundtrip:cwd:/tmp/a",
+				kernelOwnerId: "agent-session:one",
+			});
+			await registry.executeOnSession("in second dir", "/tmp/b", {
+				sessionId: "roundtrip:cwd:/tmp/b",
+				kernelOwnerId: "agent-session:one",
+			});
+			await registry.executeOnSession("back in first dir", "/tmp/a", {
+				sessionId: "roundtrip:cwd:/tmp/a",
+				kernelOwnerId: "agent-session:one",
+			});
+			// Same kernel, so the namespace the first cell built is still there.
+			expect(kernels).toHaveLength(2);
+			expect(kernels[0]?.executions).toEqual(["in first dir", "back in first dir"]);
+			expect(kernels[0]?.shutdowns).toBe(0);
+		} finally {
+			await registry.disposeAll();
+		}
+	});
+
+	it("shuts a superseded kernel down even if its dispose arrives first", async () => {
+		setSupersededKernelGraceMs(60_000);
+		const { kernels, registry } = createFakeRegistry(async (_kernel, code) => ({ cancelled: false, value: code }));
+		await registry.executeOnSession("in first dir", "/tmp/a", {
+			sessionId: "disposed:cwd:/tmp/a",
+			kernelOwnerId: "agent-session:one",
+		});
+		await registry.executeOnSession("in second dir", "/tmp/b", {
+			sessionId: "disposed:cwd:/tmp/b",
+			kernelOwnerId: "agent-session:one",
+		});
+		expect(kernels[0]?.alive).toBe(true);
+		await registry.disposeAll();
+		expect(kernels[0]?.alive).toBe(false);
+		expect(kernels[1]?.alive).toBe(false);
 	});
 
 	it("keeps a kernel a concurrent cell of the same owner is still acquiring", async () => {
