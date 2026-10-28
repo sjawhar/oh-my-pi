@@ -90,7 +90,13 @@ const TYPED_INPUT_GRACE_MS = 2_000;
 function hasTypedText(data: string): boolean {
 	if (data.includes("\x1b[200~")) return true;
 	// A terminal using the Kitty keyboard protocol or `modifyOtherKeys` reports
-	// a typed character as an escape sequence; decode before rejecting those.
+	// a typed character as an escape sequence, and one pty read can carry a
+	// whole typed word of them, so decode the pieces and not only the whole
+	// chunk. Only a piece that decodes as printable counts: a mouse report also
+	// carries bytes above 0x20, but they are coordinates, not text.
+	for (const piece of splitKeyChunks(data)) {
+		if (piece.startsWith("\x1b") && decodePrintableKey(piece) !== undefined) return true;
+	}
 	if (decodePrintableKey(data) !== undefined) return true;
 	if (data.startsWith("\x1b")) return false;
 	for (const char of data) {

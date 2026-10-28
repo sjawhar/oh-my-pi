@@ -691,5 +691,51 @@ describe("pause screen", () => {
 			await run;
 			expect(agentPauseGate.paused).toBe(false);
 		});
+
+		it("ignores encoded typed text and the encoded Enter that terminates it", async () => {
+			// `tmux send-keys '/pause' Enter` at an already-paused pane, on a pane
+			// whose terminal encodes every character. One pty read carries the
+			// whole word, so the chunk has to be recognised as typed text from
+			// its pieces, not from the chunk as a whole.
+			for (const typed of [
+				// modifyOtherKeys: / p a u s e, then Enter
+				["\x1b[27;1;47~\x1b[27;1;112~\x1b[27;1;97~\x1b[27;1;117~\x1b[27;1;115~\x1b[27;1;101~", "\x1b[27;1;13~"],
+				// Kitty CSI-u, same word and terminator
+				["\x1b[47u\x1b[112u\x1b[97u\x1b[117u\x1b[115u\x1b[101u", "\x1b[13u"],
+				// encoded word, bare CR terminator
+				["\x1b[27;1;47~\x1b[27;1;112~\x1b[27;1;97~", "\r"],
+			] as const) {
+				const { host, shown } = makeHost();
+				const run = runPauseScreen(host);
+				const component = shown[0];
+				if (!(component instanceof PauseScreenComponent)) throw new Error("expected the pause screen");
+
+				component.handleInput(typed[0]);
+				component.handleInput(typed[1]);
+
+				expect(agentPauseGate.paused).toBe(true);
+				expect(component.render(80).map(stripAnsi).join("\n")).toContain("typed input ignored");
+
+				component.handleInput("\x1b");
+				await run;
+				expect(agentPauseGate.paused).toBe(false);
+			}
+		});
+
+		it("does not treat a mouse report as typed text", async () => {
+			// An X10 report carries coordinate bytes above 0x20. Reading those as
+			// typed text would make a click swallow the Enter that follows it.
+			for (const report of ["\x1b[M !!", "\x1b[M   ", "\x1b[<0;10;5M"]) {
+				const { host, shown } = makeHost();
+				const run = runPauseScreen(host);
+				const component = shown[0];
+				if (!(component instanceof PauseScreenComponent)) throw new Error("expected the pause screen");
+				component.handleInput(report);
+				expect(agentPauseGate.paused).toBe(true);
+				component.handleInput("\r");
+				await run;
+				expect(agentPauseGate.paused).toBe(false);
+			}
+		});
 	});
 });
