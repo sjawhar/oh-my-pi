@@ -117,6 +117,7 @@ Unknown magic names raise `NameError: UsageError: ...` inside the cell.
 - `session` (default)
   - Reuses kernel sessions keyed by namespaced eval session id plus normalized cwd and interpreter.
   - Multiple owners can share the same retained kernel for that key.
+  - An owner holds one retained kernel at a time. When its next cell resolves to a different key — a new cwd, a different interpreter, or an eval session id that gained its on-disk session file — the kernel it left under the old key is shut down, so a runner cannot outlive the session that started it. A kernel another owner also holds, and one still running a cell (a backgrounded cell included), are both left alone and reclaimed at the next opportunity.
   - Foreground calls through the tool use exclusive scheduling; background cells and kernel-defined tool requests are separate.
   - A dead retained subprocess is replaced before execution.
   - If the subprocess dies during execution, the cell is not replayed because completion is uncertain. The next call starts a fresh kernel.
