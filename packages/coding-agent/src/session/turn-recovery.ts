@@ -2113,7 +2113,7 @@ export class TurnRecovery {
 		signal: AbortSignal,
 	): Promise<boolean> {
 		if (signal.aborted) return false;
-		const timeoutSeconds = cfgRetryUsageReserveConfirmTimeout.get(this.#host.settings);
+		const timeoutSeconds = Math.max(0, cfgRetryUsageReserveConfirmTimeout.get(this.#host.settings));
 		const unattended = new AbortController();
 		const expired = Promise.withResolvers<boolean>();
 		let timer: NodeJS.Timeout | undefined;
