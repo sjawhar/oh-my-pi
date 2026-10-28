@@ -16,6 +16,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent/eval/py/executor";
 import { PythonKernel } from "@oh-my-pi/pi-coding-agent/eval/py/kernel";
 import { filterEnv, resolvePythonRuntime } from "@oh-my-pi/pi-coding-agent/eval/py/runtime";
+import { setSupersededKernelGraceMs } from "@oh-my-pi/pi-coding-agent/eval/superseded-reclaim";
 import { TempDir } from "@oh-my-pi/pi-utils";
 
 const SHOULD_RUN = Bun.env.PI_PYTHON_INTEGRATION === "1";
@@ -139,6 +140,7 @@ async function cancelInstall(kernel: PythonKernel, code: string): Promise<number
 
 describe.skipIf(!SHOULD_RUN)("python runner subprocess", () => {
 	afterEach(async () => {
+		setSupersededKernelGraceMs();
 		await disposeAllKernelSessions();
 	});
 
@@ -172,6 +174,9 @@ describe.skipIf(!SHOULD_RUN)("python runner subprocess", () => {
 	}, 30_000);
 
 	it("ends the runner a session leaves behind when its next cell runs in another directory", async () => {
+		// Real timer on purpose: the grace is the behaviour under test, shortened
+		// so the test watches a real reclaim instead of waiting two minutes.
+		setSupersededKernelGraceMs(100);
 		using firstDir = TempDir.createSync("@python-runner-superseded-a-");
 		using secondDir = TempDir.createSync("@python-runner-superseded-b-");
 		const options = {
@@ -188,7 +193,29 @@ describe.skipIf(!SHOULD_RUN)("python runner subprocess", () => {
 		expect(isRunning(second)).toBe(true);
 	}, 40_000);
 
+	it("keeps the runner and its namespace when the session returns inside the grace", async () => {
+		using firstDir = TempDir.createSync("@python-runner-roundtrip-a-");
+		using secondDir = TempDir.createSync("@python-runner-roundtrip-b-");
+		const options = {
+			sessionId: "roundtrip-kernel",
+			kernelOwnerId: "agent-session:roundtrip",
+			kernelMode: "session" as const,
+			timeoutMs: 10_000,
+		};
+		const first = await runnerPid({ ...options, cwd: firstDir.path() });
+		await executePython("round_trip_marker = 'kept'", { ...options, cwd: firstDir.path() });
+		await runnerPid({ ...options, cwd: secondDir.path() });
+
+		const back = await executePython("import os; print(os.getpid(), round_trip_marker)", {
+			...options,
+			cwd: firstDir.path(),
+		});
+		expect(back.exitCode).toBe(0);
+		expect(back.output.trim()).toBe(`${first} kept`);
+	}, 60_000);
+
 	it("keeps a superseded runner alive while it is still executing a cell", async () => {
+		setSupersededKernelGraceMs(100);
 		using firstDir = TempDir.createSync("@python-runner-busy-a-");
 		using secondDir = TempDir.createSync("@python-runner-busy-b-");
 		const options = {
@@ -218,6 +245,7 @@ describe.skipIf(!SHOULD_RUN)("python runner subprocess", () => {
 	}, 60_000);
 
 	it("keeps a runner a second agent still holds when the first moves to another directory", async () => {
+		setSupersededKernelGraceMs(100);
 		using firstDir = TempDir.createSync("@python-runner-shared-a-");
 		using secondDir = TempDir.createSync("@python-runner-shared-b-");
 		const shared = {

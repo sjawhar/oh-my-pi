@@ -45,6 +45,13 @@
  *     session to disk) are grouped per parent as `<unsaved session>`; unrelated
  *     SDK sessions in one process can land in one such group, so those groups
  *     are never marked stranded.
+ *   - A runner inside its reclaim grace is reported as stranded although the
+ *     host is about to end it. When a session moves to another key, the host
+ *     keeps the kernel it left for a short grace (two minutes) so a return
+ *     inside that window is a cache hit that keeps the namespace; only after
+ *     the grace does the host shut it down. A scan that lands in that window
+ *     sees a stranded group that resolves itself. Re-scan after the grace
+ *     before acting on such a finding.
  *
  * Usage: bun scripts/find-stranded-eval-runners.ts [--json] [--all]
  */
