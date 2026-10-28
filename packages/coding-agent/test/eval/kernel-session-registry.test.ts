@@ -515,10 +515,12 @@ describe("kernel session reclamation", () => {
 	});
 
 	it("keeps a kernel that is still running a cell for the same owner", async () => {
+		const started = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
 		const { kernels, registry } = createFakeRegistry(async (kernel, code) => {
 			if (kernel.index !== 0) return { cancelled: false, value: code };
 			kernel.pendingWork = true;
+			started.resolve();
 			await release.promise;
 			kernel.pendingWork = false;
 			return { cancelled: false, value: code };
@@ -528,6 +530,9 @@ describe("kernel session reclamation", () => {
 				sessionId: "still-busy:cwd:/tmp/a",
 				kernelOwnerId: "agent-session:one",
 			});
+			// Only once the cell is running is the first session registered and
+			// its kernel reporting pending work, so the guard is actually asked.
+			await started.promise;
 			await registry.executeOnSession("next dir", "/tmp/b", {
 				sessionId: "still-busy:cwd:/tmp/b",
 				kernelOwnerId: "agent-session:one",
@@ -538,6 +543,45 @@ describe("kernel session reclamation", () => {
 			expect(await slow).toEqual({ cancelled: false, value: "slow cell" });
 		} finally {
 			release.resolve();
+			await registry.disposeAll();
+		}
+	});
+
+	it("keeps a kernel a borrower holds, and reclaims it once the borrow is released", async () => {
+		const { kernels, registry } = createFakeRegistry(async (_kernel, code) => ({ cancelled: false, value: code }));
+		try {
+			await registry.executeOnSession("first dir", "/tmp/a", {
+				sessionId: "borrowed:cwd:/tmp/a",
+				kernelOwnerId: "agent-session:one",
+			});
+			const release = registry.borrowSession("/tmp/a", { sessionId: "borrowed:cwd:/tmp/a" });
+			await registry.executeOnSession("second dir", "/tmp/b", {
+				sessionId: "borrowed:cwd:/tmp/b",
+				kernelOwnerId: "agent-session:one",
+			});
+			expect(kernels[0]?.shutdowns).toBe(0);
+			expect(kernels[0]?.alive).toBe(true);
+
+			release();
+			await registry.executeOnSession("third cell", "/tmp/b", {
+				sessionId: "borrowed:cwd:/tmp/b",
+				kernelOwnerId: "agent-session:one",
+			});
+			expect(kernels[0]?.shutdowns).toBe(1);
+			expect(kernels[0]?.alive).toBe(false);
+		} finally {
+			await registry.disposeAll();
+		}
+	});
+
+	it("reclaims nothing when the caller has no explicit owner id", async () => {
+		const { kernels, registry } = createFakeRegistry(async (_kernel, code) => ({ cancelled: false, value: code }));
+		try {
+			await registry.executeOnSession("first dir", "/tmp/a", { sessionId: "anonymous" });
+			await registry.executeOnSession("second dir", "/tmp/b", { sessionId: "anonymous:other" });
+			expect(kernels[0]?.shutdowns).toBe(0);
+			expect(kernels[0]?.alive).toBe(true);
+		} finally {
 			await registry.disposeAll();
 		}
 	});
