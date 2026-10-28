@@ -187,12 +187,17 @@ export function createKernelSessionRegistry<
 		const existing = sessions.get(sessionKey);
 		if (existing) {
 			attachSessionOwner(existing, sessionId, options.kernelOwnerId);
+			// Held before this function returns, so no reclaim can run between
+			// the lookup and the caller taking its hold. The caller releases it.
+			existing.activeUses += 1;
 			return existing;
 		}
 		const starting = startingSessions.get(sessionKey);
 		if (starting) {
 			attachSessionOwner(starting, sessionId, options.kernelOwnerId);
-			return await waitForStartup(starting.promise, options);
+			const started = await waitForStartup(starting.promise, options);
+			started.activeUses += 1;
+			return started;
 		}
 		// oxlint-disable-next-line prefer-const -- captured by the startup closure before assignment
 		let startingSession!: StartingKernelSession<TSession>;
@@ -203,7 +208,10 @@ export function createKernelSessionRegistry<
 				sessionId,
 				cwd,
 				kernel,
-				activeUses: 0,
+				// Born held, for the caller that started it: `sessions.set` below
+				// publishes the session to the reclaim scan a tick before that
+				// caller can take a hold of its own.
+				activeUses: 1,
 				ownerIds: new Set(startingSession.ownerIds),
 				hasFallbackOwner: startingSession.hasFallbackOwner,
 			});
@@ -531,14 +539,13 @@ export function createKernelSessionRegistry<
 			const inFlight = resettingSessions.get(sessionKey);
 			if (inFlight) await inFlight.catch(() => undefined);
 		}
-		reclaimSupersededSessions(sessionKey, options);
+		// `acquireSession` returns the session already held for this call: a
+		// concurrent cell of the same owner at another key must not reclaim it
+		// between the kernel being acquired and the runner owing its first
+		// frame, which a kernel replacement stretches to seconds.
 		const session = await acquireSession(sessionKey, sessionId, cwd, options);
-		// Held from here on: a concurrent cell of the same owner at another key
-		// must not reclaim this session during the window between acquiring it
-		// and the runner owing its first frame (a kernel replacement spawns a
-		// fresh runner inside that window and takes seconds).
-		session.activeUses += 1;
 		try {
+			reclaimSupersededSessions(sessionKey, options);
 			throwIfCallerCancelled(options);
 			const kernel = await acquireLiveSessionKernel(session, cwd, options);
 			if (!isCurrent(session, kernel)) throw new descriptor.cancelledErrorClass(false);
