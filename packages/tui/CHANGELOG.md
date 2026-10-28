@@ -18,6 +18,7 @@
 ### Fixed
 
 - Fixed the LSP diagnostics view showing "No issues" for files whose language server had not reported yet; they now show as unverified ([#17293](https://github.com/can1357/oh-my-pi/pull/17293) by [@JustasMasiulis](https://github.com/JustasMasiulis))
+- `matchesKey` now accepts the xterm `modifyOtherKeys` encoding (`CSI 27;mod;code~`), which `parseKey` already decoded. tmux sends every key in that form when `extended-keys` is on, so on such a pane space and enter stopped matching anywhere in the TUI — on the `/pause` screen only Escape still resumed, because the interrupt key resolves through the keybinding registry, which parses first. Two forms tmux does not emit still read differently in the two matchers: a shifted letter written with its shifted codepoint (`CSI 27;2;65~`), and wire modifiers carrying hyper or meta.
 
 ## [18.13.3] - 2026-10-28
 
