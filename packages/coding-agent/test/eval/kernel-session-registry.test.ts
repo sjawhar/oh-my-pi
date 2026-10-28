@@ -498,7 +498,7 @@ describe("kernel session recovery", () => {
 // The reclaim is deliberately deferred, so these exercise a real timer. The
 // grace is shortened to milliseconds and `settleGrace` waits several of them,
 // which is the behaviour under test rather than a guess at a race.
-const TEST_GRACE_MS = 5;
+const TEST_GRACE_MS = 50;
 
 async function settleGrace(): Promise<void> {
 	await Bun.sleep(TEST_GRACE_MS * 8);

@@ -338,6 +338,7 @@ export function createKernelSessionRegistry<
 			sessions.get(sessionKey) ?? (await startingSessions.get(sessionKey)?.promise.catch(() => undefined));
 		if (!existing) return;
 		descriptor.invalidateSession?.(existing);
+		reaper.cancel(existing);
 		sessions.delete(sessionKey);
 		await shutdownSession(existing, true).catch(() => undefined);
 	}
@@ -375,7 +376,11 @@ export function createKernelSessionRegistry<
 		if (ownerId === undefined) return;
 		for (const [key, session] of Array.from(sessions.entries())) {
 			if (key === sessionKey) continue;
-			if (!isReclaimable(key, session, ownerId)) continue;
+			// Armed on ownership alone. A session busy right now is still one its
+			// owner has walked away from, and the fire-time guard below is what
+			// decides; arming only when it is idle would leave a kernel whose
+			// owner never runs another cell unreclaimed for the life of the host.
+			if (!ownedAloneBy(key, session, ownerId)) continue;
 			reaper.schedule(session, async () => {
 				// Re-checked at the far end of the grace: a cell, a borrow or
 				// another agent may have taken the kernel in the meantime.
@@ -396,10 +401,15 @@ export function createKernelSessionRegistry<
 		}
 	}
 
+	/** Whether `session` under `key` is still this owner's alone. */
+	function ownedAloneBy(key: string, session: TSession, ownerId: string): boolean {
+		if (sessions.get(key) !== session) return false;
+		return session.ownerIds.size === 1 && session.ownerIds.has(ownerId);
+	}
+
 	/** Whether this owner's superseded `session` may be shut down right now. */
 	function isReclaimable(key: string, session: TSession, ownerId: string): boolean {
-		if (sessions.get(key) !== session) return false;
-		if (session.ownerIds.size !== 1 || !session.ownerIds.has(ownerId)) return false;
+		if (!ownedAloneBy(key, session, ownerId)) return false;
 		return session.activeUses === 0 && !session.kernel.hasPendingWork();
 	}
 
