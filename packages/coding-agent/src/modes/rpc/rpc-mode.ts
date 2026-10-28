@@ -1714,6 +1714,21 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	// correct waiting promise regardless of which code path created the request.
 	const rpcUiContext = new RpcExtensionUIContext(pendingExtensionRequests, output);
 	setToolUIContext?.(rpcUiContext, true);
+	// An rpc-ui host has a person behind a real dialog surface, so the
+	// coding-plan reserve question reaches them instead of defaulting to
+	// "keep the current model" the way a session with nobody to ask does.
+	session.setUsageFallbackConfirmer((confirmation, signal) => {
+		const reserve =
+			confirmation.remainingPercent === undefined
+				? "inside the configured reserve margin"
+				: `${confirmation.remainingPercent.toFixed(1)}% remaining`;
+		return rpcUiContext.confirm(
+			"Coding-plan reserve reached",
+			`${confirmation.from} has ${reserve}. Switch to ${confirmation.to}? Choose No to keep using the current plan.`,
+			{ signal },
+		);
+	});
+
 	const setAskDialog = (command: RpcCommand & { type: "set_ask_dialog" }): RpcResponse => {
 		rpcUiContext.askDialogEnabled = command.enabled === true;
 		return success(command.id, "set_ask_dialog", { enabled: rpcUiContext.askDialogEnabled });
