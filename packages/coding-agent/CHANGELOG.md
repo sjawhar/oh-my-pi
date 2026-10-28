@@ -4,7 +4,7 @@
 
 ### Added
 
-- `/pause` now records itself in the session transcript as a `pause_state` custom entry on every transition of the pause gate, so a tool outside the process can tell a session someone paused on purpose from one that is merely idle; `docs/session.md` documents the payload and the rule a reader applies. A restart comes up running.
+- `/pause` now records itself in the session transcript as a `pause_state` custom entry on every transition of the pause gate, written by the session itself, so a plugin or an SDK embedder that holds the gate is recorded as well as the `/pause` screen. A tool outside the process can tell a session someone paused on purpose from one that is merely idle; `docs/session.md` documents the payload and the rule a reader applies. A restart comes up running.
 
 ### Fixed
 

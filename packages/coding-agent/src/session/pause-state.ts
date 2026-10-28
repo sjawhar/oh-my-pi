@@ -14,9 +14,8 @@
  * appends to the same file, so every rule below is scoped to one run; both are
  * also documented for outside readers in `docs/session.md`):
  * - **Now** (process alive, {@link pauseStateFromEntries}): the last
- *   `pause_state` entry *after* the last
- *   `session_exit` entry. None means the session was never paused in this run,
- *   so it is running.
+ *   `pause_state` entry *after* the last `session_exit` entry. None means this
+ *   run recorded no pause.
  * - **When a process died** ({@link pauseStateAtExit}): the last `pause_state` entry *between* the last
  *   two `session_exit` entries — that run's own segment. Searching the whole
  *   prefix instead would report an older run's pause as this one's.
@@ -25,6 +24,12 @@
  *   `session_exit` at all, so a transcript whose tail is `paused` is either a
  *   live pause or a process killed during one; only a liveness check (the pid
  *   or the pane) tells those apart.
+ *
+ * `AgentSession` subscribes for every mode it backs — TUI, print, ACP, RPC and
+ * an SDK embedder — so the record follows the gate rather than a front end.
+ * Absence is still not evidence of running: a session held only in memory
+ * writes no file, and a host that drives `agentLoop` without an `AgentSession`
+ * records nothing.
  *
  * A restart never re-engages the gate: a session that comes back up is
  * running, and writes its own entries from there. {@link reconcilePauseStateOnLoad}

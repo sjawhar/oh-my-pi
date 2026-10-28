@@ -155,7 +155,7 @@ import { HistoryStorage } from "../session/history-storage";
 import { syncTextPrediction, textPredictionBackend } from "../predict/client";
 import { setWordPredictionHost } from "@oh-my-pi/pi-tui/prompt/word-completion";
 import { USER_INTERRUPT_LABEL } from "../session/messages";
-import { recordPauseStateTransitions, reconcilePauseStateOnLoad } from "../session/pause-state";
+import { reconcilePauseStateOnLoad } from "../session/pause-state";
 import { resolveMarkdownLinkHrefs } from "../internal-urls/hyperlink-targets";
 import type { ResolveContext } from "../internal-urls/index";
 import { modelMentionDisplayName } from "@oh-my-pi/pi-tui/prompt/model-mention-syntax";
@@ -2626,11 +2626,6 @@ export class InteractiveMode implements InteractiveModeContext {
 				setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
 				this.#handleSessionAccentInputsChanged();
 			}),
-			// Durable `/pause` marker. The gate is process-global and in memory,
-			// so this entry is the only thing that tells a tool — a pane watch
-			// after a reboot, a lead about to send a message — that a human
-			// stopped this session on purpose.
-			recordPauseStateTransitions(() => this.sessionManager),
 			// Fork and branch adopt a new session file without retitling.
 			this.session.registerSessionChangeCallback(reportTernSession),
 		);

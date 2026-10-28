@@ -46,6 +46,7 @@ import { obfuscateProviderContext, SecretObfuscator } from "@oh-my-pi/pi-coding-
 import { AgentSession, type AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { convertToLlm, wrapSteeringForModel } from "@oh-my-pi/pi-coding-agent/session/messages";
+import { pauseStateFromEntries } from "@oh-my-pi/pi-coding-agent/session/pause-state";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import { requestBodyText } from "@oh-my-pi/pi-ai/utils/request-body";
@@ -103,6 +104,9 @@ describe("AgentSession message pipeline", () => {
 	const sessions: AgentSession[] = [];
 
 	afterEach(async () => {
+		// The gate is process-global and every loop parks on it: a failed
+		// assertion inside a pause would strand every test that follows.
+		agentPauseGate.resume();
 		vi.restoreAllMocks();
 		clearCustomApis();
 		for (const session of sessions.splice(0)) {
@@ -150,6 +154,19 @@ describe("AgentSession message pipeline", () => {
 		} finally {
 			agentPauseGate.resume();
 		}
+	});
+
+	// The gate is exported API: a plugin, an SDK embedder or a driver with no
+	// TUI can hold it, and the marker must follow the gate, not the front end.
+	// This session has no InteractiveMode and never saw a `/pause` screen.
+	it("records the pause marker for a session no TUI owns", () => {
+		const session = sideSession(["A"]);
+		expect(pauseStateFromEntries(session.sessionManager.getEntries())).toBeUndefined();
+
+		agentPauseGate.pause();
+		expect(pauseStateFromEntries(session.sessionManager.getEntries())).toBe("paused");
+		agentPauseGate.resume();
+		expect(pauseStateFromEntries(session.sessionManager.getEntries())).toBe("running");
 	});
 
 	function capturingAnthropicSideSession(model: Model) {

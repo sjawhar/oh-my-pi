@@ -421,6 +421,7 @@ import {
 	VIBE_MODE_CONTEXT_MESSAGE_TYPE,
 } from "./messages";
 import { ModelControls, type ModelControlsHost } from "./model-controls";
+import { recordPauseStateTransitions, reconcilePauseStateOnLoad } from "./pause-state";
 import {
 	isPrewalkPlanNudge,
 	PrewalkCoordinator,
@@ -1932,6 +1933,15 @@ export class AgentSession implements SettingsScope {
 		);
 		this.sessionManager = config.sessionManager;
 		this.settings = config.settings;
+		// Durable `/pause` marker, owned by the session rather than by a front
+		// end: the gate is process-global exported API, so an SDK embedder, a
+		// plugin or a driver with no TUI can hold it, and every one of those has
+		// a transcript to say so in. The manager retargets its file on a session
+		// switch, so a transition always lands in the session that is current.
+		this.addDisposer(recordPauseStateTransitions(() => this.sessionManager));
+		// A process killed mid-pause left its transcript ending on `paused`; this
+		// one is running, so say so before anything reads the tail.
+		reconcilePauseStateOnLoad(this.sessionManager);
 		this.#ownsCostGate = config.costGate === undefined;
 		this.#costGate = config.costGate ?? this.#createCostGate();
 		this.#skillDescriptions = config.skillDescriptions ?? new SkillDescriptionCatalog();
