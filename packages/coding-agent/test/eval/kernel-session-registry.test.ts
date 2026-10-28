@@ -26,6 +26,7 @@ class FakeKernel {
 	alive = true;
 	shutdowns = 0;
 	pendingWork = false;
+	readonly executions: string[] = [];
 
 	constructor(readonly index: number) {}
 
@@ -569,6 +570,36 @@ describe("kernel session reclamation", () => {
 			});
 			expect(kernels[0]?.shutdowns).toBe(1);
 			expect(kernels[0]?.alive).toBe(false);
+		} finally {
+			await registry.disposeAll();
+		}
+	});
+
+	it("keeps a kernel a concurrent cell of the same owner is still acquiring", async () => {
+		const { kernels, registry } = createFakeRegistry(async (kernel, code) => {
+			kernel.executions.push(code);
+			return { cancelled: false, value: code };
+		});
+		try {
+			await registry.executeOnSession("warm the first dir", "/tmp/a", {
+				sessionId: "racing:cwd:/tmp/a",
+				kernelOwnerId: "agent-session:one",
+			});
+			// Both start in one tick: the first is inside its acquire when the
+			// second reclaims, which is exactly the window a hold must cover.
+			const inFirstDir = registry.executeOnSession("first dir", "/tmp/a", {
+				sessionId: "racing:cwd:/tmp/a",
+				kernelOwnerId: "agent-session:one",
+			});
+			const inSecondDir = registry.executeOnSession("second dir", "/tmp/b", {
+				sessionId: "racing:cwd:/tmp/b",
+				kernelOwnerId: "agent-session:one",
+			});
+			// The first cell must run to completion on the kernel it acquired,
+			// not come back cancelled because the second reclaimed it mid-flight.
+			expect(await inFirstDir).toEqual({ cancelled: false, value: "first dir" });
+			expect(await inSecondDir).toEqual({ cancelled: false, value: "second dir" });
+			expect(kernels[0]?.executions).toEqual(["warm the first dir", "first dir"]);
 		} finally {
 			await registry.disposeAll();
 		}

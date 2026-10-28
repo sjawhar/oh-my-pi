@@ -1,11 +1,8 @@
 import { MAIN_AGENT_ID } from "../registry/agent-registry";
 import { borrowEvalToolKernels, createEvalCustomTools, describeEvalTools } from "../task/eval-tools";
 import { resolveEffectiveSubagentPolicy } from "../task/structured-subagent";
-import { type WorkPoolPeekResult, type WorkPoolStatus, WorkPoolRegistry } from "../task/workpool";
+import { type WorkPool, type WorkPoolPeekResult, type WorkPoolStatus, WorkPoolRegistry } from "../task/workpool";
 import type { ToolSession } from "../tools";
-
-/** Kernel holds taken for a pool's eval-defined tools, released when the pool closes. */
-const poolKernelHolds = new Map<string, () => void>();
 import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
 import type { JsStatusEvent } from "./js/shared/types";
 
@@ -97,15 +94,22 @@ export async function runEvalWorkpool(args: unknown, options: EvalWorkpoolBridge
 				name = `${base}-${suffix++}`;
 			}
 		}
-		const pool = registry.create(options.session, {
-			name,
-			policy,
-			...(context ? { context } : {}),
-			customTools,
-		});
 		// Workers call these tools on the creating session's kernel long after
-		// this cell ends; hold it until the pool closes.
-		poolKernelHolds.set(`${ownerId}\0${name}`, borrowEvalToolKernels(options.session, descriptors));
+		// this cell ends; hold it until the pool can no longer start a turn.
+		const releaseKernels = borrowEvalToolKernels(options.session, descriptors);
+		let pool: WorkPool;
+		try {
+			pool = registry.create(options.session, {
+				name,
+				policy,
+				...(context ? { context } : {}),
+				customTools,
+				onRelease: releaseKernels,
+			});
+		} catch (error) {
+			releaseKernels();
+			throw error;
+		}
 		options.emitStatus?.({ op: "workpool", action: "create", pool: name, count: pool.limit() });
 		return { name, agent: policy.agentName, limit: pool.limit() };
 	}
@@ -123,10 +127,6 @@ export async function runEvalWorkpool(args: unknown, options: EvalWorkpoolBridge
 	if (op === "status") return pool.status();
 	if (op === "peek") return pool.peek();
 	if (op === "close") {
-		const ownerId = options.session.getAgentId?.() ?? MAIN_AGENT_ID;
-		const holdKey = `${ownerId}\0${name}`;
-		poolKernelHolds.get(holdKey)?.();
-		poolKernelHolds.delete(holdKey);
 		const result = pool.close();
 		options.emitStatus?.({ op: "workpool", action: "close", pool: name, count: result.dropped.length });
 		return result;
