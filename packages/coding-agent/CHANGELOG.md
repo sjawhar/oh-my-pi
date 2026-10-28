@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- Fixed a transcript a live session is running being offered to peers as a parked, revivable agent: a pane resumed on a subagent's transcript (`omp --resume <name>.jsonl`) started a second agent loop on that same transcript when a peer messaged it by that name, and a second omp process did the same to a sibling pane's. The roster scan now asks the session ownership lease who is running a journal before deriving a ref from it, and binds the transcript's name to the session running it, so `agent://<name>`, Agent Hub focus and a `task` resume all reach that session; a journal another omp process runs, and a copy of a running session's journal, are not offered and say why ([#17257](https://github.com/can1357/oh-my-pi/pull/17257) by [@sjawhar](https://github.com/sjawhar))
 - Fixed cached approvals offering a directory grant that would not cover every target in the call ([#17309](https://github.com/can1357/oh-my-pi/pull/17309) by [@iliaal](https://github.com/iliaal)).
 - Fixed `pr://` metadata and diffs staying stale after successful `git push` calls through `bash` ([#17183](https://github.com/can1357/oh-my-pi/pull/17183) by [@alphastorm](https://github.com/alphastorm))
 - Fixed `read` rejecting artifact URLs from truncation hints when cached approvals or restricted folders are configured ([#17282](https://github.com/can1357/oh-my-pi/pull/17282) by [@iliaal](https://github.com/iliaal)).
