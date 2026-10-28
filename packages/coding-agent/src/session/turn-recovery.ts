@@ -103,6 +103,8 @@ const STREAM_STALL_CONTINUE_MAX_RETRIES = 3;
 const SIBLING_UNBLOCK_BUFFER_MS = 1_000;
 const NON_WHITESPACE_RE = /\S/;
 const USAGE_PREFLIGHT_BLOCKED_PREFIX = "Usage preflight blocked:";
+/** `notice` source of coding-plan reserve decisions; print mode writes these to stderr. */
+export const USAGE_RESERVE_NOTICE_SOURCE = "usage";
 const STREAM_STALL_ERROR_RE = /stream stall/i;
 const HTTP2_STREAM_RESET_ERROR_RE =
 	/stream closed with error code\s+nghttp2_(?:internal_error|refused_stream)|nghttp2_(?:internal_error|refused_stream)|HTTP2(?:StreamReset|RefusedStream)/i;
@@ -2117,11 +2119,20 @@ export class TurnRecovery {
 		signal: AbortSignal,
 	): Promise<boolean> {
 		if (signal.aborted) return false;
+		if (!confirmer) {
+			await this.#host.emitSessionEvent({
+				type: "notice",
+				level: "warning",
+				source: USAGE_RESERVE_NOTICE_SOURCE,
+				message: `${confirmation.from} is inside its coding-plan reserve and this session has nobody to ask, so it keeps that model. Set retry.usageReservePolicy to auto to cross to ${confirmation.to} unasked.`,
+			});
+			return false;
+		}
 		const timeoutSeconds = Math.max(0, cfgRetryUsageReserveConfirmTimeout.get(this.#host.settings));
 		const unattended = new AbortController();
 		const expired = Promise.withResolvers<boolean>();
 		let timer: NodeJS.Timeout | undefined;
-		if (confirmer && timeoutSeconds > 0) {
+		if (timeoutSeconds > 0) {
 			timer = setTimeout(() => {
 				// Close the dialog AND stop waiting on it: a confirmer that ignores
 				// its signal must not be able to hold the turn past the deadline.
@@ -2134,21 +2145,17 @@ export class TurnRecovery {
 		const onAbort = () => aborted.resolve(false);
 		signal.addEventListener("abort", onAbort, { once: true });
 		try {
-			if (confirmer) {
-				const answer = await Promise.race([
-					confirmer(confirmation, AbortSignal.any([signal, unattended.signal])),
-					aborted.promise,
-					expired.promise,
-				]);
-				if (!unattended.signal.aborted || signal.aborted) return answer;
-			}
+			const answer = await Promise.race([
+				confirmer(confirmation, AbortSignal.any([signal, unattended.signal])),
+				aborted.promise,
+				expired.promise,
+			]);
+			if (!unattended.signal.aborted || signal.aborted) return answer;
 			await this.#host.emitSessionEvent({
 				type: "notice",
 				level: "warning",
-				source: "usage",
-				message: confirmer
-					? `Nobody answered the reserve prompt for ${confirmation.from} in ${timeoutSeconds}s, so it keeps that model. Switch to ${confirmation.to} with /model.`
-					: `${confirmation.from} is inside its coding-plan reserve and this session has nobody to ask, so it keeps that model. Set retry.usageReservePolicy to auto to cross to ${confirmation.to} unasked.`,
+				source: USAGE_RESERVE_NOTICE_SOURCE,
+				message: `Nobody answered the reserve prompt for ${confirmation.from} in ${timeoutSeconds}s, so it keeps that model. Switch to ${confirmation.to} with /model.`,
 			});
 			return false;
 		} finally {
