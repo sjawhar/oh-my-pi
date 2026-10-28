@@ -923,11 +923,6 @@ export interface CreateAgentSessionOptions {
 	 * (see `title.generator`). Only the interactive TUI sets this; ignored for subagents. Default: false.
 	 */
 	autoTitle?: boolean;
-	/**
-	 * Defer `confirm` reserve-policy fallback until AgentSession prompt-time UI is configured.
-	 * ACP uses this while capabilities are negotiated without enabling UI-only tools.
-	 */
-	deferUsageReserveConfirmation?: boolean;
 
 	/**
 	 * Opt-in OpenTelemetry instrumentation forwarded to the underlying Agent.
@@ -3181,10 +3176,10 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 								`Usage reserve reached for ${primary.model.provider}/${primary.model.id}; reserve policy is fail-closed.`,
 							);
 						}
-						if (
-							modelFallbackEnabled &&
-							(usageReservePolicy === "auto" || (!options.hasUI && !options.deferUsageReserveConfirmation))
-						) {
+						// Only an explicit `auto` policy may cross models unasked. A
+						// session with nobody to ask — headless, RPC, a subagent — keeps
+						// the model it was given and lets the provider refuse if it must.
+						if (modelFallbackEnabled && usageReservePolicy === "auto") {
 							usageFallbackTriggered = true;
 							usageFallbackReason ??= {
 								from: formatModelSelectorValue(
