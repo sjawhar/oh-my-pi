@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added **Anthropic Console** to `/login`: sign in with a Claude Console account to use Claude models billed to your Console organization, without creating an API key. Console logins sit alongside Claude Pro/Max logins for the same organization.
+
 ### Fixed
 
 - Fixed a cancelled request whose OAuth credential was mid-refresh killing the whole session with `[Unhandled Rejection] AbortError: OAuth refresh ownership aborted by caller` ([#17290](https://github.com/can1357/oh-my-pi/pull/17290) by [@H4vC](https://github.com/H4vC))
