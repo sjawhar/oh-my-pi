@@ -2057,8 +2057,8 @@ export class TurnRecovery {
 		}
 		if (!fallback) return false;
 
-		let shouldFallback = health.state === "depleted" || reservePolicy === "auto" || !confirmer;
-		if (!shouldFallback && health.state === "reserve" && confirmer) {
+		let shouldFallback = health.state === "depleted" || reservePolicy === "auto";
+		if (!shouldFallback && health.state === "reserve") {
 			const remainingFraction =
 				selectedAccount?.remainingFraction ??
 				health.accounts.reduce<number | undefined>((minimum, account) => {
@@ -2096,19 +2096,23 @@ export class TurnRecovery {
 	}
 
 	/**
-	 * Ask the operator whether to leave the reserve-bound model, and give an
-	 * unattended session the answer `retry.usageReservePolicy = "confirm"`
-	 * already promises it: keep the current model.
+	 * Ask the operator whether to leave the reserve-bound model, and give a
+	 * session nobody is answering for the answer `retry.usageReservePolicy =
+	 * "confirm"` already promises it: keep the current model.
 	 *
-	 * The prompt is a real decision — a lane that pins its model pins it on
-	 * purpose — so the deadline never switches models on nobody's authority. It
-	 * aborts the dialog, returns "keep the current plan", and the caller records
-	 * the reserve approval so the turn goes on and the session does not ask again
-	 * for this model. The reserve is then spent down to `depleted`, where the
-	 * fallback no longer needs anyone's confirmation.
+	 * Two cases reach that answer. A prompt nobody answered within
+	 * `retry.usageReserveConfirmTimeout`, and a session with no confirmer at all
+	 * — headless, RPC, a subagent — where there is nobody to ask in the first
+	 * place. Both record the decision as a warning notice, and the caller then
+	 * records the reserve approval, so the turn goes on and the question is not
+	 * re-opened for this model. The reserve is spent down to `depleted`, where
+	 * the fallback no longer needs anyone's confirmation.
+	 *
+	 * Neither case ever switches models: a lane that pins its model pins it on
+	 * purpose, and no deadline and no missing UI is authority to move it.
 	 */
 	async #confirmUsageFallback(
-		confirmer: UsageFallbackConfirmer,
+		confirmer: UsageFallbackConfirmer | undefined,
 		confirmation: UsageFallbackConfirmation,
 		signal: AbortSignal,
 	): Promise<boolean> {
@@ -2117,7 +2121,7 @@ export class TurnRecovery {
 		const unattended = new AbortController();
 		const expired = Promise.withResolvers<boolean>();
 		let timer: NodeJS.Timeout | undefined;
-		if (timeoutSeconds > 0) {
+		if (confirmer && timeoutSeconds > 0) {
 			timer = setTimeout(() => {
 				// Close the dialog AND stop waiting on it: a confirmer that ignores
 				// its signal must not be able to hold the turn past the deadline.
@@ -2130,17 +2134,21 @@ export class TurnRecovery {
 		const onAbort = () => aborted.resolve(false);
 		signal.addEventListener("abort", onAbort, { once: true });
 		try {
-			const answer = await Promise.race([
-				confirmer(confirmation, AbortSignal.any([signal, unattended.signal])),
-				aborted.promise,
-				expired.promise,
-			]);
-			if (!unattended.signal.aborted || signal.aborted) return answer;
+			if (confirmer) {
+				const answer = await Promise.race([
+					confirmer(confirmation, AbortSignal.any([signal, unattended.signal])),
+					aborted.promise,
+					expired.promise,
+				]);
+				if (!unattended.signal.aborted || signal.aborted) return answer;
+			}
 			await this.#host.emitSessionEvent({
 				type: "notice",
 				level: "warning",
 				source: "usage",
-				message: `Nobody answered the reserve prompt for ${confirmation.from} in ${timeoutSeconds}s, so it keeps that model. Switch to ${confirmation.to} with /model.`,
+				message: confirmer
+					? `Nobody answered the reserve prompt for ${confirmation.from} in ${timeoutSeconds}s, so it keeps that model. Switch to ${confirmation.to} with /model.`
+					: `${confirmation.from} is inside its coding-plan reserve and this session has nobody to ask, so it keeps that model. Set retry.usageReservePolicy to auto to cross to ${confirmation.to} unasked.`,
 			});
 			return false;
 		} finally {

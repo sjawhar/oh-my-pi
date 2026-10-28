@@ -1600,6 +1600,65 @@ describe("AgentSession retry fallback", () => {
 		expect(requestedModels).toEqual([`${fallbackModel.provider}/${fallbackModel.id}`]);
 	});
 
+	it("keeps the reserve-bound model in a session with no confirmer at all", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
+		if (!primaryModel || !fallbackModel) throw new Error("Expected bundled unattended reserve models");
+		const requestedModels: string[] = [];
+		const mock = createMockModel({ responses: [{ content: ["stayed on the pinned model"] }] });
+		const agent = new Agent({
+			getApiKey: model => `${model.provider}-test-key`,
+			initialState: { model: primaryModel, systemPrompt: ["Test"], tools: [], messages: [] },
+			streamFn: (model, context, options) => {
+				requestedModels.push(`${model.provider}/${model.id}`);
+				return mock.stream(model, context, options);
+			},
+		});
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.usageAwareFallback": true,
+			"retry.usageReservePct": 10,
+			"retry.usageReservePolicy": "confirm",
+			"retry.fallbackChains": { default: [`${fallbackModel.provider}/${fallbackModel.id}`] },
+		});
+		settings.setModelRole("default", `${primaryModel.provider}/${primaryModel.id}`);
+		vi.spyOn(modelRegistry.authStorage.health, "model").mockImplementation(async provider =>
+			provider === primaryModel.provider
+				? {
+						state: "reserve",
+						accounts: [
+							{
+								credentialId: 1,
+								credentialType: "oauth",
+								selected: true,
+								state: "reserve",
+								remainingFraction: 0.08,
+							},
+						],
+					}
+				: { state: "healthy", accounts: [] },
+		);
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settings,
+			modelRegistry,
+		});
+		const notices: string[] = [];
+		session.subscribe(event => {
+			if (event.type === "notice") notices.push(event.message);
+		});
+		// Headless, RPC and subagent sessions never install one.
+		session.setUsageFallbackConfirmer(undefined);
+
+		await session.prompt("Keep working on the pinned model");
+		await session.waitForIdle();
+
+		expect(requestedModels).toEqual([`${primaryModel.provider}/${primaryModel.id}`]);
+		expect(session.model?.id).toBe(primaryModel.id);
+		expect(notices.some(message => message.includes("nobody to ask"))).toBe(true);
+	});
+
 	it("defers usage fallback for a queued steer until the active stream finishes", async () => {
 		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
 		const fallbackModel = getBundledModel("openai", "gpt-4o-mini");

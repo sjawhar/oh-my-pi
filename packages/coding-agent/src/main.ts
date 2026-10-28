@@ -601,10 +601,9 @@ export function createAcpSessionFactory(args: AcpSessionFactoryOptions): AcpSess
 			authStorage: args.authStorage,
 			modelRegistry: args.modelRegistry,
 			agentId,
-			// ACP defers the `ask` capability and reserve-policy confirmation until
-			// client capabilities are known, without enabling other UI-only behavior.
+			// ACP defers the `ask` capability until client capabilities are known,
+			// without enabling other UI-only behavior.
 			interactivePrompts: factoryOptions?.interactivePrompts,
-			deferUsageReserveConfirmation: true,
 			enableMCP: false,
 			titleSystemPrompt,
 			eventBus,
