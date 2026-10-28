@@ -636,5 +636,60 @@ describe("pause screen", () => {
 				expect(agentPauseGate.paused).toBe(false);
 			}
 		});
+
+		it("resumes on space and enter encoded by modifyOtherKeys or the Kitty protocol", async () => {
+			// tmux with `extended-keys on` sends the key as an escape sequence,
+			// so a pane there answered only Escape: the operator pressed Space,
+			// nothing happened, and the screen said it should have.
+			for (const key of [
+				"\x1b[27;1;32~", // modifyOtherKeys space
+				"\x1b[27;1;13~", // modifyOtherKeys enter
+				"\x1b[32u", // Kitty space
+				"\x1b[13u", // Kitty enter
+			]) {
+				const { host, shown } = makeHost();
+				const run = runPauseScreen(host);
+				const component = shown[0];
+				if (!(component instanceof PauseScreenComponent)) throw new Error("expected the pause screen");
+				component.handleInput(key);
+				await run;
+				expect(agentPauseGate.paused).toBe(false);
+			}
+		});
+
+		it("resumes on an encoded space the pty coalesced into one chunk", async () => {
+			// A held or double-tapped space on such a pane arrives as several
+			// escape sequences in one read, which matches no single key id.
+			for (const chunk of [
+				"\x1b[27;1;32~\x1b[27;1;32~",
+				"\x1b[32u\x1b[32u",
+				"\x1b[27;1;32~ ",
+				"\x1b[27;1;32~\x1b[27;1;13~",
+			]) {
+				const { host, shown } = makeHost();
+				const run = runPauseScreen(host);
+				const component = shown[0];
+				if (!(component instanceof PauseScreenComponent)) throw new Error("expected the pause screen");
+				component.handleInput(chunk);
+				await run;
+				expect(agentPauseGate.paused).toBe(false);
+			}
+		});
+
+		it("keeps holding for input that is not a resume key", async () => {
+			// The burst rule must not turn a mouse report, an arrow or a paste
+			// into a resume.
+			const { host, shown } = makeHost();
+			const run = runPauseScreen(host);
+			const component = shown[0];
+			if (!(component instanceof PauseScreenComponent)) throw new Error("expected the pause screen");
+			for (const chunk of ["\x1b[A", "\x1b[<0;10;5M", "\x1b[200~ \x1b[201~", "\x1b[27;2;32~"]) {
+				component.handleInput(chunk);
+				expect(agentPauseGate.paused).toBe(true);
+			}
+			component.handleInput("\x1b");
+			await run;
+			expect(agentPauseGate.paused).toBe(false);
+		});
 	});
 });

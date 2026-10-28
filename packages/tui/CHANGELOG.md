@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `matchesKey` now accepts the xterm `modifyOtherKeys` encoding (`CSI 27;mod;code~`), which `parseKey` already decoded. tmux sends every key in that form when `extended-keys` is on, so on such a pane space and enter stopped matching anywhere in the TUI — on the `/pause` screen only Escape still resumed, because the interrupt key resolves through the keybinding registry, which parses first.
+
 ## [18.13.3] - 2026-10-28
 
 ### Added

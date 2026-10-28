@@ -101,16 +101,48 @@ function hasTypedText(data: string): boolean {
 }
 
 /**
- * True when the chunk is nothing but resume keys — one or more spaces, CRs or
- * LFs. A pty read coalesces bytes that arrive faster than the TUI drains them,
- * so a held or double-tapped space reaches us as `"  "`, which matches no
- * single key: without this the person pressing it would be classified as a
- * machine typing text and locked out of enter and space for the grace window.
+ * Split a coalesced pty read into the key sequences it carries. A CSI sequence
+ * runs from `ESC [` to its final byte; anything else is one character.
+ */
+function splitKeyChunks(data: string): string[] {
+	const pieces: string[] = [];
+	let index = 0;
+	while (index < data.length) {
+		if (data[index] === "\x1b" && data[index + 1] === "[") {
+			let end = index + 2;
+			while (end < data.length && !isCsiFinalByte(data[end]!)) end++;
+			if (end < data.length) {
+				pieces.push(data.slice(index, end + 1));
+				index = end + 1;
+				continue;
+			}
+		}
+		pieces.push(data[index]!);
+		index++;
+	}
+	return pieces;
+}
+
+function isCsiFinalByte(char: string): boolean {
+	const code = char.codePointAt(0) ?? 0;
+	return code >= 0x40 && code <= 0x7e;
+}
+
+/**
+ * True when the chunk is nothing but resume keys. A pty read coalesces bytes
+ * that arrive faster than the TUI drains them, so a held or double-tapped space
+ * reaches us as one chunk, which matches no single key: without this the person
+ * pressing it would be classified as a machine typing text and locked out of
+ * enter and space for the grace window. The chunk is split rather than scanned
+ * for bare bytes, because a terminal with `modifyOtherKeys` or the Kitty
+ * keyboard protocol sends each of those presses as an escape sequence.
  */
 function isResumeKeyBurst(data: string): boolean {
 	if (data.length === 0) return false;
-	for (const char of data) {
-		if (char !== " " && char !== "\r" && char !== "\n") return false;
+	for (const piece of splitKeyChunks(data)) {
+		if (piece === " " || piece === "\r" || piece === "\n") continue;
+		if (matchesKey(piece, "space") || matchesKey(piece, "enter") || matchesKey(piece, "return")) continue;
+		return false;
 	}
 	return true;
 }
