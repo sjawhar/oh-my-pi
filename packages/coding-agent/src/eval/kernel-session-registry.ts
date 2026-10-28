@@ -37,6 +37,13 @@ export interface KernelSession<TKernel extends RegistryKernel> extends SessionOw
 	sessionId: string;
 	cwd: string;
 	kernel: TKernel;
+	/**
+	 * Callers currently holding this session: an executing cell from the moment
+	 * it acquires the session, and a borrower such as a subagent that can call
+	 * the kernel's tools. Reclaiming a superseded kernel consults it, so a hold
+	 * taken before the runner owes a frame still protects it.
+	 */
+	activeUses: number;
 }
 
 interface StartingKernelSession<TSession> extends SessionOwners {
@@ -93,6 +100,7 @@ interface KernelSessionRegistry<
 	R,
 	TSession extends KernelSession<TKernel>,
 > {
+	borrowSession(cwd: string, options: TOptions): () => void;
 	disposeAll(): Promise<void>;
 	disposeByOwner(ownerId: string): Promise<void>;
 	executeOnSession(code: string, cwd: string, options: TOptions): Promise<R>;
@@ -195,6 +203,7 @@ export function createKernelSessionRegistry<
 				sessionId,
 				cwd,
 				kernel,
+				activeUses: 0,
 				ownerIds: new Set(startingSession.ownerIds),
 				hasFallbackOwner: startingSession.hasFallbackOwner,
 			});
@@ -333,18 +342,30 @@ export function createKernelSessionRegistry<
 	 * process exited, and a `reset` only ever restarted the key the caller asked
 	 * for, so the survivor outlived the restart it was supposed to die in.
 	 *
-	 * Reclaim only a session this owner alone holds, and only while its runner
-	 * owes no frame, so a kernel shared with another agent and a cell still
-	 * running (including a backgrounded one) both survive. The shutdown runs in
-	 * the background: it costs the acquiring cell nothing, and `disposeAll`
-	 * awaits whatever is still in flight.
+	 * Three things make a session off limits, because killing a kernel someone
+	 * still wants costs more than the memory this reclaims:
+	 *
+	 * - another agent is registered against it;
+	 * - a caller holds it ({@link KernelSession.activeUses}): a cell between
+	 *   acquiring the session and writing its first frame, or a borrower such as
+	 *   a subagent that can call the kernel's tools;
+	 * - its runner still owes a frame, which covers a cell already running,
+	 *   including a backgrounded one.
+	 *
+	 * Without an explicit `kernelOwnerId` the registry cannot tell two callers
+	 * apart — {@link attachSessionOwner} records the first of them and ignores
+	 * the rest — so nothing is reclaimed rather than guessed.
+	 *
+	 * The shutdown runs in the background: it costs the acquiring cell nothing,
+	 * and `disposeAll` awaits whatever is still in flight.
 	 */
-	function reclaimSupersededSessions(sessionKey: string, sessionId: string, options: TOptions): void {
-		const ownerId = options.kernelOwnerId ?? sessionId;
+	function reclaimSupersededSessions(sessionKey: string, options: TOptions): void {
+		const ownerId = options.kernelOwnerId;
+		if (ownerId === undefined) return;
 		for (const [key, session] of Array.from(sessions.entries())) {
 			if (key === sessionKey) continue;
 			if (session.ownerIds.size !== 1 || !session.ownerIds.has(ownerId)) continue;
-			if (session.kernel.hasPendingWork()) continue;
+			if (session.activeUses > 0 || session.kernel.hasPendingWork()) continue;
 			descriptor.invalidateSession?.(session);
 			if (sessions.get(key) === session) sessions.delete(key);
 			const reclaim = settleShutdown(session, false).then(result => {
@@ -355,10 +376,32 @@ export function createKernelSessionRegistry<
 					cwd: session.cwd,
 					reason: result.status === "rejected" ? result.reason : "not confirmed",
 				});
+				// Put it back so a later dispose retries, matching disposeAll.
+				if (!sessions.has(key)) sessions.set(key, session);
 			});
 			reclaiming.add(reclaim);
 			void reclaim.finally(() => reclaiming.delete(reclaim));
 		}
+	}
+
+	/**
+	 * Hold the live session for `cwd` so a superseded-kernel reclaim leaves it
+	 * alone, and return the release. Borrowers that can call a kernel's tools
+	 * between cells — a background subagent given `tools=[…]` — hold one for as
+	 * long as they can make that call. Returns a no-op when no session is live:
+	 * there is nothing to protect, and the next cell starts a fresh kernel.
+	 */
+	function borrowSession(cwd: string, options: TOptions): () => void {
+		const sessionId = options.sessionId ?? `session:${cwd}`;
+		const session = sessions.get(descriptor.buildSessionKey(sessionId, cwd, options.interpreter));
+		if (!session) return () => {};
+		session.activeUses += 1;
+		let released = false;
+		return () => {
+			if (released) return;
+			released = true;
+			session.activeUses -= 1;
+		};
 	}
 
 	async function disposeAll(): Promise<void> {
@@ -433,7 +476,6 @@ export function createKernelSessionRegistry<
 			shutdowns.push(settleShutdown(session, false));
 		}
 		const results = await Promise.all(shutdowns);
-		await Promise.all(reclaiming);
 		for (let i = 0; i < toShutdown.length; i += 1) {
 			const session = toShutdown[i];
 			const result = results[i];
@@ -489,31 +531,38 @@ export function createKernelSessionRegistry<
 			const inFlight = resettingSessions.get(sessionKey);
 			if (inFlight) await inFlight.catch(() => undefined);
 		}
-		reclaimSupersededSessions(sessionKey, sessionId, options);
+		reclaimSupersededSessions(sessionKey, options);
 		const session = await acquireSession(sessionKey, sessionId, cwd, options);
-		throwIfCallerCancelled(options);
-		const kernel = await acquireLiveSessionKernel(session, cwd, options);
-		if (!isCurrent(session, kernel)) throw new descriptor.cancelledErrorClass(false);
-		throwIfCallerCancelled(options);
-		const runOptions = { ...options, cwd };
-		let result: R;
+		// Held from here on: a concurrent cell of the same owner at another key
+		// must not reclaim this session during the window between acquiring it
+		// and the runner owing its first frame (a kernel replacement spawns a
+		// fresh runner inside that window and takes seconds).
+		session.activeUses += 1;
 		try {
-			result = await descriptor.executeWithKernel(kernel, code, runOptions);
-		} catch (err) {
-			if (
-				descriptor.isCancellation?.(err) ||
-				isCancellationError(err, descriptor.cancelledErrorClass) ||
-				options.signal?.aborted
-			)
-				throw err;
-			if (kernel.isAlive()) throw err;
-			throw new Error(
-				`${descriptor.languageLabel} kernel died during execution; completion is uncertain and the cell was not replayed. The next call will start a fresh kernel.`,
-				{ cause: err },
-			);
+			throwIfCallerCancelled(options);
+			const kernel = await acquireLiveSessionKernel(session, cwd, options);
+			if (!isCurrent(session, kernel)) throw new descriptor.cancelledErrorClass(false);
+			throwIfCallerCancelled(options);
+			const runOptions = { ...options, cwd };
+			try {
+				return await descriptor.executeWithKernel(kernel, code, runOptions);
+			} catch (err) {
+				if (
+					descriptor.isCancellation?.(err) ||
+					isCancellationError(err, descriptor.cancelledErrorClass) ||
+					options.signal?.aborted
+				)
+					throw err;
+				if (kernel.isAlive()) throw err;
+				throw new Error(
+					`${descriptor.languageLabel} kernel died during execution; completion is uncertain and the cell was not replayed. The next call will start a fresh kernel.`,
+					{ cause: err },
+				);
+			}
+		} finally {
+			session.activeUses -= 1;
 		}
-		return result;
 	}
 
-	return { disposeAll, disposeByOwner, executeOnSession, peekLiveKernel, getPresentSession };
+	return { borrowSession, disposeAll, disposeByOwner, executeOnSession, peekLiveKernel, getPresentSession };
 }
