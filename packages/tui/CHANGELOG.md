@@ -6,6 +6,7 @@
 
 - `matchesKey` now accepts the xterm `modifyOtherKeys` encoding (`CSI 27;mod;code~`), which `parseKey` already decoded. tmux sends every key in that form when `extended-keys` is on, so on such a pane space and enter stopped matching anywhere in the TUI — on the `/pause` screen only Escape still resumed, because the interrupt key resolves through the keybinding registry, which parses first. Two forms tmux does not emit still read differently in the two matchers: a shifted letter written with its shifted codepoint (`CSI 27;2;65~`), and wire modifiers carrying hyper or meta.
 - The `/pause` screen recognises typed text when one pty read carries a whole encoded word, so the `tmux send-keys '/pause' Enter` that a script aims at an already-paused pane no longer resumes the session it meant to pause on a terminal that encodes every character.
+- The `/pause` screen now paints the frame that drops it before it opens the gate. Hiding the overlay only *schedules* a frame, while resuming wakes every parked agent loop in the same tick, so the terminal kept the full-screen PAUSED frame until the renderer got a turn — on an idle session 0.10–0.14 s, on a busy one seconds. An operator reading the pane (`tmux capture-pane`) saw a held session that was already working: on 2026-10-28 a pane still showed the screen, hold timer frozen, 4.4 s after the resume key, with its session executing tools for 2.4 s of that.
 
 ## [18.13.3] - 2026-10-28
 
