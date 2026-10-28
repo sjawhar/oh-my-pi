@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- Fixed a Python eval session leaking its previous runner — tens of gigabytes of resident memory held until the host process exited — whenever its next cell resolved to a different retained-kernel key, such as a new working directory; `reset: true` restarted only the key it was called on and left the old runner alive. An agent now holds one retained Python kernel at a time, and the kernel it leaves behind is shut down unless another agent holds it or a cell is still running in it. `bun scripts/find-stranded-eval-runners.ts` lists runners a host will no longer use.
 - Fixed cached approvals offering a directory grant that would not cover every target in the call ([#17309](https://github.com/can1357/oh-my-pi/pull/17309) by [@iliaal](https://github.com/iliaal)).
 - Fixed `pr://` metadata and diffs staying stale after successful `git push` calls through `bash` ([#17183](https://github.com/can1357/oh-my-pi/pull/17183) by [@alphastorm](https://github.com/alphastorm))
 - Fixed `read` rejecting artifact URLs from truncation hints when cached approvals or restricted folders are configured ([#17282](https://github.com/can1357/oh-my-pi/pull/17282) by [@iliaal](https://github.com/iliaal)).

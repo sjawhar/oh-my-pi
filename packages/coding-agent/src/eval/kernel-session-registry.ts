@@ -28,6 +28,7 @@ interface RegistryKernelShutdownResult {
 
 interface RegistryKernel {
 	isAlive(): boolean;
+	hasPendingWork(): boolean;
 	shutdown(options?: { timeoutMs: number }): Promise<RegistryKernelShutdownResult>;
 }
 
@@ -142,6 +143,7 @@ export function createKernelSessionRegistry<
 	const startingSessions = new Map<string, StartingKernelSession<TSession>>();
 	const resettingSessions = new Map<string, Promise<void>>();
 	const replacingSessionKernels = new Map<TSession, { kernel: TKernel; promise: Promise<TKernel> }>();
+	const reclaiming = new Set<Promise<void>>();
 
 	const context: KernelSessionRegistryContext<TKernel, TOptions, TSession> = {
 		sessions,
@@ -320,6 +322,45 @@ export function createKernelSessionRegistry<
 		await shutdownSession(existing, true).catch(() => undefined);
 	}
 
+	/**
+	 * Shut down the kernels this owner left behind under other session keys.
+	 *
+	 * A retained kernel is keyed by (eval session id, cwd, interpreter), so an
+	 * owner that changes directory, switches interpreter, or whose eval session
+	 * id gains its on-disk session file, acquires a *new* kernel and strands the
+	 * previous runner. Nothing ever reclaimed the stranded one: it kept its
+	 * whole heap — tens of gigabytes in the report this fixes — until the host
+	 * process exited, and a `reset` only ever restarted the key the caller asked
+	 * for, so the survivor outlived the restart it was supposed to die in.
+	 *
+	 * Reclaim only a session this owner alone holds, and only while its runner
+	 * owes no frame, so a kernel shared with another agent and a cell still
+	 * running (including a backgrounded one) both survive. The shutdown runs in
+	 * the background: it costs the acquiring cell nothing, and `disposeAll`
+	 * awaits whatever is still in flight.
+	 */
+	function reclaimSupersededSessions(sessionKey: string, sessionId: string, options: TOptions): void {
+		const ownerId = options.kernelOwnerId ?? sessionId;
+		for (const [key, session] of Array.from(sessions.entries())) {
+			if (key === sessionKey) continue;
+			if (session.ownerIds.size !== 1 || !session.ownerIds.has(ownerId)) continue;
+			if (session.kernel.hasPendingWork()) continue;
+			descriptor.invalidateSession?.(session);
+			if (sessions.get(key) === session) sessions.delete(key);
+			const reclaim = settleShutdown(session, false).then(result => {
+				if (result.status === "fulfilled" && result.value?.confirmed !== false) return;
+				logger.warn(`${descriptor.languageLabel} kernel left behind by its session did not confirm exit`, {
+					sessionId: session.sessionId,
+					sessionKey: key,
+					cwd: session.cwd,
+					reason: result.status === "rejected" ? result.reason : "not confirmed",
+				});
+			});
+			reclaiming.add(reclaim);
+			void reclaim.finally(() => reclaiming.delete(reclaim));
+		}
+	}
+
 	async function disposeAll(): Promise<void> {
 		const pending = [...startingSessions.values()].map(starting => starting.promise);
 		startingSessions.clear();
@@ -341,6 +382,7 @@ export function createKernelSessionRegistry<
 			shutdowns.push(settleShutdown(session, false));
 		}
 		const results = await Promise.all(shutdowns);
+		await Promise.all(reclaiming);
 		for (let i = 0; i < all.length; i += 1) {
 			const [id, session] = all[i];
 			const result = results[i];
@@ -391,6 +433,7 @@ export function createKernelSessionRegistry<
 			shutdowns.push(settleShutdown(session, false));
 		}
 		const results = await Promise.all(shutdowns);
+		await Promise.all(reclaiming);
 		for (let i = 0; i < toShutdown.length; i += 1) {
 			const session = toShutdown[i];
 			const result = results[i];
@@ -446,6 +489,7 @@ export function createKernelSessionRegistry<
 			const inFlight = resettingSessions.get(sessionKey);
 			if (inFlight) await inFlight.catch(() => undefined);
 		}
+		reclaimSupersededSessions(sessionKey, sessionId, options);
 		const session = await acquireSession(sessionKey, sessionId, cwd, options);
 		throwIfCallerCancelled(options);
 		const kernel = await acquireLiveSessionKernel(session, cwd, options);

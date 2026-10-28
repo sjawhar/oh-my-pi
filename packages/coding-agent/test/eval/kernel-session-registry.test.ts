@@ -25,11 +25,16 @@ class TestCancelledError extends Error {
 class FakeKernel {
 	alive = true;
 	shutdowns = 0;
+	pendingWork = false;
 
 	constructor(readonly index: number) {}
 
 	isAlive(): boolean {
 		return this.alive;
+	}
+
+	hasPendingWork(): boolean {
+		return this.pendingWork;
 	}
 
 	async shutdown(): Promise<{ confirmed: boolean }> {
@@ -483,6 +488,80 @@ describe("kernel session recovery", () => {
 			releaseTargetReplacement.resolve();
 			releaseUnrelatedReplacement.resolve();
 			if (disposal) await disposal;
+			await registry.disposeAll();
+		}
+	});
+});
+
+describe("kernel session reclamation", () => {
+	it("shuts down the kernel an owner left behind under another session key", async () => {
+		const { kernels, registry } = createFakeRegistry(async (_kernel, code) => ({ cancelled: false, value: code }));
+		try {
+			await registry.executeOnSession("in first dir", "/tmp/a", {
+				sessionId: "left-behind:cwd:/tmp/a",
+				kernelOwnerId: "agent-session:one",
+			});
+			await registry.executeOnSession("in second dir", "/tmp/b", {
+				sessionId: "left-behind:cwd:/tmp/b",
+				kernelOwnerId: "agent-session:one",
+			});
+			expect(kernels).toHaveLength(2);
+			expect(kernels[0]?.shutdowns).toBe(1);
+			expect(kernels[0]?.alive).toBe(false);
+			expect(kernels[1]?.alive).toBe(true);
+		} finally {
+			await registry.disposeAll();
+		}
+	});
+
+	it("keeps a kernel that is still running a cell for the same owner", async () => {
+		const release = Promise.withResolvers<void>();
+		const { kernels, registry } = createFakeRegistry(async (kernel, code) => {
+			if (kernel.index !== 0) return { cancelled: false, value: code };
+			kernel.pendingWork = true;
+			await release.promise;
+			kernel.pendingWork = false;
+			return { cancelled: false, value: code };
+		});
+		try {
+			const slow = registry.executeOnSession("slow cell", "/tmp/a", {
+				sessionId: "still-busy:cwd:/tmp/a",
+				kernelOwnerId: "agent-session:one",
+			});
+			await registry.executeOnSession("next dir", "/tmp/b", {
+				sessionId: "still-busy:cwd:/tmp/b",
+				kernelOwnerId: "agent-session:one",
+			});
+			expect(kernels[0]?.shutdowns).toBe(0);
+			expect(kernels[0]?.alive).toBe(true);
+			release.resolve();
+			expect(await slow).toEqual({ cancelled: false, value: "slow cell" });
+		} finally {
+			release.resolve();
+			await registry.disposeAll();
+		}
+	});
+
+	it("keeps a kernel a second owner still holds", async () => {
+		const { kernels, registry } = createFakeRegistry(async (_kernel, code) => ({ cancelled: false, value: code }));
+		try {
+			const shared = { sessionId: "co-owned:cwd:/tmp/a" };
+			await registry.executeOnSession("first owner", "/tmp/a", {
+				...shared,
+				kernelOwnerId: "agent-session:one",
+			});
+			await registry.executeOnSession("second owner", "/tmp/a", {
+				...shared,
+				kernelOwnerId: "agent-session:two",
+			});
+			await registry.executeOnSession("first owner moves", "/tmp/b", {
+				sessionId: "co-owned:cwd:/tmp/b",
+				kernelOwnerId: "agent-session:one",
+			});
+			expect(kernels).toHaveLength(2);
+			expect(kernels[0]?.shutdowns).toBe(0);
+			expect(kernels[0]?.alive).toBe(true);
+		} finally {
 			await registry.disposeAll();
 		}
 	});
