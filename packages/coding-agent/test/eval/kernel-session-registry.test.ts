@@ -673,6 +673,7 @@ describe("kernel session reclamation", () => {
 		try {
 			await registry.executeOnSession("first dir", "/tmp/a", { sessionId: "anonymous" });
 			await registry.executeOnSession("second dir", "/tmp/b", { sessionId: "anonymous:other" });
+			await settleGrace();
 			expect(kernels[0]?.shutdowns).toBe(0);
 			expect(kernels[0]?.alive).toBe(true);
 		} finally {
@@ -696,6 +697,7 @@ describe("kernel session reclamation", () => {
 				sessionId: "co-owned:cwd:/tmp/b",
 				kernelOwnerId: "agent-session:one",
 			});
+			await settleGrace();
 			expect(kernels).toHaveLength(2);
 			expect(kernels[0]?.shutdowns).toBe(0);
 			expect(kernels[0]?.alive).toBe(true);

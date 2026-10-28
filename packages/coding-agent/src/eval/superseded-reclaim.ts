@@ -1,5 +1,5 @@
 /**
- * Idle grace for the kernel an eval session leaves behind.
+ * Grace before the kernel an eval session leaves behind is shut down.
  *
  * A retained kernel is keyed by its eval session id, cwd and interpreter, so an
  * agent that changes directory acquires a different kernel and strands the one
@@ -13,9 +13,13 @@
  * Two minutes is the shape of the round trip this protects: long enough for an
  * agent to run a handful of cells elsewhere and come back, short enough that a
  * host left running for hours is not carrying a kernel nobody has touched since
- * breakfast. The grace only ever delays the shutdown; it never delays a
- * disposal, because a session ending or the process exiting cancels the timer
- * and shuts the kernel down through the ordinary path.
+ * breakfast. The clock starts when the session is superseded, not when the
+ * kernel falls idle, so a cell still running when its owner walks away is
+ * measured from the same moment; the reclaim simply declines to kill a kernel
+ * that is still busy when the timer fires. The grace only ever delays the
+ * shutdown; it never delays a disposal, because a session ending or the
+ * process exiting cancels the timer and shuts the kernel down through the
+ * ordinary path.
  */
 export const SUPERSEDED_KERNEL_GRACE_MS = 120_000;
 
@@ -50,7 +54,9 @@ export class SupersededKernelReaper<TSession> {
 		if (this.#timers.has(session)) return;
 		const timer = setTimeout(() => {
 			this.#timers.delete(session);
-			const running = reclaim();
+			// A failed reclaim is logged by the caller, never thrown at whoever
+			// happens to be disposing.
+			const running = reclaim().catch(() => {});
 			this.#inFlight.add(running);
 			void running.finally(() => this.#inFlight.delete(running));
 		}, graceMs);
