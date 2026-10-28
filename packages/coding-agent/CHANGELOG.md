@@ -7,6 +7,7 @@
 - Fixed `read` rejecting artifact URLs from truncation hints when cached approvals or restricted folders are configured ([#17282](https://github.com/can1357/oh-my-pi/pull/17282) by [@iliaal](https://github.com/iliaal)).
 - A failed Hindsight memory recall (for example `recall request timed out after 30s`) now shows a warning instead of silently sending the prompt without memories; `omp -p` writes it, and Hindsight retain failures, to stderr ([#17278](https://github.com/can1357/oh-my-pi/pull/17278) by [@enieuwy](https://github.com/enieuwy))
 - Fixed cancelling an MCP OAuth login or `/mcp` auth lookup at the wrong moment crashing the session with an unhandled rejection ([#17290](https://github.com/can1357/oh-my-pi/pull/17290) by [@H4vC](https://github.com/H4vC))
+- Fixed a transcript a live session is running being offered to peers as a parked, revivable agent: a pane resumed on a subagent's transcript (`omp --resume <name>.jsonl`) started a second agent loop on that same transcript when a peer messaged it by that name, and a second omp process did the same to a sibling pane's. The roster scan now asks the session ownership lease who is running a journal before deriving a ref from it, and binds the transcript's name to the session running it, so `agent://<name>`, Agent Hub focus and a `task` resume all reach that session; a journal another omp process runs, and a copy of a running session's journal, are not offered and say why ([#17257](https://github.com/can1357/oh-my-pi/pull/17257) by [@sjawhar](https://github.com/sjawhar))
 
 ## [18.13.3] - 2026-10-28
 
