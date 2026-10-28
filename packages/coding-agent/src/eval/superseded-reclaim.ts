@@ -21,10 +21,8 @@ export const SUPERSEDED_KERNEL_GRACE_MS = 120_000;
 
 let graceMs = SUPERSEDED_KERNEL_GRACE_MS;
 
-/** Current grace before a superseded kernel is shut down. */
-export function supersededKernelGraceMs(): number {
-	return graceMs;
-}
+/** The handle `setTimeout` hands back, named so no consumer reaches for `ReturnType`. */
+type GraceTimer = Timer;
 
 /**
  * Shorten (or restore) the grace so a test can watch a real reclaim instead of
@@ -43,9 +41,6 @@ export function setSupersededKernelGraceMs(ms?: number): void {
  * timer. The reclaim itself re-checks every guard when the timer fires, so a
  * borrow or a cell that started during the grace is never killed by it.
  */
-/** The handle `setTimeout` hands back, named so no consumer reaches for `ReturnType`. */
-type GraceTimer = Timer;
-
 export class SupersededKernelReaper<TSession> {
 	readonly #timers = new Map<TSession, GraceTimer>();
 	readonly #inFlight = new Set<Promise<void>>();
@@ -76,11 +71,6 @@ export class SupersededKernelReaper<TSession> {
 	cancelAll(): void {
 		for (const timer of this.#timers.values()) clearTimeout(timer);
 		this.#timers.clear();
-	}
-
-	/** True while `session` is waiting out its grace. */
-	isScheduled(session: TSession): boolean {
-		return this.#timers.has(session);
 	}
 
 	/** Settle reclaims already running, so a dispose cannot return with a runner still up. */

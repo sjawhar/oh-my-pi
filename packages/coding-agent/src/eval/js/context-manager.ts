@@ -242,7 +242,9 @@ function reclaimSupersededJsSessions(sessionKey: string, ownerId: string | undef
 	if (ownerId === undefined) return;
 	for (const [key, session] of Array.from(sessions.entries())) {
 		if (key === sessionKey) continue;
-		if (!isJsSessionReclaimable(key, session, ownerId)) continue;
+		// Armed on ownership alone; the fire-time guard decides. See the Python
+		// registry's `reclaimSupersededSessions` for why a busy session is armed.
+		if (!ownedAloneBy(key, session, ownerId)) continue;
 		reaper.schedule(session, async () => {
 			if (!isJsSessionReclaimable(key, session, ownerId)) return;
 			await killSessionFor(session, new ToolError("JS context left behind by its session"), { force: false });
@@ -250,10 +252,15 @@ function reclaimSupersededJsSessions(sessionKey: string, ownerId: string | undef
 	}
 }
 
+/** Whether `session` under `key` is still this owner's alone. */
+function ownedAloneBy(key: string, session: JsSession, ownerId: string): boolean {
+	if (sessions.get(key) !== session) return false;
+	return session.ownerIds.size === 1 && session.ownerIds.has(ownerId);
+}
+
 /** Whether this owner's superseded `session` may be shut down right now. */
 function isJsSessionReclaimable(key: string, session: JsSession, ownerId: string): boolean {
-	if (sessions.get(key) !== session || session.state !== "alive") return false;
-	if (session.ownerIds.size !== 1 || !session.ownerIds.has(ownerId)) return false;
+	if (!ownedAloneBy(key, session, ownerId) || session.state !== "alive") return false;
 	if (session.activeUses > 0) return false;
 	return session.pending.size === 0 && session.pendingSnapshots.size === 0 && session.pendingShadowRuns.size === 0;
 }
@@ -451,6 +458,7 @@ export async function runIfSnapshotMatches(options: {
 export async function resetVmContext(sessionKey: string): Promise<void> {
 	const session = sessions.get(sessionKey) ?? (await startingSessions.get(sessionKey)?.promise.catch(() => undefined));
 	if (!session) return;
+	reaper.cancel(session);
 	sessions.delete(sessionKey);
 	await killSession(session, new ToolError("JS context reset"), { force: false });
 }
@@ -469,6 +477,9 @@ export async function disposeAllVmContexts(): Promise<void> {
 	}
 	sessions.clear();
 	await Promise.all(all.map(session => killSession(session, new ToolError("JS context disposed"), { force: false })));
+	// A reclaim that fired just before the cancel may still be terminating a
+	// worker; a dispose must not return while one is up.
+	await reaper.settle();
 }
 
 /**

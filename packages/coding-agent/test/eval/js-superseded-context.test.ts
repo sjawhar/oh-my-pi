@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { TempDir } from "@oh-my-pi/pi-utils";
 import { AsyncJobManager } from "../../src/async";
 import { Settings } from "../../src/config/settings";
-import { disposeAllVmContexts } from "../../src/eval/js/context-manager";
+import { borrowVmContext, disposeAllVmContexts } from "../../src/eval/js/context-manager";
 import { executeJs } from "../../src/eval/js/executor";
 import { setSupersededKernelGraceMs } from "../../src/eval/superseded-reclaim";
 import { AgentOutputManager } from "../../src/task/output-manager";
@@ -90,5 +90,22 @@ describe("superseded JavaScript contexts", () => {
 		await contextId(otherDir.path(), `js:cwd:${otherDir.path()}`, "agent-session:js-one");
 		await Bun.sleep(TEST_GRACE_MS * 8);
 		expect(await contextId(sharedDir.path(), sessionId, "agent-session:js-two")).toBe(first);
+	}, 60_000);
+
+	it("keeps a context a borrower still holds past the grace", async () => {
+		setSupersededKernelGraceMs(TEST_GRACE_MS);
+		using firstDir = TempDir.createSync("@js-borrow-a-");
+		using secondDir = TempDir.createSync("@js-borrow-b-");
+		const owner = "agent-session:js-borrow";
+		const firstKey = `js:cwd:${firstDir.path()}`;
+		const first = await contextId(firstDir.path(), firstKey, owner);
+
+		// A subagent given this kernel's tools can call them between cells, so
+		// it holds the context even while its owner runs elsewhere.
+		const release = borrowVmContext(firstKey);
+		await contextId(secondDir.path(), `js:cwd:${secondDir.path()}`, owner);
+		await Bun.sleep(TEST_GRACE_MS * 8);
+		expect(await contextId(firstDir.path(), firstKey, owner)).toBe(first);
+		release();
 	}, 60_000);
 });
