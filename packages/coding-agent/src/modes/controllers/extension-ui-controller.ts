@@ -46,6 +46,7 @@ import { HookSelectorComponent, type HookSelectorSlider } from "@oh-my-pi/pi-tui
 import { getAvailableThemesWithPaths, getThemeByName, setTheme, type Theme, theme } from "@oh-my-pi/pi-tui/theme";
 import type { InteractiveModeContext, InteractiveSelectorDialogOptions } from "../../modes/types";
 import { normalizeCustomMessagePayload, USER_INTERRUPT_LABEL } from "../../session/messages";
+import { usageReserveConfirmPrompt } from "../../session/retry-fallback-reason";
 import { disambiguateDisplayLabels, sanitizeCarriageReturns } from "@oh-my-pi/pi-tui/render/render-utils";
 import { setExtensionTerminalTitle, setSessionTerminalTitle } from "../../utils/title-generator";
 import { getEditorCommand, openInEditor } from "../../utils/external-editor";
@@ -231,15 +232,8 @@ export class ExtensionUiController {
 		this.ctx.setToolUIContext(enrichedUiContext, true);
 		this.#toolUIContext = enrichedUiContext;
 		this.ctx.session.setUsageFallbackConfirmer?.((confirmation, signal) => {
-			const reserve =
-				confirmation.remainingPercent === undefined
-					? "inside the configured reserve margin"
-					: `${confirmation.remainingPercent.toFixed(1)}% remaining`;
-			return this.showHookConfirm(
-				"Coding-plan reserve reached",
-				`${confirmation.from} has ${reserve}. Switch to ${confirmation.to}? Choose No to keep using the current plan.`,
-				{ signal },
-			);
+			const { title, message } = usageReserveConfirmPrompt(confirmation);
+			return this.showHookConfirm(title, message, { signal });
 		});
 
 		const extensionRunner = this.ctx.session.extensionRunner;

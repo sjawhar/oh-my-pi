@@ -52,7 +52,8 @@ import { requestTextPrediction, textPredictionBackend } from "../../predict/clie
 import { type AgentSession, type NavigateTreeResult, SessionBusyError } from "../../session/agent-session";
 import type { MCPManager } from "../../mcp/manager";
 import { reconnectMcpManagerServer } from "../../mcp/oauth-reauth";
-import type { RestoredQueuedMessage } from "../../session/agent-session-types";
+import type { RestoredQueuedMessage, UsageFallbackConfirmer } from "../../session/agent-session-types";
+import { usageReserveConfirmPrompt } from "../../session/retry-fallback-reason";
 import { CACHE_WARMING_MODES } from "../../session/cache-warmer";
 import { findMostRecentNonEmptySession, findRecentSessionContinuation } from "../../session/session-listing";
 import { SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/messages";
@@ -1714,23 +1715,31 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	// correct waiting promise regardless of which code path created the request.
 	const rpcUiContext = new RpcExtensionUIContext(pendingExtensionRequests, output);
 	setToolUIContext?.(rpcUiContext, true);
-	// An rpc-ui host has a person behind a real dialog surface, so the
-	// coding-plan reserve question reaches them instead of defaulting to
-	// "keep the current model" the way a session with nobody to ask does.
-	session.setUsageFallbackConfirmer((confirmation, signal) => {
-		const reserve =
-			confirmation.remainingPercent === undefined
-				? "inside the configured reserve margin"
-				: `${confirmation.remainingPercent.toFixed(1)}% remaining`;
-		return rpcUiContext.confirm(
-			"Coding-plan reserve reached",
-			`${confirmation.from} has ${reserve}. Switch to ${confirmation.to}? Choose No to keep using the current plan.`,
-			{ signal },
-		);
-	});
+	const confirmUsageReserve: UsageFallbackConfirmer = (confirmation, signal) => {
+		const { title, message } = usageReserveConfirmPrompt(confirmation);
+		return rpcUiContext.confirm(title, message, { signal });
+	};
+	/**
+	 * The coding-plan reserve question goes only to a host that declared a
+	 * dialog surface: `--mode rpc-ui`, which routes tool UI over the protocol,
+	 * or a `set_ask_dialog` opt-in. Every other RPC host is the "RPC without a
+	 * UI" case — a scripted client that answers no `extension_ui_request` — and
+	 * gets no confirmer at all, so its turn is never held for
+	 * `retry.usageReserveConfirmTimeout` waiting on an answer nobody will send,
+	 * and it keeps its model the way a session with nobody to ask does.
+	 *
+	 * Re-evaluated whenever the opt-in moves, because the session captures the
+	 * confirmer once; `askDialog` gets the same freshness from being a getter.
+	 */
+	const syncUsageFallbackConfirmer = (): void => {
+		const hasDialogSurface = setToolUIContext !== undefined || rpcUiContext.askDialogEnabled;
+		session.setUsageFallbackConfirmer(hasDialogSurface ? confirmUsageReserve : undefined);
+	};
+	syncUsageFallbackConfirmer();
 
 	const setAskDialog = (command: RpcCommand & { type: "set_ask_dialog" }): RpcResponse => {
 		rpcUiContext.askDialogEnabled = command.enabled === true;
+		syncUsageFallbackConfirmer();
 		return success(command.id, "set_ask_dialog", { enabled: rpcUiContext.askDialogEnabled });
 	};
 	const onPromptError = (id: string | undefined, command: string) => (promptError: Error) =>

@@ -27,6 +27,7 @@
 
 ### Fixed
 
+- Fixed a scripted RPC client — one that reads frames and answers no dialog — being held for up to `retry.usageReserveConfirmTimeout` on a "Coding-plan reserve reached" prompt it never sees. The prompt now goes only to a host that declared a dialog surface (`--mode rpc-ui`, or a `set_ask_dialog` opt-in, which takes effect for the rest of the session); every other RPC host keeps its model at once, as a session with nobody to ask already did
 - Fixed a session that reached its coding-plan reserve waiting forever on the "Coding-plan reserve reached" prompt while its terminal title still showed a working run: a dialog only a person can answer (this prompt, an MCP sign-in, a `cfg://` write, a plan approval, an ACP permission request) now reports the run as blocked, so the title a tmux pane shows reads `π ! …` and the OSC 7501 record says `state=blocked:kind=question`
 - Fixed omp's title staying on the terminal tab after exit in terminals without a title stack; Windows consoles get their original title back ([#17321](https://github.com/can1357/oh-my-pi/pull/17321) by [@asuffield](https://github.com/asuffield))
 - Fixed cached approvals offering a directory grant that would not cover every target in the call ([#17309](https://github.com/can1357/oh-my-pi/pull/17309) by [@iliaal](https://github.com/iliaal)).
