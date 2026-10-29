@@ -901,7 +901,7 @@ export interface FindSessionContinuationOptions {
  */
 export async function findSessionContinuation(
 	sessionPath: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 	options: FindSessionContinuationOptions = {},
 ): Promise<SessionContinuation | undefined> {
 	const target = path.resolve(sessionPath);
@@ -985,7 +985,7 @@ export async function resolveResumeTarget(
 	sessionDir?: string,
 	options: ResolveResumableSessionOptions = {},
 ): Promise<ResumeTarget | undefined> {
-	const match = await resolveResumableSession(sessionArg, cwd, sessionDir, new FileSessionStorage(), options);
+	const match = await resolveResumableSession(sessionArg, cwd, sessionDir, defaultSessionStorage(), options);
 	const continuation = match
 		? await findSessionContinuation(match.session.path, undefined, {
 				matchedByFileName: !match.session.id.toLowerCase().startsWith(sessionArg.toLowerCase()),
@@ -1009,7 +1009,7 @@ async function findUnlistedSessionContinuation(
 	cwd: string,
 	sessionDir: string | undefined,
 	options: ResolveResumableSessionOptions,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 ): Promise<SessionContinuation | undefined> {
 	const prefix = idPrefix.toLowerCase();
 	if (!/^[\w-]+$/.test(prefix)) return undefined;
@@ -1017,7 +1017,9 @@ async function findUnlistedSessionContinuation(
 	const globalToo = !sessionDir || options.allowGlobalFallback === true;
 	for (const scope of globalToo ? ["local", "global"] : ["local"]) {
 		const files =
-			scope === "local" ? storage.listFilesSync(localDir, `*_${prefix}*.jsonl`) : await findSessionFiles(prefix);
+			scope === "local"
+				? storage.listFilesSync(localDir, `*_${prefix}*.jsonl`)
+				: await findSessionFiles(prefix, undefined, storage);
 		for (const file of files) {
 			if (!parseSessionFileName(file)?.id.startsWith(prefix)) continue;
 			const continuation = await findSessionContinuation(file, storage, { matchedByFileName: true });
@@ -1044,7 +1046,7 @@ async function findUnlistedSessionContinuation(
  */
 export async function findRecentSessionContinuation(
 	sessionPath: string,
-	storage: SessionStorage = new FileSessionStorage(),
+	storage: SessionStorage = defaultSessionStorage(),
 ): Promise<SessionContinuation | undefined> {
 	const target = path.resolve(sessionPath);
 	const picked = await scanSessionFile(target, storage, false);

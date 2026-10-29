@@ -5,14 +5,12 @@
  * each subagent's own children nest the same way under `<dir>/<name>/<AgentId>/`. Advisor
  * transcripts (`__advisor*.jsonl`) share those directories and are not subagents.
  */
-import * as fs from "node:fs";
 import * as path from "node:path";
-import { isEnoent } from "@oh-my-pi/pi-utils";
 import { isAdvisorTranscriptName } from "../advisor/transcript-recorder";
 import { getAgentTombstonePath } from "../registry/agent-tombstone";
 import { resolveSessionLeafId, type SessionEntry, type SessionHeader } from "./session-entries";
 import { loadSessionFile } from "./session-loader";
-import { defaultSessionStorage, FileSessionStorage, type SessionStorage } from "./session-storage";
+import { defaultSessionStorage, type SessionStorage } from "./session-storage";
 
 /** Persisted subagent session transcript, keyed by slash-joined agent path. */
 export interface SubSession {
@@ -57,7 +55,7 @@ interface StoredSubSessionFile {
 	file: string;
 	/** The subagent was explicitly killed. */
 	aborted: boolean;
-	/** The directory named after the file's stem may hold that subagent's own children. */
+	/** The directory named after the file's stem holds that subagent's own children. */
 	descend: boolean;
 }
 
@@ -68,10 +66,8 @@ async function collectSubSessionsFromDir(
 	onUnreadable: UnreadableSubSessionHandler | undefined,
 	storage: SessionStorage,
 ): Promise<void> {
-	const files =
-		storage instanceof FileSessionStorage ? await listDirectoryFiles(dir) : await listStoredFiles(dir, storage);
-	for (const { name, file, aborted, descend } of files) {
-		if (!name.endsWith(".jsonl") || name.includes(".bak") || isAdvisorTranscriptName(name)) continue;
+	for (const { name, file, aborted, descend } of await listStoredFiles(dir, storage)) {
+		if (name.includes(".bak") || isAdvisorTranscriptName(name)) continue;
 		const agentId = name.slice(0, -6);
 		const key = parentKey ? `${parentKey}/${agentId}` : agentId;
 		const { entries: fileEntries, malformedRecords, invalidHeader } = await loadSessionFile(file, storage);
@@ -97,40 +93,15 @@ async function collectSubSessionsFromDir(
 }
 
 /**
- * Files in an on-disk subagent directory. Only real child directories are
+ * Transcripts the storage holds directly under `dir`, in name order, with the
+ * two sidecar facts the walk needs. Only directories the storage reports are
  * descended into: a transcript stem such as "." or ".." would revisit an
- * ancestor, and symlinked directories can loop back into the tree.
- */
-async function listDirectoryFiles(dir: string): Promise<StoredSubSessionFile[]> {
-	let dirents: fs.Dirent[];
-	try {
-		dirents = await fs.promises.readdir(dir, { withFileTypes: true });
-	} catch (err) {
-		if (isEnoent(err) || (err as NodeJS.ErrnoException).code === "ENOTDIR") return [];
-		throw err;
-	}
-	const fileNames = new Set<string>();
-	const childDirectories = new Set<string>();
-	for (const dirent of dirents) {
-		if (dirent.isFile()) fileNames.add(dirent.name);
-		else if (dirent.isDirectory()) childDirectories.add(dirent.name);
-	}
-	return [...fileNames].sort().map(name => ({
-		name,
-		file: path.join(dir, name),
-		aborted: fileNames.has(getAgentTombstonePath(name)),
-		descend: childDirectories.has(name.slice(0, -6)),
-	}));
-}
-
-/**
- * Transcripts a key-indexed storage holds directly under `dir`. It has no
- * directories, so every stem is searched for children unless its directory is
- * not strictly inside `dir`: the stems "", "." and ".." would revisit `dir` or
- * its parent. Kill tombstones are written beside the transcript path on local
- * disk whatever the storage.
+ * ancestor, and a symlinked directory can loop back into the tree. Kill
+ * tombstones are local files beside the transcript path, whatever store holds
+ * the transcript itself.
  */
 async function listStoredFiles(dir: string, storage: SessionStorage): Promise<StoredSubSessionFile[]> {
+	const childDirectories = new Set(storage.listDirsSync(dir));
 	const byName = new Map(storage.listFilesSync(dir, "*.jsonl").map(file => [path.basename(file), file]));
 	return Promise.all(
 		[...byName.keys()].sort().map(async name => {
@@ -139,7 +110,7 @@ async function listStoredFiles(dir: string, storage: SessionStorage): Promise<St
 				name,
 				file,
 				aborted: await Bun.file(getAgentTombstonePath(file)).exists(),
-				descend: path.dirname(path.join(dir, name.slice(0, -6))) === path.join(dir),
+				descend: childDirectories.has(name.slice(0, -6)),
 			};
 		}),
 	);
