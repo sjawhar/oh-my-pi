@@ -24,7 +24,11 @@ import {
 	stringifyJson,
 	toError,
 } from "@oh-my-pi/pi-utils";
-import { isTaskToolDetails, type StructuredSubagentSchemaMode } from "@oh-my-pi/pi-tui/tools/task";
+import {
+	type AgentModelSource,
+	isTaskToolDetails,
+	type StructuredSubagentSchemaMode,
+} from "@oh-my-pi/pi-tui/tools/task";
 import * as snapcompact from "@oh-my-pi/snapcompact";
 import { moveFileAcrossDevices } from "../utils/atomic-file";
 import { hasAnnotationDraftsSync } from "../extensibility/custom-commands/bundled/annotate/draft-store";
@@ -3657,6 +3661,8 @@ export class SessionManager {
 		tools: string[];
 		agent?: string;
 		modelRole?: string;
+		modelSource?: AgentModelSource;
+		shadowedModelRole?: string;
 		resolvedModel?: string;
 		retryFallback?: RetryFallbackRole;
 		readOnly?: boolean;

@@ -24,6 +24,7 @@ import {
 } from "@oh-my-pi/pi-tui/render/render-utils";
 import { type EditMode, getEditInputPaths } from "@oh-my-pi/pi-tui/tools/edit";
 import {
+	type AgentModelSource,
 	formatModelStringWithRouting,
 	resolveAgentAdvisorRolePattern,
 	resolveAgentAdvisorSelection,
@@ -434,6 +435,10 @@ export interface ExecutorOptions {
 	modelOverride?: string | string[];
 	/** Explicit pre-expansion model role alias selected for this run. */
 	modelRole?: string;
+	/** Which configured input decided {@link modelOverride}; recorded on the run. */
+	modelSource?: AgentModelSource;
+	/** Model role the agent definition asked for, when a higher-precedence input decided instead. */
+	shadowedModelRole?: string;
 	/** Extension routing note for the chosen model; surfaced as `resolvedModelRoute`. */
 	modelRoute?: string;
 	/**
@@ -1229,6 +1234,10 @@ interface RunMonitorArgs {
 	modelOverride?: string | string[];
 	/** Explicit pre-expansion model role alias selected for this run. */
 	modelRole?: string;
+	/** Which configured input decided {@link modelOverride}; recorded on the run. */
+	modelSource?: AgentModelSource;
+	/** Model role the agent definition asked for, when a higher-precedence input decided instead. */
+	shadowedModelRole?: string;
 	/** Extension routing note for the chosen model. */
 	modelRoute?: string;
 	signal?: AbortSignal;
@@ -1371,6 +1380,8 @@ function createSubagentRunMonitor(args: RunMonitorArgs): SubagentRunMonitor {
 		durationMs: 0,
 		modelOverride: args.modelOverride,
 		modelRole: args.modelRole,
+		modelSource: args.modelSource,
+		...(args.shadowedModelRole !== undefined ? { shadowedModelRole: args.shadowedModelRole } : {}),
 		resolvedModelRoute: args.modelRoute,
 	};
 
@@ -3034,6 +3045,10 @@ export interface IrcWakeTurnMonitorOptions {
 	modelOverride?: string | string[];
 	/** Explicit pre-expansion model role alias selected for this run. */
 	modelRole?: string;
+	/** Which configured input decided {@link modelOverride}; kept so a woken turn reports it too. */
+	modelSource?: AgentModelSource;
+	/** Model role the agent definition asked for, when a higher-precedence input decided instead. */
+	shadowedModelRole?: string;
 	eventBus?: EventBus;
 	subagentEventBus?: EventBus;
 	parentToolCallId?: string;
@@ -3678,6 +3693,10 @@ export interface FollowUpTurnOptions {
 	description?: string;
 	/** Explicit pre-expansion model role alias retained from the original run. */
 	modelRole?: string;
+	/** Which configured input decided the model; kept so a follow-up turn reports it too. */
+	modelSource?: AgentModelSource;
+	/** Model role the agent definition asked for, when a higher-precedence input decided instead. */
+	shadowedModelRole?: string;
 	/** Structured-output state retained from the original invocation; see {@link ExecutorOptions.structured}. */
 	structured?: boolean;
 	outputSchema?: unknown;
@@ -3777,6 +3796,8 @@ export async function runSubagentFollowUpTurn(options: FollowUpTurnOptions): Pro
 		task: message,
 		description: options.description,
 		modelRole: options.modelRole,
+		modelSource: options.modelSource,
+		shadowedModelRole: options.shadowedModelRole,
 		signal,
 		onProgress: options.onProgress,
 		eventBus: options.eventBus,
@@ -4403,6 +4424,8 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		settings,
 		modelOverride,
 		modelRole,
+		modelSource: options.modelSource,
+		shadowedModelRole: options.shadowedModelRole,
 		modelRoute: options.modelRoute,
 		signal,
 		onProgress,
@@ -4436,6 +4459,8 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		description: options.description,
 		modelOverride,
 		modelRole,
+		modelSource: options.modelSource,
+		shadowedModelRole: options.shadowedModelRole,
 		eventBus: options.eventBus,
 		subagentEventBus: options.subagentEventBus,
 		parentToolCallId: options.parentToolCallId,
@@ -4953,6 +4978,8 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				tools: persistedSubagentTools,
 				agent: agent.name,
 				modelRole: modelRole ?? resolveExplicitModelRole(modelOverride ?? agent.model, subagentSettings),
+				modelSource: options.modelSource,
+				shadowedModelRole: options.shadowedModelRole,
 				resolvedModel: progress.resolvedModel,
 				// Deferred model resolution installs this role inside createAgentSession,
 				// so read it back from the settings both install paths write.

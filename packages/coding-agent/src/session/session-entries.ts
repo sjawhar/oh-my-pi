@@ -7,7 +7,7 @@ import type {
 	TextContent,
 	Usage,
 } from "@oh-my-pi/pi-ai";
-import type { StructuredSubagentSchemaMode } from "@oh-my-pi/pi-tui/tools/task";
+import type { AgentModelSource, StructuredSubagentSchemaMode } from "@oh-my-pi/pi-tui/tools/task";
 import type { CompactionMethod } from "./compaction-methods";
 import type { WorkPoolYieldItem } from "../task/workpool-yield";
 import type { RetryFallbackRole } from "./retry-fallback-chains";
@@ -280,6 +280,10 @@ export interface SessionInitEntry extends SessionEntryBase {
 	agent?: string;
 	/** Semantic model role declared by the agent, retained even after concrete model resolution. */
 	modelRole?: string;
+	/** Which configured input decided the model: `request`, `agentOverride`, `agent` or `session`. */
+	modelSource?: AgentModelSource;
+	/** Model role the agent definition asked for, when a higher-precedence input decided instead. */
+	shadowedModelRole?: string;
 	/** Initially resolved provider/model selector for historical display. */
 	resolvedModel?: string;
 	/** Subagent's `subagent:<id>` retry fallback role as installed at spawn; cold revival reinstalls it. Absent when none was installed or on older files. */

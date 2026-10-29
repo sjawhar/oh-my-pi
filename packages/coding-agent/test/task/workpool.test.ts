@@ -26,6 +26,7 @@ const POLICY = {
 	agentName: "scout",
 	agent: AGENT,
 	effectiveAgent: AGENT,
+	modelSource: "agent",
 	structured: true,
 	schema: { schema: undefined, source: "none", mode: "permissive", outputSchemaOverridesAgent: false },
 	planMode: false,

@@ -24,6 +24,7 @@ import {
 
 import { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import type { ModelRoleLookup } from "@oh-my-pi/pi-tui/overlays/model-browser";
+import type { AgentModelSource } from "@oh-my-pi/pi-tui/tools/task";
 import type { Api, Effort, KnownProvider, Model, ModelSpec } from "@oh-my-pi/pi-ai";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { roleDefaultModels } from "@oh-my-pi/pi-catalog/compat/behavior";
@@ -1303,7 +1304,12 @@ export interface AgentModelPatternResolutionOptions {
 interface EffectiveAgentModelSelection {
 	source?: string | string[];
 	patterns: string[];
+	/** Which of the resolution inputs supplied {@link source}. */
+	origin: AgentModelSource;
 }
+
+/** Re-exported so model-resolution callers need not reach into the TUI task types. */
+export type { AgentModelSource } from "@oh-my-pi/pi-tui/tools/task";
 
 function resolveEffectiveAgentModelSelection(
 	options: AgentModelPatternResolutionOptions,
@@ -1312,12 +1318,12 @@ function resolveEffectiveAgentModelSelection(
 
 	const requestPatterns = resolveConfiguredModelPatterns(requestModel, settings);
 	if (requestPatterns.length > 0) {
-		return { source: requestModel, patterns: requestPatterns };
+		return { source: requestModel, patterns: requestPatterns, origin: "request" };
 	}
 
 	const overridePatterns = resolveConfiguredModelPatterns(settingsOverride, settings);
 	if (overridePatterns.length > 0) {
-		return { source: settingsOverride, patterns: overridePatterns };
+		return { source: settingsOverride, patterns: overridePatterns, origin: "agentOverride" };
 	}
 
 	const normalizedAgentPatterns = normalizeModelPatternList(agentModel);
@@ -1329,14 +1335,16 @@ function resolveEffectiveAgentModelSelection(
 			singleAgentPattern === formatModelRoleAlias("task") ||
 			singleAgentPattern === `${LEGACY_MODEL_ROLE_ALIAS_PREFIX}task`
 		) {
-			return { source: agentModel, patterns: configuredAgentPatterns };
+			return { source: agentModel, patterns: configuredAgentPatterns, origin: "agent" };
 		}
-		if (!agentInheritsSessionModel) return { source: agentModel, patterns: configuredAgentPatterns };
+		if (!agentInheritsSessionModel) {
+			return { source: agentModel, patterns: configuredAgentPatterns, origin: "agent" };
+		}
 	}
 
 	const fallback =
 		activeModelPattern?.trim() || fallbackModelPattern?.trim() || settings?.getModelRole("default")?.trim() || "";
-	return { patterns: resolveConfiguredModelPatterns(fallback, settings) };
+	return { patterns: resolveConfiguredModelPatterns(fallback, settings), origin: "session" };
 }
 
 /** Effective agent model patterns paired with the pre-expansion role alias behind them. */
@@ -1345,6 +1353,17 @@ export interface AgentModelSelection {
 	patterns: string[];
 	/** Role alias the patterns came from (`@task` -> `task`), when the source named one. */
 	role: string | undefined;
+	/** Which configured input decided {@link patterns}. */
+	origin: AgentModelSource;
+	/**
+	 * Model role the agent definition asked for when a higher-precedence input
+	 * decided instead — a caller's `model` argument or the agent's
+	 * `task.agentModelOverrides` entry. Undefined when nothing outranked the
+	 * definition. Without it a spawn reports a bare model id, and an operator
+	 * who edits that role has no way to see from the session that the role was
+	 * never consulted.
+	 */
+	shadowedRole?: string;
 }
 
 /**
@@ -1354,8 +1373,21 @@ export interface AgentModelSelection {
  * discards, and deriving the two halves separately is how they drift apart.
  */
 export function resolveAgentModelSelection(options: AgentModelPatternResolutionOptions): AgentModelSelection {
-	const { source, patterns } = resolveEffectiveAgentModelSelection(options);
-	return { patterns, role: resolveExplicitModelRole(source, options.settings) };
+	const { source, patterns, origin } = resolveEffectiveAgentModelSelection(options);
+	const role = resolveExplicitModelRole(source, options.settings);
+	// Only an input that outranks the agent definition shadows it. A definition
+	// that asks to inherit the session model (`@default`, and `@task` when the
+	// role is unset) resolved as written, so nothing was shadowed there.
+	const definitionRole =
+		origin === "request" || origin === "agentOverride"
+			? resolveExplicitModelRole(options.agentModel, options.settings)
+			: undefined;
+	return {
+		patterns,
+		role,
+		origin,
+		...(definitionRole !== undefined && definitionRole !== role ? { shadowedRole: definitionRole } : {}),
+	};
 }
 
 /** Effective agent model patterns alone, for callers with no interest in role identity. */

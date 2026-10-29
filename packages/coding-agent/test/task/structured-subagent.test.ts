@@ -411,6 +411,50 @@ describe("structured subagent primitive", () => {
 		}
 	});
 
+	// A fleet steers hundreds of live sessions by editing one model role. Each
+	// spawn must serve the role as the file reads now, and must say which
+	// setting decided when something outranks that role — otherwise an operator
+	// whose edit changed nothing has no way to tell which of the two happened.
+	it("serves the edited model role to the next spawn and names the setting that outranks it", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-task-role-change-"));
+		const projectDir = path.join(root, "project");
+		const agentDir = path.join(root, "agent");
+		await fs.mkdir(projectDir, { recursive: true });
+		const configPath = path.join(agentDir, "config.yml");
+		await Bun.write(configPath, "modelRoles:\n  task: openai/gpt-4o\n");
+		const liveSettings = await Settings.loadIsolated({ cwd: projectDir, agentDir });
+		const liveSession = { ...session(), cwd: projectDir, settings: liveSettings } as ToolSession;
+		mockDiscovery({ ...AGENT, model: ["@task"] });
+
+		try {
+			const before = await resolveEffectiveSubagentPolicy(request({ session: liveSession }));
+			expect(before.modelOverride).toEqual(["openai/gpt-4o"]);
+			expect(before.modelSource).toBe("agent");
+
+			await Bun.write(configPath, "modelRoles:\n  task: anthropic/claude-opus-4-5\n");
+			const afterRoleEdit = await resolveEffectiveSubagentPolicy(request({ session: liveSession }));
+			expect(afterRoleEdit.modelOverride).toEqual(["anthropic/claude-opus-4-5"]);
+			expect(afterRoleEdit.modelRole).toBe("task");
+			expect(afterRoleEdit.shadowedModelRole).toBeUndefined();
+
+			// The same live file now pins this agent type by name. The pin wins, as
+			// it is meant to, and the spawn records that the `task` role lost.
+			await Bun.write(
+				configPath,
+				"modelRoles:\n  task: anthropic/claude-opus-4-5\ntask:\n  agentModelOverrides:\n    worker: openai/gpt-4o\n",
+			);
+			const afterPin = await resolveEffectiveSubagentPolicy(request({ session: liveSession }));
+			expect(afterPin.modelOverride).toEqual(["openai/gpt-4o"]);
+			expect(afterPin.modelSource).toBe("agentOverride");
+			expect(afterPin.shadowedModelRole).toBe("task");
+		} finally {
+			liveSettings.cancelPendingSaves();
+			// `Settings.loadIsolated` opened `<agentDir>/agent.db`; Windows cannot delete it while open.
+			AgentStorage.close();
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	});
+
 	it("resolves only the exact case-sensitive service-tier override into the policy", async () => {
 		mockDiscovery({ ...AGENT, name: "scout" });
 
@@ -575,11 +619,20 @@ describe("structured subagent primitive", () => {
 			request({ session: concreteOverrideSession }),
 		);
 		expect(concreteOverridePolicy.modelRole).toBeUndefined();
+		// An override that names a concrete model keeps no role identity, so the
+		// spawn used to record a bare model id and nothing else. An operator who
+		// edits `modelRoles.definition` and sees this child keep the old model
+		// needs the spawn itself to say the definition's role was outranked, and
+		// by which setting.
+		expect(concreteOverridePolicy.modelSource).toBe("agentOverride");
+		expect(concreteOverridePolicy.shadowedModelRole).toBe("definition");
 
 		const definitionPolicy = await resolveEffectiveSubagentPolicy(
 			request({ session: session({ modelRoles: { definition: "openai/gpt-4o" } }) }),
 		);
 		expect(definitionPolicy.modelRole).toBe("definition");
+		expect(definitionPolicy.modelSource).toBe("agent");
+		expect(definitionPolicy.shadowedModelRole).toBeUndefined();
 	});
 	it("falls through an empty request selector to the agent definition role", async () => {
 		const customAgent = { ...AGENT, model: ["@definition"] };

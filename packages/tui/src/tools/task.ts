@@ -2371,6 +2371,14 @@ export interface YieldItem {
 	schemaOverridden?: boolean;
 }
 
+/**
+ * Configured input that decided a subagent's model, in precedence order: the
+ * caller's `model` argument, the agent's exact-name `task.agentModelOverrides`
+ * entry, the agent definition's own `model:`, then the spawning session's
+ * model when none of them resolved.
+ */
+export type AgentModelSource = "request" | "agentOverride" | "agent" | "session";
+
 /** Progress tracking for a single agent */
 export interface AgentProgress {
 	index: number;
@@ -2421,6 +2429,19 @@ export interface AgentProgress {
 	modelOverride?: string | string[];
 	/** Explicit pre-expansion model role alias selected for this run. */
 	modelRole?: string;
+	/**
+	 * Which configured input decided the model: the caller's `model` argument
+	 * (`request`), the agent's `task.agentModelOverrides` entry
+	 * (`agentOverride`), the agent definition's own `model:` (`agent`), or the
+	 * spawning session's model (`session`).
+	 */
+	modelSource?: AgentModelSource;
+	/**
+	 * Model role the agent definition asked for when {@link modelSource}
+	 * outranked it. Tells an operator whose role change did not reach this
+	 * spawn which setting decided instead.
+	 */
+	shadowedModelRole?: string;
 	/** Resolved model display string in the form `<provider>/<id>`, optionally suffixed with `:<thinkingLevel>` when the level was set explicitly. Undefined when the model could not be resolved. */
 	resolvedModel?: string;
 	/** Provider/id including routing, with no added thinking suffix. */

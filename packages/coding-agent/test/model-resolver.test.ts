@@ -1235,7 +1235,12 @@ describe("resolveAgentModelPatterns", () => {
 				agentModel: ["@definition"],
 				settings,
 			}),
-		).toEqual({ patterns: ["openai/gpt-4o"], role: "override" });
+		).toEqual({
+			patterns: ["openai/gpt-4o"],
+			role: "override",
+			origin: "agentOverride",
+			shadowedRole: "definition",
+		});
 
 		expect(
 			resolveAgentModelSelection({
@@ -1244,10 +1249,12 @@ describe("resolveAgentModelPatterns", () => {
 				agentModel: ["@definition"],
 				settings,
 			}),
-		).toEqual({ patterns: ["anthropic/claude-sonnet-4-5"], role: "definition" });
+		).toEqual({ patterns: ["anthropic/claude-sonnet-4-5"], role: "definition", origin: "agent" });
 
 		// An explicit selector carries no role identity, so the child must not
 		// capture the routing of a role that happens to name the same model.
+		// The role the definition asked for is still reported, so an operator
+		// who changes it can see which spawn ignored it and why.
 		expect(
 			resolveAgentModelSelection({
 				requestModel: "openai/gpt-4o",
@@ -1255,7 +1262,12 @@ describe("resolveAgentModelPatterns", () => {
 				agentModel: ["@definition"],
 				settings,
 			}),
-		).toEqual({ patterns: ["openai/gpt-4o"], role: undefined });
+		).toEqual({
+			patterns: ["openai/gpt-4o"],
+			role: undefined,
+			origin: "request",
+			shadowedRole: "definition",
+		});
 	});
 
 	test("falls back to the active session model when @task is unset", () => {

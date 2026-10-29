@@ -1262,6 +1262,8 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					agent: agentType,
 					agentSource,
 					modelRole: policy.modelRole,
+					modelSource: policy.modelSource,
+					...(policy.shadowedModelRole !== undefined ? { shadowedModelRole: policy.shadowedModelRole } : {}),
 					status: "pending",
 					task: renderSubagentUserPrompt(assignment),
 					assignment,

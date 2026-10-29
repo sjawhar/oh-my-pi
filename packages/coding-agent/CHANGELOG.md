@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Subagent spawn records now name which setting chose the model (`modelSource`: a caller's `model` argument, `task.agentModelOverrides`, the agent definition, or the session) and the model role an outranking setting shadowed, in the live progress record and in the session file, so a role change that never reaches a running session's children can be read back instead of being silent.
+
 ## [18.14.0] - 2026-10-29
 
 ### Breaking Changes

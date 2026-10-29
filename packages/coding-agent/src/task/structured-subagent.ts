@@ -9,7 +9,11 @@ import * as os from "node:os";
 import path from "node:path";
 import { $env, prompt, Snowflake } from "@oh-my-pi/pi-utils";
 import { shortenPath } from "@oh-my-pi/pi-tui/render/render-utils";
-import { resolveAgentModelSelection, resolveConfiguredModelPatterns } from "../config/model-resolver";
+import {
+	type AgentModelSource,
+	resolveAgentModelSelection,
+	resolveConfiguredModelPatterns,
+} from "../config/model-resolver";
 import { type OAuthAccountPools, validateAgentAccountPools } from "../config/account-pools";
 import {
 	type CompactionThresholdPair,
@@ -176,6 +180,14 @@ export interface EffectiveSubagentPolicy {
 	preparedSession?: PreparedSeanceSession;
 	/** Explicit pre-expansion model role alias selected for this run. */
 	modelRole?: string;
+	/** Which configured input decided {@link modelOverride}. */
+	modelSource: AgentModelSource;
+	/**
+	 * Model role the agent definition asked for, when a caller's `model` or this
+	 * agent's `task.agentModelOverrides` entry decided instead. Recorded on the
+	 * spawn so an operator who changes that role can see it was not consulted.
+	 */
+	shadowedModelRole?: string;
 	/** Extension routing note explaining a `before_subagent_spawn` model replacement. */
 	modelRoute?: string;
 	/** Exact-name `task.agentServiceTierOverrides` entry for this agent, applied after model resolution. */
@@ -441,7 +453,12 @@ export async function resolveEffectiveSubagentPolicy(
 	// Role identity and patterns come from one call so they cannot be derived
 	// from different sources: the expansion below discards the alias, and the
 	// child's inherited retry-fallback chain is keyed off the role.
-	const { patterns: modelOverride, role: modelRole } = resolveAgentModelSelection(modelResolution);
+	const {
+		patterns: modelOverride,
+		role: modelRole,
+		origin: modelSource,
+		shadowedRole: shadowedModelRole,
+	} = resolveAgentModelSelection(modelResolution);
 	const isolationEnabled = cfgTaskIsolationEnabled.get(request.session.settings);
 	const isIsolated = request.isolation?.requested === true;
 	if (isIsolated && !isolationEnabled) {
@@ -458,6 +475,8 @@ export async function resolveEffectiveSubagentPolicy(
 		modelOverride,
 		preparedSession: preparedSeance?.session,
 		modelRole,
+		modelSource,
+		shadowedModelRole,
 		serviceTierOverride,
 		compactionThresholdOverride,
 		oauthAccountPools,
@@ -613,6 +632,8 @@ function buildExecutorOptions(
 		acquiredAt: request.acquiredAt,
 		modelOverride: policy.modelOverride,
 		modelRole: policy.modelRole,
+		modelSource: policy.modelSource,
+		shadowedModelRole: policy.shadowedModelRole,
 		modelRoute: policy.modelRoute,
 		serviceTierOverride: policy.serviceTierOverride,
 		compactionThresholdOverride: policy.compactionThresholdOverride,
