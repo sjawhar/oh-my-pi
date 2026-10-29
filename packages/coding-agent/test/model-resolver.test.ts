@@ -1233,6 +1233,47 @@ describe("resolveAgentModelPatterns", () => {
 		expect(result).toEqual(["openai/gpt-4o"]);
 	});
 
+	test("an agent role the deployment never configured resolves to nothing, not to a literal pattern", () => {
+		// A plugin agent (pi-legion's plan-reviewer) carries `model: ["@review"]`
+		// and `review` is not a built-in role. Kept as the literal "@review" the
+		// selection looked non-empty, matched no model, and the spawn produced
+		// the context-free "No model selected" (dispatch://INFRA-711).
+		const settings = Settings.isolated({ modelRoles: { default: "anthropic/claude-sonnet-4-5" } });
+
+		expect(resolveConfiguredModelPatterns(["@review"], settings)).toEqual([]);
+		expect(
+			resolveAgentModelSelection({
+				agentModel: ["@review"],
+				settings,
+				activeModelPattern: "openai/gpt-4o",
+			}),
+		).toEqual({ patterns: [], role: undefined });
+	});
+
+	test("a configured review role still expands, and a second candidate still covers an unmapped one", () => {
+		const settings = Settings.isolated({
+			modelRoles: { default: "anthropic/claude-sonnet-4-5", review: "openai/gpt-4o:high" },
+		});
+
+		expect(resolveAgentModelSelection({ agentModel: ["@review"], settings })).toEqual({
+			patterns: ["openai/gpt-4o:high"],
+			role: "review",
+		});
+		expect(resolveAgentModelPatterns({ agentModel: ["@nosuchrole", "openai/gpt-4o"], settings })).toEqual([
+			"openai/gpt-4o",
+		]);
+	});
+
+	test("an unknown legacy pi/ selector stays a literal pattern", () => {
+		// `pi/x` is also how a provider named `pi` is selected, so an unknown one
+		// must reach the matcher instead of being dropped as a missing role.
+		const settings = Settings.isolated({ modelRoles: { default: "anthropic/claude-sonnet-4-5" } });
+
+		expect(resolveConfiguredModelPatterns([`${LEGACY_MODEL_ROLE_ALIAS_PREFIX}review`], settings)).toEqual([
+			`${LEGACY_MODEL_ROLE_ALIAS_PREFIX}review`,
+		]);
+	});
+
 	test("uses the configured task role before falling back to the session model", () => {
 		const settings = Settings.isolated({
 			modelRoles: {

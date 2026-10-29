@@ -1059,6 +1059,50 @@ function getModelRoleAlias(value: string, settings?: ModelRoleLookup): string | 
 	return undefined;
 }
 
+/**
+ * The role name a canonical role selector asks for, or `undefined` when
+ * `value` is not one.
+ *
+ * `@role` and the bare `*` default alias are unambiguous: no provider or model
+ * id starts with either. The legacy `pi/role` spelling is excluded because it
+ * cannot be told apart from a `provider/model` selector naming a provider
+ * called `pi`, so an unknown `pi/x` must stay a literal pattern. A bare `@`
+ * names nothing and is excluded too, so it also stays literal rather than
+ * vanishing from the selection.
+ */
+function canonicalModelRoleAliasName(value: string): string | undefined {
+	const isCanonical =
+		value === DEFAULT_MODEL_ROLE_ALIAS ||
+		value.startsWith(`${DEFAULT_MODEL_ROLE_ALIAS}:`) ||
+		value.startsWith(MODEL_ROLE_ALIAS_PREFIX);
+	const prefixLength = isCanonical ? modelRoleAliasPrefixLength(value) : undefined;
+	if (prefixLength === undefined) return undefined;
+	const { base } = splitThinkingSuffix(value, prefixLength, MAX_THINKING_SUFFIX_OPTIONS);
+	const name = base === DEFAULT_MODEL_ROLE_ALIAS ? DEFAULT_MODEL_ROLE : base.slice(prefixLength);
+	return name || undefined;
+}
+
+/**
+ * Role names a selector asks for that neither the built-in roles nor the
+ * operator's `modelRoles` defines, in selector order and without repeats.
+ *
+ * Only {@link canonicalModelRoleAliasName} spellings are reported, so a plugin
+ * agent carrying `model: ["@review"]` against a deployment with no
+ * `modelRoles.review` names the role here and the spawn can refuse by name
+ * instead of dying later as an unmatched model pattern. A role configured with
+ * an empty value counts as defined: the operator named it, and the existing
+ * precedence lets the next source answer for it.
+ */
+export function unmappedModelRoleAliases(value: string | string[] | undefined, settings?: ModelRoleLookup): string[] {
+	const unmapped: string[] = [];
+	for (const pattern of normalizeModelPatternList(value)) {
+		const role = canonicalModelRoleAliasName(pattern);
+		if (!role || isModelRole(role) || settings?.getModelRole(role) !== undefined) continue;
+		if (!unmapped.includes(role)) unmapped.push(role);
+	}
+	return unmapped;
+}
+
 /** Normalize comma-separated or array model selectors into an ordered pattern list. */
 export function normalizeModelPatternList(value: string | string[] | undefined): string[] {
 	if (!value) return [];
@@ -1205,7 +1249,11 @@ function resolveConfiguredRolePattern(
 		MAX_THINKING_SUFFIX_OPTIONS,
 	);
 	const role = getModelRoleAlias(aliasCandidate, settings);
-	if (!role) return [normalized];
+	// `@review` on a deployment with no `modelRoles.review` names no model. Kept
+	// as a literal it reaches the matcher, matches nothing, and the caller is
+	// left holding "no model" with no idea which role went missing; drop it so
+	// the selection comes back empty and the spawn can name the role.
+	if (!role) return canonicalModelRoleAliasName(normalized) === undefined ? [normalized] : undefined;
 	if (visited.has(role)) return undefined;
 	visited.add(role);
 
@@ -1283,15 +1331,28 @@ function resolveEffectiveAgentModelSelection(
 ): EffectiveAgentModelSelection {
 	const { requestModel, settingsOverride, agentModel, settings, activeModelPattern, fallbackModelPattern } = options;
 
+	// A source whose every selector named a role this deployment never defined
+	// stops resolution where it stands. Letting the next source, or the session
+	// model below, answer for it would run `plan-reviewer` on whatever the
+	// parent happens to be and report it under the reviewer's name. An empty
+	// list means "this source said nothing", which still falls through.
+	const unansweredBy = (source: string | string[] | undefined): EffectiveAgentModelSelection | undefined => {
+		return unmappedModelRoleAliases(source, settings).length > 0 ? { source, patterns: [] } : undefined;
+	};
+
 	const requestPatterns = resolveConfiguredModelPatterns(requestModel, settings);
 	if (requestPatterns.length > 0) {
 		return { source: requestModel, patterns: requestPatterns };
 	}
+	const unansweredRequest = unansweredBy(requestModel);
+	if (unansweredRequest) return unansweredRequest;
 
 	const overridePatterns = resolveConfiguredModelPatterns(settingsOverride, settings);
 	if (overridePatterns.length > 0) {
 		return { source: settingsOverride, patterns: overridePatterns };
 	}
+	const unansweredOverride = unansweredBy(settingsOverride);
+	if (unansweredOverride) return unansweredOverride;
 
 	const normalizedAgentPatterns = normalizeModelPatternList(agentModel);
 	const configuredAgentPatterns = resolveConfiguredModelPatterns(agentModel, settings);
@@ -1305,6 +1366,10 @@ function resolveEffectiveAgentModelSelection(
 			return { source: agentModel, patterns: configuredAgentPatterns };
 		}
 		if (!agentInheritsSessionModel) return { source: agentModel, patterns: configuredAgentPatterns };
+	}
+	if (configuredAgentPatterns.length === 0) {
+		const unansweredAgent = unansweredBy(agentModel);
+		if (unansweredAgent) return unansweredAgent;
 	}
 
 	const fallback =

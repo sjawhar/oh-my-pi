@@ -25,6 +25,7 @@
 
 ### Fixed
 
+- A subagent whose agent file names a model role the settings do not define (`model: ["@review"]` with no `modelRoles.review`) now fails naming the agent, the role and the setting to add, instead of starting with no model and dying on "No model selected"; it never inherits the session's model under the named agent's identity
 - Fixed Bash services failing to start with `ready.port must be an integer from 1 to 65535` when the model sent `port: 0` beside a `log` condition; a zero port now counts as unset
 - Fixed omp's title staying on the terminal tab after exit in terminals without a title stack; Windows consoles get their original title back ([#17321](https://github.com/can1357/oh-my-pi/pull/17321) by [@asuffield](https://github.com/asuffield))
 - Fixed cached approvals offering a directory grant that would not cover every target in the call ([#17309](https://github.com/can1357/oh-my-pi/pull/17309) by [@iliaal](https://github.com/iliaal)).

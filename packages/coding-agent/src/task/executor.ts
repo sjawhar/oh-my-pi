@@ -32,7 +32,9 @@ import {
 	resolveExplicitModelRole,
 	resolveModelOverride,
 	resolveModelOverrideWithAuthFallback,
+	unmappedModelRoleAliases,
 } from "../config/model-resolver";
+import { formatModelRoleAlias } from "../config/model-roles";
 import type { PromptTemplate } from "../config/prompt-templates";
 import {
 	buildServiceTierByFamily,
@@ -133,6 +135,7 @@ import {
 import { yieldSectionShapes } from "./yield-assembly";
 import { assembleYieldResult } from "@oh-my-pi/pi-tui/tools/task-yield-assembly";
 import {
+	cfgTaskAgentModelOverrides,
 	cfgTaskPrewalk,
 	cfgTaskAgentPrewalk,
 	cfgTaskMaxEffort,
@@ -275,6 +278,47 @@ function resolveSubagentRetryFallbackCandidates(
 		candidates.push({ model: resolved.model, selector });
 	}
 	return candidates;
+}
+
+/**
+ * Model roles a spawn asked for that nothing can answer, or an empty list when
+ * the spawn is still resolvable.
+ *
+ * An explicit selector this registry cannot match is deferred to the child
+ * session, which re-resolves it against its own registry (issue #4421). A
+ * canonical role alias is the one selector no deferral can rescue: no registry
+ * holds a model named `@review`, and the child reads the same settings
+ * snapshot, so an undefined role stays undefined there. With every requested
+ * selector in that state the child would start with no model and throw "No
+ * model selected" at its first prompt — a message about `/login` and `/model`
+ * naming neither the agent nor the role, which is what the parent then reads
+ * in the failed `<task-result>`.
+ */
+function unanswerableSubagentModelRoles(
+	requested: string[],
+	agentName: string,
+	agentModel: string | string[] | undefined,
+	settings: Settings,
+): string[] {
+	if (requested.some(pattern => unmappedModelRoleAliases([pattern], settings).length === 0)) return [];
+	if (requested.length > 0) return unmappedModelRoleAliases(requested, settings);
+	// Resolution stopped at whichever source first named only undefined roles,
+	// and it hands the executor an empty pattern list either way, so both the
+	// operator's per-agent override and the agent definition are candidates.
+	const override = cfgTaskAgentModelOverrides.get(settings)[agentName];
+	const fromOverride = unmappedModelRoleAliases(override, settings);
+	return fromOverride.length > 0 ? fromOverride : unmappedModelRoleAliases(agentModel, settings);
+}
+
+/** Refusal naming the agent, the role it asked for, and the settings that answer it. */
+function unresolvedSubagentModelMessage(agentName: string, roles: string[], warning: string | undefined): string {
+	const aliases = roles.map(role => formatModelRoleAlias(role)).join(", ");
+	const roleSettings = roles.map(role => `modelRoles[${JSON.stringify(role)}]`).join(" or ");
+	return (
+		`Agent "${agentName}" asks for the model role ${aliases}, which this deployment does not define. ` +
+		`Set ${roleSettings}, or task.agentModelOverrides[${JSON.stringify(agentName)}], to a model and dispatch it again.` +
+		(warning ? ` ${warning}` : "")
+	);
 }
 
 /**
@@ -4543,6 +4587,12 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					warning: modelResolutionWarning,
 					requested: modelPatterns,
 				});
+			}
+			const unanswerableRoles = model
+				? []
+				: unanswerableSubagentModelRoles(modelPatterns, agent.name, agent.model, subagentSettings);
+			if (unanswerableRoles.length > 0) {
+				throw new Error(unresolvedSubagentModelMessage(agent.name, unanswerableRoles, modelResolutionWarning));
 			}
 			if (authFallbackUsed && model) {
 				logger.warn("Subagent model has no working credentials; falling back to parent session model", {
