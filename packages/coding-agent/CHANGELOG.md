@@ -10,6 +10,7 @@
 - Extensions can start `/live` voice sessions with the audio on their own WebRTC peer, such as a phone browser, through `ctx.startLive({ sdpOffer })`; the RPC `live_connect` command does the same for RPC clients ([#17013](https://github.com/can1357/oh-my-pi/pull/17013) by [@materemias](https://github.com/materemias))
 - Added opt-in extension reply renderers: with `extensionRenderers.assistantText` on, `pi.registerAssistantTextRenderer()` changes how assistant text is drawn (terminal and Tern native view) without touching the session or model context, and `ctx.ui.rerenderMessage(timestamp)` redraws one reply in place ([#16238](https://github.com/can1357/oh-my-pi/pull/16238) by [@materemias](https://github.com/materemias))
 - Added extension link schemes behind the same setting: links using a scheme claimed with `pi.registerLinkScheme()` draw as a dotted-underlined label and raise `link_activate` for that extension when picked with Alt+O (`app.links.hint`) or clicked with `tui.mouse` on; `ctx.ui.getLinkClicksAvailable()` lets a renderer fall back to inline content ([#16239](https://github.com/can1357/oh-my-pi/pull/16239) by [@materemias](https://github.com/materemias))
+- `omp gc --restore <session id or archive path>` brings an archived session back to its own path with its artifacts, and names what restoring cannot bring back
 
 ### Changed
 
@@ -27,6 +28,13 @@
 
 - Fixed Bash services failing to start with `ready.port must be an integer from 1 to 65535` when the model sent `port: 0` beside a `log` condition; a zero port now counts as unset
 - Fixed omp's title staying on the terminal tab after exit in terminals without a title stack; Windows consoles get their original title back ([#17321](https://github.com/can1357/oh-my-pi/pull/17321) by [@asuffield](https://github.com/asuffield))
+- A session archived by `omp gc --archive` resumes and exports again: `omp --resume <id>` finds it and brings it back, and `omp --export=<file>.jsonl.gz` reads it
+- `omp gc --archive` no longer deletes the prompt history, session title, recap and usage-stats rows of a session it only moves to the archive
+- `omp gc --archive` reads each archive back before dropping the transcript, so a session it reports as archived is one it can return; a transcript stored as a symlink is archived by content, and the file it points at is reported and left alone rather than deleted
+- `omp gc --archive` finishes a move a killed run left half-done instead of failing with `archive destination exists` on every later run
+- `omp gc --restore` refuses an id prefix that matches two archived sessions, says in dry run what `--apply` would refuse, and exits non-zero when a session's artifacts did not come back
+- Resuming an archived session waits for a running `omp gc` instead of failing, and a damaged archive is reported as unreadable instead of as a session that does not exist
+- `omp gc --blobs` no longer deletes a blob that only a symlinked transcript references, and `omp gc --archive` leaves a session a live process still owns alone
 - Fixed cached approvals offering a directory grant that would not cover every target in the call ([#17309](https://github.com/can1357/oh-my-pi/pull/17309) by [@iliaal](https://github.com/iliaal)).
 - Fixed text typed in Tern while omp is still starting appearing all at once when startup finishes; it shows as you type, and a draft restored on resume keeps what you typed after it
 - Fixed `pr://` metadata and diffs staying stale after successful `git push` calls through `bash` ([#17183](https://github.com/can1357/oh-my-pi/pull/17183) by [@alphastorm](https://github.com/alphastorm))
