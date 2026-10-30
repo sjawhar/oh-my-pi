@@ -76,6 +76,15 @@ export class IrcBus {
 		// Lazy: the lifecycle global self-constructs against the global registry,
 		// so only touch it when a parked recipient actually needs reviving.
 		this.#lifecycle = () => lifecycle ?? AgentLifecycleManager.global();
+		// Mail outlives a wake, not the recipient. An id leaves the registry only
+		// when nothing can read it again — a released one-shot, a reclaimed
+		// corpse — so anything still buffered for it is unreadable, and leaving
+		// it there reports unread mail for an agent the Hub no longer lists.
+		// A killed agent keeps its ref (and its mail): it is reopened from its
+		// transcript, not removed.
+		registry.onChange(event => {
+			if (event.type === "removed") this.#mailboxes.delete(event.ref.id);
+		});
 	}
 
 	/**
@@ -181,18 +190,24 @@ export class IrcBus {
 
 		// A `parked` or killed (`aborted`) recipient always needs the lifecycle to
 		// revive it from its transcript — this is read from *this* bus's registry,
-		// so it holds for any registry. The mid-park / adopted checks below query
-		// the lifecycle's own state, which only describes the registry it manages:
-		// consult them only when the lifecycle owns this bus's registry, otherwise
-		// a custom-registry bus (fallen back to the global manager) would gate a
-		// live recipient on unrelated global park state. Main/non-adopted live
-		// peers skip the gate, and pending waiters still win without a session.
+		// so it holds for any registry. The mid-park / owed-release checks below
+		// query the lifecycle's own state, which only describes the registry it
+		// manages: consult them only when the lifecycle owns this bus's registry,
+		// otherwise a custom-registry bus (fallen back to the global manager)
+		// would gate a live recipient on unrelated global park state. Main and
+		// non-adopted live peers skip the gate, and pending waiters still win
+		// without a session.
+		//
+		// `owesRelease`, not `has`: a release in flight has already dropped the
+		// adoption while it disposes the child, so `has` waves the message
+		// through to a session being torn down. The hand-off then throws and the
+		// message is buffered for an id the release is about to unregister.
 		const lifecycle = this.#lifecycle();
 		const lifecycleOwnsRegistry = lifecycle.manages(this.#registry);
 		const needsLifecycleGate =
 			ref.status === "parked" ||
 			ref.status === "aborted" ||
-			(lifecycleOwnsRegistry && (lifecycle.isParking(message.to) || lifecycle.has(message.to)));
+			(lifecycleOwnsRegistry && (lifecycle.isParking(message.to) || lifecycle.owesRelease(message.to)));
 
 		const priorSession = ref.session;
 		let revived = false;

@@ -508,6 +508,60 @@ describe("IRC", () => {
 			expect(bus.take("0-Main")).toBeUndefined();
 		});
 
+		it("fails a send to a recipient whose terminal release is in flight, without buffering it", async () => {
+			// The release drops the adoption, disposes the child, and unregisters
+			// it. Delivery into that window reached a session being torn down: the
+			// hand-off threw, and the message was buffered for an id that no
+			// longer exists by the time anything could read it.
+			const dying = makeFakeSession();
+			const disposeStarted = Promise.withResolvers<void>();
+			const finishDispose = Promise.withResolvers<void>();
+			const session = Object.assign(dying.session, {
+				dispose: async () => {
+					disposeStarted.resolve();
+					await finishDispose.promise;
+				},
+			});
+			const ref = registry.register({
+				id: "0-Releasing",
+				displayName: "task",
+				kind: "sub",
+				session,
+				status: "idle",
+			});
+			AgentLifecycleManager.global().adopt("0-Releasing", { idleTtlMs: 0 }, ref);
+			const releasing = AgentLifecycleManager.global().release("0-Releasing", ref);
+			await disposeStarted.promise;
+
+			const sending = bus.send({ from: "0-Main", to: "0-Releasing", body: "too late" });
+			finishDispose.resolve();
+			const receipt = await sending;
+			await releasing;
+
+			expect(receipt.outcome).toBe("failed");
+			expect(dying.delivered).toEqual([]);
+			expect(bus.unreadCount("0-Releasing")).toBe(0);
+			expect(bus.take("0-Releasing")).toBeUndefined();
+		});
+
+		it("drops buffered mail when the recipient leaves the registry", async () => {
+			const main = makeFakeSession();
+			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
+			const sub = makeFakeSession();
+			const ref = registry.register({ id: "0-Gone", displayName: "task", kind: "sub", session: sub.session });
+
+			sub.setError(new Error("Recipient session is disposed."));
+			expect((await bus.send({ from: "0-Main", to: "0-Gone", body: "held" })).outcome).toBe("failed");
+			expect(bus.unreadCount("0-Gone")).toBe(1);
+
+			// Nothing can read that mail once the id is gone, and the Hub would
+			// still count it as unread.
+			registry.unregister("0-Gone", ref);
+
+			expect(bus.unreadCount("0-Gone")).toBe(0);
+			expect(bus.take("0-Gone")).toBeUndefined();
+		});
+
 		it("send surfaces the reviver's error message when revival fails", async () => {
 			registry.register({ id: "0-Parked", displayName: "task", kind: "sub", session: null, status: "parked" });
 			AgentLifecycleManager.global().adopt("0-Parked", {

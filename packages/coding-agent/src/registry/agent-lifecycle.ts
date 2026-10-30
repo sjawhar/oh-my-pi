@@ -411,16 +411,35 @@ export class AgentLifecycleManager {
 		return park.promise;
 	}
 
+	/** When the discharge this manager owes for `id` settles, or undefined when it owes none. */
+	#releaseSettled(id: string): Promise<void> | undefined {
+		const pending: Promise<void>[] = [];
+		for (const release of this.#releasing) {
+			if (release.id === id) pending.push(release.settled);
+		}
+		return pending.length === 0 ? undefined : Promise.all(pending).then(() => undefined);
+	}
+
 	/**
 	 * Return the live session, reviving from the sessionFile if parked or
 	 * killed. Throws a plain Error if the id is unknown, or its transcript
 	 * cannot be revived (no reviver, no session contract, workspace gone).
 	 * Concurrent calls share one in-flight revive.
 	 *
-	 * Never returns a session that is mid-dispose: an in-flight park is either
-	 * cancelled (session still live) or awaited to completion before revive.
+	 * Never returns a session that is mid-dispose. An in-flight park is either
+	 * cancelled (session still live) or awaited to completion before revive;
+	 * a release in flight is awaited the same way. A release disposes the
+	 * child's session without going through {@link park}, so until it finishes
+	 * the ref still carries a session that is being torn down — handing that
+	 * back let a caller steer, prompt or deliver into a dying session, and the
+	 * failure that followed was indistinguishable from a transient one.
+	 * Afterwards the ordinary answers apply: the id is gone (unregistered), or
+	 * it is a killed ref this reopens from its transcript.
 	 */
 	async ensureLive(id: string): Promise<AgentSession> {
+		for (let settled = this.#releaseSettled(id); settled !== undefined; settled = this.#releaseSettled(id)) {
+			await settled;
+		}
 		const park = this.#parks.get(id);
 		if (park) {
 			const parked = this.#registry.get(id);
