@@ -127,6 +127,14 @@ export interface AuthGatewayStreamControl {
 	signal?: AbortSignal;
 	/** Called when the HTTP response body is cancelled by the client. */
 	onCancel?: (reason?: unknown) => void;
+	/**
+	 * Whether the gateway has done a credential rotation's bookkeeping and left
+	 * the inference attempt to the client (pi-native `rotationRetry: "client"`).
+	 * Read when a terminal error frame is written, so the client can tell a
+	 * handed-back attempt from an exhausted one. Formats whose clients cannot
+	 * claim the retry never set it.
+	 */
+	rotationHandedBack?: () => boolean;
 }
 
 export interface AuthGatewayFormatModule {

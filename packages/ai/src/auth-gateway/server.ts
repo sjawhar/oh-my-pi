@@ -32,6 +32,7 @@ import { Effort } from "@oh-my-pi/pi-catalog/effort";
 import { clampThinkingLevelForModel, getSupportedEfforts } from "@oh-my-pi/pi-catalog/model-thinking";
 import { type ModelKind, modelKind } from "@oh-my-pi/pi-catalog/types";
 import { logger } from "@oh-my-pi/pi-utils";
+import { type ApiKeyResolution, type ApiKeyResolveContext, resolvedApiKeyBearer } from "../auth-retry";
 import { classifyGatewayError } from "../error/gateway";
 import * as anthropicMessages from "../providers/anthropic-messages-server";
 import * as openaiChat from "../providers/openai-chat-server";
@@ -634,7 +635,7 @@ async function handlePiNative(
 	};
 	normalizeGatewayThinking(model, streamOpts);
 	if (bootOpts.fetch) streamOpts.fetch = bootOpts.fetch;
-	streamOpts.apiKey = buildGatewayApiKeyResolver(
+	const resolveApiKey = buildGatewayApiKeyResolver(
 		bootOpts,
 		model,
 		sessionId,
@@ -644,6 +645,32 @@ async function handlePiNative(
 		peer,
 		resolved => lease.updateAccount(resolveGatewayAccount(resolved)),
 	);
+	// A client that carries a `beforeDispatch` hold claims the retry its own
+	// dispatch chokepoint can gate (`rotationRetry: "client"`). The resolver
+	// still runs — the usage-limit block, the credential invalidation and the
+	// sibling selection are the gateway's, and the client's next request picks
+	// the credential they left sticky — but the inference attempt it would have
+	// driven here does not happen: the loop in `streamSimpleRequest` stops on an
+	// `undefined` resolution and emits the captured failure, which
+	// `encodeStream` marks so the client knows to come back. Only a streamed
+	// turn can be marked, so a non-streamed one keeps the gateway's own retry.
+	let rotationHandedBack = false;
+	const clientRetriesRotation = parsed.rotationRetry === "client" && parsed.stream;
+	streamOpts.apiKey = clientRetriesRotation
+		? async (ctx: ApiKeyResolveContext): Promise<ApiKeyResolution> => {
+				const resolved = await resolveApiKey(ctx);
+				if (ctx.error === undefined || resolved === undefined) return resolved;
+				// Only an attempt that would use a different credential is worth
+				// handing back. A force-refresh that returned the same bearer is one
+				// the in-process retry driver refuses and escalates past; handing it
+				// back would spin the client on a credential that cannot succeed,
+				// and would skip the escalation's own bookkeeping.
+				const next = resolvedApiKeyBearer(resolved);
+				if (next === undefined || next === (ctx.previousKey ?? apiKey.apiKey)) return resolved;
+				rotationHandedBack = true;
+				return undefined;
+			}
+		: resolveApiKey;
 	if (model.compat && "supportsSamplingParams" in model.compat && model.compat.supportsSamplingParams === false) {
 		delete streamOpts.temperature;
 		delete streamOpts.topP;
@@ -746,6 +773,7 @@ async function handlePiNative(
 					controller.abort(reason instanceof Error ? reason : new Error("client closed request"));
 				}
 			},
+			rotationHandedBack: () => rotationHandedBack,
 		});
 		return new Response(sseStream, {
 			status: 200,

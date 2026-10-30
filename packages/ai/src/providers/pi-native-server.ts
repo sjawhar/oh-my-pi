@@ -36,6 +36,14 @@ export interface PiNativeParsedRequest {
 	context: Context;
 	options: SimpleStreamOptions;
 	stream: boolean;
+	/**
+	 * Who makes the next inference attempt when the gateway's credential
+	 * resolver would rotate. `"client"` is a claim only a caller carrying a
+	 * `beforeDispatch` hold makes: its retry passes that hold, so a session
+	 * paused mid-turn stops paying. Absent — every client built before this
+	 * field — keeps the retry inside the gateway.
+	 */
+	rotationRetry?: "client";
 }
 /**
  * Subset of {@link SimpleStreamOptions} accepted from the wire. Function-valued
@@ -155,11 +163,16 @@ export function parseRequest(body: unknown, _headers?: Headers): PiNativeParsedR
 	// matching `streamProxy`'s implicit-stream behavior avoids a one-flag papercut.
 	const stream = typeof obj.stream === "boolean" ? obj.stream : true;
 
+	// An unknown value keeps the gateway's own rotation: a client that cannot
+	// be named here cannot be trusted to make the next attempt.
+	const rotationRetry = obj.rotationRetry === "client" ? "client" : undefined;
+
 	return {
 		modelId,
 		context: context as Context,
 		options,
 		stream,
+		rotationRetry,
 	};
 }
 // ---------------------------------------------------------------------------
@@ -229,7 +242,14 @@ export function encodeStream(
 				}, STREAM_KEEPALIVE_INTERVAL_MS);
 				for await (const event of events) {
 					if (cancelled) return;
-					controller.enqueue(SSE_ENCODER.encode(`data: ${JSON.stringify(event)}\n\n`));
+					// A terminal error the gateway declined to rotate past carries
+					// the marker that tells the client the next attempt is its own.
+					// Any other frame crosses verbatim.
+					const frame =
+						event.type === "error" && control?.rotationHandedBack?.()
+							? { ...event, rotation: "retryable" }
+							: event;
+					controller.enqueue(SSE_ENCODER.encode(`data: ${JSON.stringify(frame)}\n\n`));
 					if (event.type === "done" || event.type === "error") break;
 				}
 				if (!cancelled) {
@@ -244,11 +264,15 @@ export function encodeStream(
 					// payload (we don't have a usable one here); `streamPiNative`
 					// rebuilds that payload from its own model.
 					const message = err instanceof Error ? err.message : String(err);
-					controller.enqueue(
-						SSE_ENCODER.encode(
-							`data: ${JSON.stringify({ type: "error", reason: "error", errorMessage: message })}\n\n`,
-						),
-					);
+					// A pre-emit upstream failure reaches us as a thrown iterator, not
+					// an `error` event, so the handed-back marker belongs here too.
+					const frame = {
+						type: "error",
+						reason: "error",
+						errorMessage: message,
+						...(control?.rotationHandedBack?.() ? { rotation: "retryable" } : {}),
+					};
+					controller.enqueue(SSE_ENCODER.encode(`data: ${JSON.stringify(frame)}\n\n`));
 					controller.enqueue(SSE_DONE);
 					controller.close();
 				}

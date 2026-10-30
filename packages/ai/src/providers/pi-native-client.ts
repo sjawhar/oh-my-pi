@@ -16,7 +16,9 @@
  * itself stays credential-free.
  */
 import * as os from "node:os";
+import { scheduler } from "node:timers/promises";
 import { getAppName, getInstallId, readSseJson } from "@oh-my-pi/pi-utils";
+import { AUTH_RETRY_MAX_ATTEMPTS } from "../auth-retry";
 import * as AIError from "../error";
 import type {
 	Api,
@@ -57,6 +59,8 @@ const NON_WIRE_KEYS = new Set<keyof SimpleStreamOptions>([
 	"providerSessionState",
 	"beforeDispatch",
 ]);
+/** Longest wait a gateway can ask of this client between hand-backs. */
+const PI_NATIVE_MAX_HANDBACK_WAIT_MS = 30_000;
 const PI_NATIVE_STREAM_IDLE_TIMEOUT_ERROR = "pi-native stream stalled while waiting for the next event";
 const PI_NATIVE_STREAM_FIRST_EVENT_TIMEOUT_ERROR = "pi-native stream timed out while waiting for the first event";
 
@@ -187,102 +191,184 @@ export function streamPiNative<TApi extends Api>(
 				model as Model<Api>,
 				typeof options?.apiKey === "string" ? options.apiKey : undefined,
 			);
-			const body = JSON.stringify({
-				modelId: `${model.provider}/${model.id}`,
-				context,
-				options: buildWireOptions(options),
-				stream: true,
-			});
+			// A caller's hold is the whole reason to own the retry: without one,
+			// the gateway's own rotation is a round trip cheaper and behaves
+			// identically. Gateways that predate the field ignore it and keep
+			// rotating internally. The token names the authentication operation a
+			// retry continues, so the gateway keeps applying its history instead of
+			// restarting the policy on every hand-back.
+			const buildBody = (rotationRetryToken: string | undefined): string =>
+				JSON.stringify({
+					modelId: `${model.provider}/${model.id}`,
+					context,
+					options: buildWireOptions(options),
+					stream: true,
+					...(options?.beforeDispatch ? { rotationRetry: "client" } : {}),
+					...(rotationRetryToken ? { rotationRetryToken } : {}),
+				});
 
 			const idleTimeoutMs = options?.streamIdleTimeoutMs ?? getStreamIdleTimeoutMs();
 			const firstEventTimeoutMs = options?.streamFirstEventTimeoutMs ?? getStreamFirstEventTimeoutMs(idleTimeoutMs);
-			// Bun's native fetch ceiling (~300 s of silence) is disabled so the
-			// configurable first-event watchdog governs slow-prefill turns: a gateway
-			// may legitimately hold headers while the upstream model thinks
-			// (issue #17363). The pre-response guard bounds time-to-headers and stays
-			// armed across the error-body read. Headers do not renew the budget: the
-			// event iterator below waits on what the guard left of it.
-			const watchdog = armPreResponseTimeout(abortTracker.requestSignal, firstEventTimeoutMs);
-			// `timeout` is a Bun fetch extension absent from the DOM `RequestInit`.
-			const init: RequestInit & { timeout: false } = {
-				method: "POST",
-				headers,
-				body,
-				signal: watchdog.signal,
-				timeout: false,
-			};
-			try {
-				response = await fetchImpl(url, init);
-				if (!response.ok) {
-					stream.fail(await decodeGatewayError(response));
-					return;
+
+			// The hand-back token the next attempt must echo, if the gateway sends
+			// one. `rotationRetryToken` is what the attempt in flight was sent with.
+			let rotationRetryToken: string | undefined;
+			let nextRotationRetryToken: string | undefined;
+			// What the gateway asked this client to wait before its next attempt:
+			// zero for a rotated credential, the backoff it gave up for a declined
+			// transport retry.
+			let nextRetryWaitMs = 0;
+
+			/**
+			 * One pass over the wire. A `"retry"` means the gateway did a
+			 * credential rotation's bookkeeping and left the inference attempt to
+			 * us, with nothing published downstream yet.
+			 */
+			const runAttempt = async (allowRetry: boolean): Promise<"retry" | "done"> => {
+				// This client owns its retries, so it owns their dispatch boundary:
+				// the hold is awaited here, before the deadline below starts, so a
+				// pause spends none of the response budget and a resume still
+				// completes the turn. A caller that supplied a hold but not the
+				// transport that carries it is covered by this and nothing else.
+				await options?.beforeDispatch?.();
+				abortTracker.requestSignal.throwIfAborted();
+				// Bun's native fetch ceiling (~300 s of silence) is disabled so the
+				// configurable first-event watchdog governs slow-prefill turns: a gateway
+				// may legitimately hold headers while the upstream model thinks
+				// (issue #17363). The pre-response guard bounds time-to-headers and stays
+				// armed across the error-body read. Headers do not renew the budget: the
+				// event iterator below waits on what the guard left of it. Each attempt
+				// this loop makes is its own request, so it gets its own budget.
+				const watchdog = armPreResponseTimeout(abortTracker.requestSignal, firstEventTimeoutMs);
+				// `timeout` is a Bun fetch extension absent from the DOM `RequestInit`.
+				const init: RequestInit & { timeout: false } = {
+					method: "POST",
+					headers,
+					body: buildBody(rotationRetryToken),
+					signal: watchdog.signal,
+					timeout: false,
+				};
+				try {
+					response = await fetchImpl(url, init);
+					if (!response.ok) {
+						stream.fail(await decodeGatewayError(response));
+						return "done";
+					}
+				} finally {
+					watchdog.clear();
 				}
-			} finally {
-				watchdog.clear();
-			}
-			const firstEventBudgetLeftMs = watchdog.remaining() ?? firstEventTimeoutMs;
-			// Callers can truthfully inspect the gateway HTTP response, but its
-			// request body is opaque here; callbacks themselves never cross the wire.
-			await notifyProviderResponse(
-				options,
-				response,
-				model,
-				response.headers.get("x-request-id") ?? response.headers.get("request-id"),
-			);
-			if (!response.body) {
-				stream.fail(
-					new AIError.AuthGatewayError("auth-gateway returned empty body", response.status, response.headers),
+				const firstEventBudgetLeftMs = watchdog.remaining() ?? firstEventTimeoutMs;
+				// Callers can truthfully inspect the gateway HTTP response, but its
+				// request body is opaque here; callbacks themselves never cross the wire.
+				await notifyProviderResponse(
+					options,
+					response,
+					model,
+					response.headers.get("x-request-id") ?? response.headers.get("request-id"),
 				);
-				return;
-			}
-
-			const source = readSseJson<PiNativeWireEvent>(
-				response.body as ReadableStream<Uint8Array>,
-				abortTracker.requestSignal,
-			);
-			const watchedSource = iterateWithIdleTimeout(source, {
-				idleTimeoutMs,
-				firstItemTimeoutMs: firstEventBudgetLeftMs,
-				errorMessage: PI_NATIVE_STREAM_IDLE_TIMEOUT_ERROR,
-				firstItemErrorMessage: PI_NATIVE_STREAM_FIRST_EVENT_TIMEOUT_ERROR,
-				onIdle: () =>
-					abortTracker.abortLocally(new AIError.StreamTimeoutError(PI_NATIVE_STREAM_IDLE_TIMEOUT_ERROR)),
-				onFirstItemTimeout: () =>
-					abortTracker.abortLocally(new AIError.StreamTimeoutError(PI_NATIVE_STREAM_FIRST_EVENT_TIMEOUT_ERROR)),
-				isProgressItem: isPiNativeProgressEvent,
-			});
-			let sawTerminal = false;
-			for await (const frame of watchedSource) {
-				const event = isGatewayFailureFrame(frame) ? gatewayFailureEvent(model as Model<Api>, frame) : frame;
-				if (event.type === "done" || event.type === "error") sawTerminal = true;
-				stream.push(event);
-				// `stream.push` resolves `.result()` on `done`/`error`; subsequent
-				// pushes are silently dropped by the base class. We still iterate
-				// to drain any trailing bytes from the wire so the underlying TCP
-				// stream closes cleanly.
-			}
-
-			if (!sawTerminal) {
-				const aborted = abortTracker.wasCallerAbort();
-				const partial = makeSyntheticAssistant(model as Model<Api>);
-				if (aborted) {
-					partial.stopReason = "aborted";
-					partial.errorMessage = "stream closed without terminal event";
-					stream.push({ type: "error", reason: "aborted", error: partial });
-				} else {
+				if (!response.body) {
 					stream.fail(
-						new AIError.ProviderResponseError(
-							"pi-native stream read error: stream closed before a terminal response event",
-							{
-								provider: model.provider,
-								kind: "incomplete-stream",
-							},
-						),
+						new AIError.AuthGatewayError("auth-gateway returned empty body", response.status, response.headers),
 					);
-					return;
+					return "done";
 				}
+
+				const source = readSseJson<PiNativeWireEvent>(
+					response.body as ReadableStream<Uint8Array>,
+					abortTracker.requestSignal,
+				);
+				const watchedSource = iterateWithIdleTimeout(source, {
+					idleTimeoutMs,
+					firstItemTimeoutMs: firstEventBudgetLeftMs,
+					errorMessage: PI_NATIVE_STREAM_IDLE_TIMEOUT_ERROR,
+					firstItemErrorMessage: PI_NATIVE_STREAM_FIRST_EVENT_TIMEOUT_ERROR,
+					onIdle: () =>
+						abortTracker.abortLocally(new AIError.StreamTimeoutError(PI_NATIVE_STREAM_IDLE_TIMEOUT_ERROR)),
+					onFirstItemTimeout: () =>
+						abortTracker.abortLocally(new AIError.StreamTimeoutError(PI_NATIVE_STREAM_FIRST_EVENT_TIMEOUT_ERROR)),
+					isProgressItem: isPiNativeProgressEvent,
+				});
+				// Replay safety mirrors the gateway's own rule: a leading `start`
+				// is held back until the turn commits something, so a handed-back
+				// attempt can be dropped whole. Once anything else has been
+				// published the marker is ignored and the error stands.
+				const pending: AssistantMessageEvent[] = [];
+				let committed = false;
+				let handedBack = false;
+				let retry = false;
+				let sawTerminal = false;
+				for await (const frame of watchedSource) {
+					const handBack = handedBackRetry(frame);
+					if (handBack !== undefined) {
+						handedBack = true;
+						nextRotationRetryToken = handBack.token;
+						nextRetryWaitMs = handBack.waitMs;
+					}
+					const event = isGatewayFailureFrame(frame) ? gatewayFailureEvent(model as Model<Api>, frame) : frame;
+					if (!committed && event.type === "start") {
+						pending.push(event);
+						continue;
+					}
+					if (
+						!committed &&
+						event.type === "error" &&
+						handedBack &&
+						allowRetry &&
+						!abortTracker.requestSignal.aborted
+					) {
+						// Neither this error nor the `start` before it reaches the
+						// caller: the next attempt replaces them.
+						pending.length = 0;
+						sawTerminal = true;
+						retry = true;
+						continue;
+					}
+					for (const held of pending) stream.push(held);
+					pending.length = 0;
+					committed = true;
+					if (event.type === "done" || event.type === "error") sawTerminal = true;
+					stream.push(event);
+					// `stream.push` resolves `.result()` on `done`/`error`; subsequent
+					// pushes are silently dropped by the base class. We still iterate
+					// to drain any trailing bytes from the wire so the underlying TCP
+					// stream closes cleanly.
+				}
+				if (retry) return "retry";
+
+				if (!sawTerminal) {
+					const aborted = abortTracker.wasCallerAbort();
+					const partial = makeSyntheticAssistant(model as Model<Api>);
+					if (aborted) {
+						partial.stopReason = "aborted";
+						partial.errorMessage = "stream closed without terminal event";
+						stream.push({ type: "error", reason: "aborted", error: partial });
+					} else {
+						stream.fail(
+							new AIError.ProviderResponseError(
+								"pi-native stream read error: stream closed before a terminal response event",
+								{
+									provider: model.provider,
+									kind: "incomplete-stream",
+								},
+							),
+						);
+						return "done";
+					}
+				}
+				stream.end();
+				return "done";
+			};
+
+			// The gateway stops marking hand-backs once its credentials are spent
+			// or its operation history says the next attempt would repeat one,
+			// which is what ends this loop. The ceiling is the same one the
+			// in-process auth-retry driver answers to, so a gateway that never
+			// stops cannot spin a client forever.
+			for (let attempt = 1; ; attempt++) {
+				if ((await runAttempt(attempt < AUTH_RETRY_MAX_ATTEMPTS)) === "done") break;
+				rotationRetryToken = nextRotationRetryToken;
+				if (nextRetryWaitMs > 0) await scheduler.wait(nextRetryWaitMs, { signal: abortTracker.requestSignal });
 			}
-			stream.end();
 		} catch (err) {
 			stream.fail(err);
 		} finally {
@@ -310,6 +396,31 @@ type PiNativeWireEvent = AssistantMessageEvent | GatewayFailureFrame;
 
 function isGatewayFailureFrame(frame: PiNativeWireEvent): frame is GatewayFailureFrame {
 	return frame.type === "error" && frame.error === undefined;
+}
+
+/** What a marked frame asks of this client: continue `token`, after `waitMs`. */
+interface HandedBackRetry {
+	token: string | undefined;
+	waitMs: number;
+}
+
+/**
+ * The hand-back on a terminal `error` frame marked `rotation:
+ * "retryable"`: the gateway blocked or invalidated the credential this attempt
+ * used, found a successor, and left the inference attempt to this client
+ * because the request claimed it (`rotationRetry: "client"`). The token names
+ * the authentication operation the next request continues. `undefined` when
+ * the frame carries no hand-back — a gateway that rotates internally never
+ * marks one, so an unmarked error is terminal as it always was.
+ */
+function handedBackRetry(frame: PiNativeWireEvent): HandedBackRetry | undefined {
+	if (frame.type !== "error" || !("rotation" in frame) || frame.rotation !== "retryable") return undefined;
+	// A gateway that marks without naming its operation gets a fresh one on the
+	// next request: the history is its to keep, not ours to invent.
+	const token = "rotationToken" in frame && typeof frame.rotationToken === "string" ? frame.rotationToken : undefined;
+	const waitMs = "retryAfterMs" in frame && typeof frame.retryAfterMs === "number" ? frame.retryAfterMs : 0;
+	// A gateway cannot park this client indefinitely by asking for a long wait.
+	return { token, waitMs: Math.max(0, Math.min(waitMs, PI_NATIVE_MAX_HANDBACK_WAIT_MS)) };
 }
 
 /** Canonical `error` event for a {@link GatewayFailureFrame}, attributed to the requested model. */

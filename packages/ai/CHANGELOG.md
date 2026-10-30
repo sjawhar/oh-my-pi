@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Fixed a paused session still paying a provider when its turn runs through an `omp auth-gateway`: the retry after a credential rotation is now made by the client, so it waits for the resume like every other request. The gateway keeps the usage-limit block, the credential invalidation and the sibling selection.
 
 - A caller's dispatch hold (`StreamOptions.beforeDispatch`) now also covers the Codex websocket — each connect attempt, each `response.create` and each `response.steer` that carries new input — the Cursor run request and every GitLab Duo workflow socket send, and a cancelled request no longer stays parked on a hold ([#17399](https://github.com/can1357/oh-my-pi/pull/17399) by [@sjawhar](https://github.com/sjawhar))
 - A request held by its caller is no longer failed by a watchdog while it waits: the pre-response budget is a stopwatch the transport stops while it prepares and holds a request, the stream's first-event watchdog counts held time as local work, and the provider timers that used to be armed before dispatch (Anthropic, OpenAI completions and responses, Azure, Bedrock, Google, Vertex, Ollama, Cursor, Devin, Factory, OpenRouter, GitLab Duo) now follow the same rule ([#17399](https://github.com/can1357/oh-my-pi/pull/17399) by [@sjawhar](https://github.com/sjawhar))

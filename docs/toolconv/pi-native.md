@@ -77,13 +77,19 @@ Accept: text/event-stream
     "tools": []
   },
   "options": {},
-  "stream": true
+  "stream": true,
+  "rotationRetry": "client"
 }
 ```
 
 The client always qualifies `modelId` as `${provider}/${id}` and always
 requests streaming. The server also accepts `modelId`, a string `model`, or
 `model.id`; its lower-level request parser defaults `stream` to `true`.
+
+`rotationRetry` is sent as `"client"` only when the caller supplied a
+`beforeDispatch` hold, and only that value means anything: see
+[Credential rotation](#credential-rotation). Any other value, and its absence,
+leave the retry inside the gateway.
 
 Validation at the gateway boundary is intentionally shallow:
 
@@ -115,9 +121,11 @@ The server accepts this `SimpleStreamOptions` subset:
 Unknown, `null`, and `undefined` option values are silently dropped by the
 server. The client additionally strips runtime/server-owned fields:
 `signal`, `apiKey`, `fetch`, `onPayload`, `onResponse`, `onSseEvent`,
-`execHandlers`, `cursorExecHandlers`, `cursorOnToolResult`, and
-`providerSessionState`. `onResponse` still runs locally against the gateway's
-HTTP response; callbacks and runtime handles themselves never cross the wire.
+`execHandlers`, `cursorExecHandlers`, `cursorOnToolResult`,
+`providerSessionState`, and `beforeDispatch`. `onResponse` still runs locally
+against the gateway's HTTP response, and `beforeDispatch` still holds each
+HTTP attempt this client makes; callbacks and runtime handles themselves never
+cross the wire.
 
 For Bedrock models, `streamSimple` copies model-configured guardrail fields
 and request metadata into wire options. Per-call request-metadata entries win
@@ -173,6 +181,45 @@ message has `stopReason:"aborted"` and
 and a signal already aborted before the request fail the stream directly.
 `reason` is the top-level event field; `stopReason` belongs to the nested
 `AssistantMessage`.
+
+## Credential rotation
+
+When an upstream attempt fails before emitting anything — an expired token, a
+usage limit — the gateway's credential resolver blocks or invalidates the
+credential and picks a successor. Who then makes the next inference attempt
+depends on `rotationRetry`.
+
+- **Absent (default).** The gateway retries inside the same request, as it
+  always has. The client sees one HTTP request and one answer.
+- **`"client"`, on a streamed request.** The gateway does the same bookkeeping
+  and stops. It writes the failure it captured with an extra field —
+  `{"type":"error", ..., "rotation":"retryable"}` — and the client re-sends the
+  whole request. The point is the client's own dispatch chokepoint: its
+  `beforeDispatch` hold, its in-flight limit and its abort signal all gate that
+  attempt, so a session paused mid-turn stops paying. The client drops the
+  held-back `start` and the marked error and publishes nothing from the
+  abandoned attempt; once anything else has been published the marker is
+  ignored and the error stands, which keeps the prohibition on replaying a turn
+  whose output already committed.
+
+The gateway marks only an attempt that would use a *different* credential. A
+refresh that returned the same bearer is one its own retry driver refuses and
+escalates past; handing that back would spin the client on a credential that
+cannot succeed. Unmarked errors are terminal, so the loop ends when the
+credentials do, under the same `AUTH_RETRY_MAX_ATTEMPTS` ceiling the in-process
+driver answers to.
+
+Mixed versions are defined in both directions, and both are the behaviour that
+predates the field:
+
+| Client | Gateway | Result |
+| --- | --- | --- |
+| Sends `rotationRetry` | Ignores unknown top-level fields | The gateway retries internally; no marker is ever written, so the client never retries. |
+| Sends nothing | Reads `rotationRetry` | The gateway retries internally. |
+
+A non-streamed pi-native request keeps the gateway's own retry whatever it
+claims: its error envelope is `{ error: { type, message } }`, which carries no
+marker. The omp client always streams.
 
 The client consumes streaming responses only. The server endpoint also
 supports `stream: false`, returning:
