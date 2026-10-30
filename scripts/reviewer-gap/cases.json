@@ -1,0 +1,444 @@
+{
+	"frozen_at": "2026-10-30T06:05:00Z",
+	"note": "Frozen before any model call. Every mechanism/trigger pattern is taken from the cross-family reviewer's own title, files and trigger text in the corpus record of the same id. Patterns are JS regex sources, matched case-insensitively against the reviewer's report text inside a sliding window of window_chars characters. A finding counts as detected only when every mechanism group and every trigger group matches inside one window.",
+	"window_chars": 1200,
+	"corpus": "/mnt/nvme/sami/tmp/cachefix/reviewer-evals/corpus/findings",
+	"heads": [
+		{
+			"id": "pr17394-r7",
+			"pr": 17394,
+			"round": 7,
+			"head_sha": "1ed7804e0fe4",
+			"base_sha": "31147f9d1a76608549821c3759f8487b4d66c72d",
+			"checkout": "/mnt/nvme/sami/tmp/cachefix/reviewer-evals/heads/1ed7804e0fe4",
+			"diff": "/mnt/nvme/sami/tmp/cachefix/reviewer-evals/diffs/1ed7804e0fe4.diff",
+			"subject": "isolated task worktrees: ownership markers, generations and `omp worktree clear`",
+			"packages": ["packages/coding-agent", "packages/utils"]
+		},
+		{
+			"id": "pr17394-r8",
+			"pr": 17394,
+			"round": 8,
+			"head_sha": "19fc56646504d68460e4f36534c9a2fa1b73cd24",
+			"base_sha": "31147f9d1a76608549821c3759f8487b4d66c72d",
+			"checkout": "/mnt/nvme/sami/tmp/cachefix/reviewer-evals/heads/19fc56646504d68460e4f36534c9a2fa1b73cd24",
+			"diff": "/mnt/nvme/sami/tmp/cachefix/reviewer-evals/diffs/19fc56646504d68460e4f36534c9a2fa1b73cd24.diff",
+			"subject": "isolated task worktrees: persistent descendant leases on top of the round-seven ownership work",
+			"packages": ["packages/coding-agent", "packages/utils"]
+		},
+		{
+			"id": "pr17399-r3",
+			"pr": 17399,
+			"round": 3,
+			"head_sha": "670df28f7bf7",
+			"base_sha": "31147f9d1a76608549821c3759f8487b4d66c72d",
+			"checkout": "/mnt/nvme/sami/tmp/cachefix/reviewer-evals/heads/670df28f7bf7",
+			"diff": "/mnt/nvme/sami/tmp/cachefix/reviewer-evals/diffs/670df28f7bf7.diff",
+			"subject": "session pause: every in-session model request is held at the dispatch boundary while paused",
+			"packages": ["packages/agent", "packages/ai", "packages/coding-agent"]
+		}
+	],
+	"findings": [
+		{
+			"id": "17394-R7-1",
+			"head": "pr17394-r7",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "successful branch-mode refusal silently omits completed child work",
+			"mechanism": [
+				["refus(e|al|ed|ing)"],
+				["branch"],
+				["silent", "omit", "drop", "lose", "lost", "discard", "missing", "not applied"]
+			],
+			"trigger": [["child", "adopt", "descendant", "subagent", "mergeMode", "merge mode"]]
+		},
+		{
+			"id": "17394-R7-2",
+			"head": "pr17394-r7",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "descendants can lose changes made after owner release",
+			"mechanism": [
+				["descendant", "grandchild", "child worktree", "nested (task|session|isolation)"],
+				["lose", "lost", "delet", "remov", "discard", "destroy", "wipe"]
+			],
+			"trigger": [
+				["after .{0,60}releas", "owner release", "parent release", "release.{0,40}then", "post-release"],
+				["teardown", "cleanup", "cleanupIsolation", "rm\\b"]
+			]
+		},
+		{
+			"id": "17394-R7-3",
+			"head": "pr17394-r7",
+			"severity": "P1",
+			"how_found_primary": "inject-fault",
+			"title": "`worktree clear` can delete a live task when the marker is unreadable or a dead-owner scan races materialisation",
+			"mechanism": [
+				["worktree clear", "clearWorktrees", "`clear`", "clear command", "the clear path"],
+				["delet", "remov", "destroy"],
+				["live", "in[- ]use", "active", "running"]
+			],
+			"trigger": [
+				["marker", "owner\\.json", "isolation-owner", "ownership file"],
+				["unreadable", "EACCES", "EIO", "malform", "truncat", "missing", "corrupt", "unparsab", "race", "scan"]
+			]
+		},
+		{
+			"id": "17394-R7-4",
+			"head": "pr17394-r7",
+			"severity": "P1",
+			"how_found_primary": "two-processes-barrier",
+			"title": "separate processes sharing a workspace do not share the descendant lease",
+			"mechanism": [
+				["lease", "registr(y|ation)", "live session registry"],
+				["(separate|second|another|other|different) process", "two processes", "cross[- ]process", "process boundary", "in-process only"],
+				["share", "shared", "not .{0,20}visible", "invisib", "unaware", "does not see"]
+			],
+			"trigger": [["cleanupIsolation", "owner cleanup", "teardown", "delet", "remov"]]
+		},
+		{
+			"id": "17394-R7-5",
+			"head": "pr17394-r7",
+			"severity": "P1",
+			"how_found_primary": "real-kernel-resource",
+			"title": "same directory via symlink has different Linux lock identities",
+			"mechanism": [
+				["symlink", "symbolic link", "alias"],
+				["lock"],
+				["identit", "different", "distinct", "two", "second", "separate name", "not mutual"]
+			],
+			"trigger": [["abstract.?socket", "file[-_ ]lock", "flock", "realpath", "canonical", "path.?based"]]
+		},
+		{
+			"id": "17394-R7-6",
+			"head": "pr17394-r7",
+			"severity": "P2",
+			"how_found_primary": "two-processes-barrier",
+			"title": "a non-mount rename failure falls back to in-place teardown and can deny new materialisations",
+			"mechanism": [
+				["rename"],
+				["EXDEV", "EBUSY", "EACCES", "ENOTEMPTY", "cross[- ]device", "fail"],
+				["in[- ]place", "fall ?back"]
+			],
+			"trigger": [["never settle", "hang", "block", "does not (return|settle)", "deny", "denies", "starv", "wait"]]
+		},
+		{
+			"id": "17394-R7-7",
+			"head": "pr17394-r7",
+			"severity": "P2",
+			"how_found_primary": "inject-fault",
+			"title": "failed removal after successful rename makes a retired workspace invisible to clear",
+			"mechanism": [
+				["fs\\.rm", "remov", "delet"],
+				["fail", "EIO", "error", "throw"],
+				["retired", "invisib", "hidden", "not (be )?(seen|listed|found)", "leak", "orphan"]
+			],
+			"trigger": [["rename", "retire"]]
+		},
+		{
+			"id": "17394-R7-8",
+			"head": "pr17394-r7",
+			"severity": "P2",
+			"how_found_primary": "read-surrounding",
+			"title": "first isolated sandbox on non-Linux Unix cannot acquire the file lock when the worktree root does not exist",
+			"mechanism": [
+				["file ?lock", "acquireFileLock", "\\.lock"],
+				["parent", "does not exist", "mkdir", "ENOENT", "missing director"],
+				["non-?linux", "macos", "darwin", "bsd", "unix"]
+			],
+			"trigger": [["ensureIsolation", "before .{0,40}mkdir", "acquire.{0,40}before", "ordering"]]
+		},
+		{
+			"id": "17394-R7-9",
+			"head": "pr17394-r7",
+			"severity": "unlabelled",
+			"how_found_primary": "inject-fault",
+			"title": "refusal releases before deferred disposal, which is unbounded",
+			"mechanism": [
+				["dispos", "teardown"],
+				["unbounded", "never (resolv|settl|return)", "hang", "indefinit", "no timeout", "forever"]
+			],
+			"trigger": [["flushRetainQueue", "retain", "allSettled", "AgentSession\\.dispose", "session dispose", "refus"]]
+		},
+		{
+			"id": "17394-R8-1",
+			"head": "pr17394-r8",
+			"severity": "P1",
+			"how_found_primary": "two-processes-barrier",
+			"title": "replacing a live leased sandbox destroys another process's live work",
+			"mechanism": [
+				["lease"],
+				["replac", "overwrit", "reuse", "ensureIsolation", "re-?materialis"],
+				["destroy", "delet", "lose", "lost", "clobber", "wipe", "remov"]
+			],
+			"trigger": [["(another|second|other|different) process", "two processes", "cross[- ]process", "concurrent"]]
+		},
+		{
+			"id": "17394-R8-2",
+			"head": "pr17394-r8",
+			"severity": "P1",
+			"how_found_primary": "real-kernel-resource",
+			"title": "`worktree clear` can delete an unrelated live sandbox after a symlink swap",
+			"mechanism": [
+				["symlink", "symbolic link"],
+				["swap", "retarget", "replac", "repoint", "chang"],
+				["clear", "clearWorktrees"],
+				["delet", "remov", "destroy"]
+			],
+			"trigger": [
+				["under.?lock", "after .{0,60}(lock|decision|decide|check)", "between .{0,60}(check|decision|scan)", "TOCTOU", "time.of.(check|use)", "recheck"]
+			]
+		},
+		{
+			"id": "17394-R8-3",
+			"head": "pr17394-r8",
+			"severity": "P1",
+			"how_found_primary": "two-processes-barrier",
+			"title": "cross-process lease releases and crashes never trigger deferred owner capture or cleanup",
+			"mechanism": [
+				["lease"],
+				["cross[- ]process", "(another|second|other) process", "remote holder", "two processes"],
+				["releas", "crash", "SIGKILL", "exit", "die", "kill"]
+			],
+			"trigger": [["deferred", "captur", "cleanup", "teardown", "never", "no .{0,20}(hook|watcher|notification)"]]
+		},
+		{
+			"id": "17394-R8-4",
+			"head": "pr17394-r8",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "late lease acquisition is not excluded by the teardown lock",
+			"mechanism": [
+				["lease"],
+				["late", "after the", "new", "acquir"],
+				["lock", "rename", "retire", "teardown"]
+			],
+			"trigger": [
+				["deferTeardownWhileLeased", "between .{0,60}check", "after the .{0,30}check", "gate", "window", "race"]
+			]
+		},
+		{
+			"id": "17394-R8-5",
+			"head": "pr17394-r8",
+			"severity": "P1",
+			"how_found_primary": "inject-fault",
+			"title": "a read error listing the lease directory authorizes clear to delete a live leased sandbox",
+			"mechanism": [
+				["readdir", "lease director", "leaseDir", "listing", "enumerat"],
+				["EIO", "read error", "fail", "throw", "error"],
+				["clear", "delet", "remov"]
+			],
+			"trigger": [["live", "leased", "in use", "active"]]
+		},
+		{
+			"id": "17394-R8-6",
+			"head": "pr17394-r8",
+			"severity": "P1",
+			"how_found_primary": "inject-fault",
+			"title": "failed lease recording silently returns an unprotected session",
+			"mechanism": [
+				["lease"],
+				["ENOSPC", "write fail", "fail", "error", "throw"],
+				["silent", "unprotected", "no protection", "still return", "ignor", "swallow", "continue"]
+			],
+			"trigger": [["temp", "atomic", "rename", "record"]]
+		},
+		{
+			"id": "17394-R8-7",
+			"head": "pr17394-r8",
+			"severity": "P1",
+			"how_found_primary": "real-kernel-resource",
+			"title": "symlinked session cwd bypasses lease discovery",
+			"mechanism": [
+				["symlink", "symbolic link"],
+				["cwd", "current working", "session director"],
+				["lease"],
+				["bypass", "miss", "not (found|discovered|detected)", "skip", "fail to"]
+			],
+			"trigger": [["discover", "infer", "resolv", "canonical", "realpath"]]
+		},
+		{
+			"id": "17394-R8-8",
+			"head": "pr17394-r8",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "an old retired teardown deletes the new generation's bookkeeping",
+			"mechanism": [
+				["old", "previous", "retired", "stale"],
+				["delet", "remov", "overwrit", "clobber"],
+				["new", "successor", "next generation", "newer"]
+			],
+			"trigger": [["generation", "slot", "bookkeep", "marker", "rename"]]
+		},
+		{
+			"id": "17394-R8-9",
+			"head": "pr17394-r8",
+			"severity": "P1",
+			"how_found_primary": "inject-fault",
+			"title": "an in-place stop that outlives ten seconds can delete a newer generation after the lock is released",
+			"mechanism": [
+				["in-?place"],
+				["10[- ]?second", "ten[- ]second", "10_?000 ?ms", "timeout", "time ?limit", "bound"],
+				["delet", "remov"],
+				["newer", "successor", "new generation", "next"]
+			],
+			"trigger": [["lock .{0,30}releas", "after the lock", "outside the lock", "EBUSY", "rename fail"]]
+		},
+		{
+			"id": "17394-R8-10",
+			"head": "pr17394-r8",
+			"severity": "P2",
+			"how_found_primary": "inject-fault",
+			"title": "failure to canonicalize does not fail closed",
+			"mechanism": [
+				["canonical", "realpath"],
+				["fail", "EIO", "error", "throw"],
+				["fail (open|closed)", "falls? back", "proceed", "continue", "swallow", "catch"]
+			],
+			"trigger": [["alias", "symlink", "lock", "non-?canonical"]]
+		},
+		{
+			"id": "17394-R8-11",
+			"head": "pr17394-r8",
+			"severity": "P2",
+			"how_found_primary": "inject-fault",
+			"title": "correlated retirement-marker failure and removal failure leave an unreclaimable live claim",
+			"mechanism": [
+				["retire", "markIsolationRetired"],
+				["ENOSPC", "EIO", "fail", "error"],
+				["unreclaim", "stuck", "leak", "never", "permanent", "forever", "stranded"]
+			],
+			"trigger": [["claim", "clear", "remov", "rm\\b"]]
+		},
+		{
+			"id": "17394-R8-12",
+			"head": "pr17394-r8",
+			"severity": "P3",
+			"how_found_primary": "write-probe",
+			"title": "ambiguous cwd inference can create a lease in a non-sandbox",
+			"mechanism": [
+				["cwd", "director(y|ies) inference", "infer"],
+				["lease"],
+				["non-?sandbox", "plain director", "unrelated", "ambiguous", "wrong director"]
+			],
+			"trigger": [["malform", "isolation-owner", "owner marker", "parent"]]
+		},
+		{
+			"id": "17394-R8-13",
+			"head": "pr17394-r8",
+			"severity": "unlabelled",
+			"how_found_primary": "inject-fault",
+			"title": "refused-child disposal stays unbounded despite the sixty-second timer",
+			"mechanism": [
+				["dispos"],
+				["unbounded", "never (resolv|settl|return)", "hang", "exceed", "outliv", "ignore[sd]? the timer"]
+			],
+			"trigger": [["60", "sixty", "timer", "flushRetainQueue", "retain", "refus"]]
+		},
+		{
+			"id": "17394-R8-14",
+			"head": "pr17394-r8",
+			"severity": "unlabelled",
+			"how_found_primary": "write-probe",
+			"title": "branch-mode refusal still drops metadata intermittently",
+			"mechanism": [
+				["branch"],
+				["refus"],
+				["metadata", "base", "patch", "applied", "drop", "missing", "absent"]
+			],
+			"trigger": [["intermittent", "flak", "sometimes", "non-?deterministic", "repeat", "one run", "occasional"]]
+		},
+		{
+			"id": "17399-R3-1",
+			"head": "pr17399-r3",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "the request inventory still misses paid-capable remote memory paths",
+			"mechanism": [
+				["remote", "mnemopi", "embedding", "hindsight"],
+				["memor", "retain", "reflect", "embedding"],
+				["unheld", "not held", "without .{0,30}hold", "bypass", "miss", "not covered", "escape"]
+			],
+			"trigger": [["pause", "gate .{0,20}clos", "while paused", "held"]]
+		},
+		{
+			"id": "17399-R3-2",
+			"head": "pr17399-r3",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "the composed hold is not a barrier, and a nested hold loses lifetime cancellation",
+			"mechanism": [
+				["dispatchHold", "composed hold", "nested hold", "the hold", "hold "],
+				["barrier", "revalidat", "re-?check", "does not check again", "microtask", "event[- ]loop", "turn", "cancel"],
+				["send", "dispatch", "request .{0,30}(goes|sent|out)", "reaches the wire", "on the wire"]
+			],
+			"trigger": [["clos(e|ed|ing) .{0,60}gate", "gate .{0,20}clos", "re-?pause", "while .{0,20}await", "between"]]
+		},
+		{
+			"id": "17399-R3-3",
+			"head": "pr17399-r3",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "a steering queue drained while paused is consumed on cancellation without delivery",
+			"mechanism": [
+				["steer"],
+				["queue", "queued", "drain"],
+				["cancel", "abort"],
+				["deliver", "undelivered", "consum", "lost", "drop", "discard"]
+			],
+			"trigger": [["boundar", "pause", "paused", "park"]]
+		},
+		{
+			"id": "17399-R3-4",
+			"head": "pr17399-r3",
+			"severity": "P2",
+			"how_found_primary": "measure-timing",
+			"title": "Cursor's mid-turn append residual aborts a healthy paused tool round-trip",
+			"mechanism": [
+				["cursor"],
+				["append", "tool result", "mid-?turn"],
+				["watchdog", "idle", "stall", "timeout", "abort", "kill"]
+			],
+			"trigger": [["pause", "held", "hold"]]
+		},
+		{
+			"id": "17399-R3-5",
+			"head": "pr17399-r3",
+			"severity": "P2",
+			"how_found_primary": "measure-timing",
+			"title": "a long hold sends an expired AWS-signed request on resume",
+			"mechanism": [
+				["sigv4", "signature", "signed", "bedrock", "aws"],
+				["expir", "stale", "invalid", "no longer valid"],
+				["resume", "after .{0,30}(pause|hold)", "long hold", "released"]
+			],
+			"trigger": [["clock", "minute", "time", "403", "skew", "window"]]
+		},
+		{
+			"id": "17399-R3-6",
+			"head": "pr17399-r3",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "HTTP prewarm has only an entry check, unlike Codex prewarm",
+			"mechanism": [
+				["prewarm"],
+				["http", "transportFetch", "fetch", "wire", "HEAD"],
+				["dispatch", "sent", "send", "race", "while paused", "started .{0,30}before"]
+			],
+			"trigger": [["entry check", "caller guard", "only .{0,30}check", "codex", "no .{0,20}final"]]
+		},
+		{
+			"id": "17399-R3-7",
+			"head": "pr17399-r3",
+			"severity": "unlabelled",
+			"how_found_primary": "measure-timing",
+			"title": "four providers give the body iterator a fresh first-event budget",
+			"mechanism": [
+				["watchdog", "budget", "first[- ]event", "timeout", "deadline"],
+				["body", "iterator", "header", "stream"],
+				["fresh", "second", "renew", "twice", "another", "reset"]
+			],
+			"trigger": [["provider", "anthropic", "openai", "azure", "1,?600", "1600"]]
+		}
+	]
+}
