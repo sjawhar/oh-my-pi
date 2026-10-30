@@ -159,20 +159,30 @@ export interface UpstreamAttemptState {
  * recovery whose work a client could not replay safely. `onDecline` runs
  * before the rejection, so the gateway marks the failure it will emit.
  *
+ * Only the first transport built from it enforces anything. A transport that
+ * already carries this wrapper is live — a hold supplied later joins that
+ * build rather than rebuilding it — so the inference attempts and their
+ * retries all pass through the first build. The one thing that runs this
+ * factory again is `withoutDispatchHold`, which builds the separate unheld
+ * transport that carries cleanup and credential traffic: that traffic is not
+ * an inference retry, and declining it would break a workflow stop or a token
+ * refresh for every held request whose first attempt failed. Later builds
+ * therefore pass straight through, which also fails open rather than shut if
+ * that order ever changes.
+ *
  * The count and the latch live in `state`, which belongs to the request rather
- * than to this factory: the transport may build the same wrapper more than once
- * for one request (a later hold joins a build in place, `withoutDispatchHold`
- * makes a separate unheld one), and a count held inside the factory would reset
- * on each build and never decline. One `state` per request, never shared
- * between them.
+ * than to this factory. One `state` per request, never shared between them.
  */
 export function declineUpstreamRetries(
 	state: UpstreamAttemptState,
 	maxAttempts: number,
 	onDecline: () => boolean,
 ): TransportWrapper {
-	return (fetch: FetchImpl): FetchImpl =>
-		async (input, init) => {
+	let builds = 0;
+	return (fetch: FetchImpl): FetchImpl => {
+		const dispatchBuild = ++builds === 1;
+		if (!dispatchBuild) return fetch;
+		return async (input, init) => {
 			if (state.attempts >= maxAttempts && !state.delivered && onDecline()) {
 				// The vendor SDK may retry this rejection on its own budget; each
 				// of those lands here and is refused again, so the cost is its
@@ -188,4 +198,5 @@ export function declineUpstreamRetries(
 			if (response.ok) state.delivered = true;
 			return response;
 		};
+	};
 }
