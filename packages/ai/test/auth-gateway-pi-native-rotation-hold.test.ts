@@ -576,14 +576,11 @@ describe("the provider transport's own retries", () => {
 });
 
 describe("the declined-retry wrapper's per-request state", () => {
-	it("declines a retry on the transport that dispatches, and nothing on a later one", async () => {
-		// Inference and its retries ride the first build: a transport already
-		// carrying this wrapper is live, so a hold supplied later joins it
-		// instead of rebuilding. The factory runs again only for
-		// `withoutDispatchHold`'s separate unheld transport, which carries
-		// cleanup and credential traffic — declining that would break a workflow
-		// stop or a token refresh for every held request whose first attempt
-		// failed.
+	it("declines the request's second attempt and reports it once", async () => {
+		// Every attempt that reaches this wrapper is one of the request's own:
+		// the transport runs the factory once, for the live dispatching build,
+		// and gives cleanup and credential traffic a transport carrying no
+		// caller wrapper at all.
 		const state = { attempts: 0, delivered: false };
 		let declines = 0;
 		const wrap = declineUpstreamRetries(state, 1, () => {
@@ -595,11 +592,6 @@ describe("the declined-retry wrapper's per-request state", () => {
 		expect((await dispatch("http://upstream.invalid", { method: "POST" })).status).toBe(503);
 		await expect(dispatch("http://upstream.invalid", { method: "POST" })).rejects.toThrow("declined this retry");
 		expect(declines).toBe(1);
-
-		const cleanup = wrap(upstream);
-		expect((await cleanup("http://upstream.invalid", { method: "POST" })).status).toBe(503);
-		expect(declines).toBe(1);
-		// The dispatch build's one attempt, and nothing the cleanup one made.
 		expect(state.attempts).toBe(1);
 	});
 

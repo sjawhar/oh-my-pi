@@ -159,16 +159,11 @@ export interface UpstreamAttemptState {
  * recovery whose work a client could not replay safely. `onDecline` runs
  * before the rejection, so the gateway marks the failure it will emit.
  *
- * Only the first transport built from it enforces anything. A transport that
- * already carries this wrapper is live — a hold supplied later joins that
- * build rather than rebuilding it — so the inference attempts and their
- * retries all pass through the first build. The one thing that runs this
- * factory again is `withoutDispatchHold`, which builds the separate unheld
- * transport that carries cleanup and credential traffic: that traffic is not
- * an inference retry, and declining it would break a workflow stop or a token
- * refresh for every held request whose first attempt failed. Later builds
- * therefore pass straight through, which also fails open rather than shut if
- * that order ever changes.
+ * The transport runs this factory once for the request's live build, and
+ * nothing else: a hold supplied later joins that build rather than rebuilding
+ * it, and `withoutDispatchHold` gives cleanup and credential traffic a
+ * transport with no caller wrapper at all. So every attempt that reaches this
+ * wrapper is one of the request's own inference attempts.
  *
  * The count and the latch live in `state`, which belongs to the request rather
  * than to this factory. One `state` per request, never shared between them.
@@ -178,11 +173,8 @@ export function declineUpstreamRetries(
 	maxAttempts: number,
 	onDecline: () => boolean,
 ): TransportWrapper {
-	let builds = 0;
-	return (fetch: FetchImpl): FetchImpl => {
-		const dispatchBuild = ++builds === 1;
-		if (!dispatchBuild) return fetch;
-		return async (input, init) => {
+	return (fetch: FetchImpl): FetchImpl =>
+		async (input, init) => {
 			if (state.attempts >= maxAttempts && !state.delivered && onDecline()) {
 				// The vendor SDK may retry this rejection on its own budget; each
 				// of those lands here and is refused again, so the cost is its
@@ -198,5 +190,4 @@ export function declineUpstreamRetries(
 			if (response.ok) state.delivered = true;
 			return response;
 		};
-	};
 }
