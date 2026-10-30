@@ -1,0 +1,95 @@
+{
+	"frozen_at": "2026-10-30T12:10:00Z",
+	"question": "Does a reviewer prompt that names the re-derivation class (a fact established at T1 is re-derived at T2 from something that can change in between) and tells the reviewer to enumerate every re-lookup and attack the window between establishment and use find more of the known defects than no prompt at all?",
+	"why_after_a_null": "The first prompt eval (3429f759ceef) was null: -3.3 pp, 95% [-18.8, +9.5]. Its candidate told the reviewer how to work (read, list claims, probe). This candidate tells a running reviewer what to attack. The hypothesis comes from the latest round of five pull requests, where one class dominated.",
+	"inherits": {
+		"cases": "cases.json",
+		"cases_sha256": "7692d6f386aaef27652898e904ff5ecf4b34ff61f3069eee0f7e8590900b7845",
+		"grader": "grade.ts",
+		"grader_sha256": "396d854054c6a1b8c404db05ecb657e1e7d1141ab99dabad2bc364918645cfe1",
+		"composer": "rounds.ts (pairedCompare only)",
+		"composer_sha256": "25a9bdb7144ce115bb895698647e52159961671bf1af32aeec9554ce1e6df029",
+		"runner": "run.ts, with one added arm entry `rederive`",
+		"runner_sha256": "dde626aba088231f49712c324c2a219f4f028b42092c2c08d6dc2a2fff6e49b9",
+		"note": "Detection (`detects`, window_chars 1200, every mechanism and trigger group inside one window), exclusion of errored runs, the per-arm Wilson and cluster-bootstrap intervals and the paired cluster bootstrap over (head, trial) pairs are the first eval's code, unchanged. grade.ts, rounds.ts and cases.json hash to the values the rounds freeze recorded."
+	},
+	"candidate": {
+		"file": "prompts/rederive.md",
+		"sha256": "8f378dcfbc6d4b2acfd32ca93072a1dfab476b18fce1fbaf9670f31acaadbb8c",
+		"chars": 2851,
+		"length_rule": "The control arm appends 0 characters, so 'no longer than the control' cannot be met literally. The candidate is held to the strictest non-empty reading: no longer than the shipped reviewer prompt (prompts/current.md, 3349 characters), and so also shorter than the first eval's candidate (4797).",
+		"written_from": "The class statement and the ten example shapes given in the lane assignment, generalised: it names no repository identifier and no finding. It was written before any corpus record was classified and before any stratum-B record or case existed.",
+		"tuning": "None. One version, run once. A null result is reported as a null result."
+	},
+	"strata": {
+		"A": {
+			"name": "original",
+			"cases": "cases.json, unchanged: 30 findings over pr17394-r7, pr17394-r8, pr17399-r3",
+			"classification": "all 197 corpus findings are labelled; the 30 cases are the subset with runs"
+		},
+		"B": {
+			"name": "batch extension",
+			"rule": "Every finding the latest completed cross-family review round reports as open on its head, for each of the five pull requests in the current fix batch, at 2026-10-30T12:00Z. Rounds still running at that time are excluded.",
+			"rounds": [
+				{ "pr": 17394, "round": 16, "head_sha": "5e70deb62c2185d777378adb51c06ec8f67a9cd6", "report": "/mnt/nvme/17394-astra-r16/report.md" },
+				{ "pr": 17398, "round": 19, "head_sha": "e43656228da50276c8d2a5d50b4e0809efb373cf", "report": "/mnt/nvme/astrareview-17398-r19/report.md" },
+				{ "pr": 17402, "round": 17, "head_sha": "9af7d8eb683da64b5888a996d7a4a28a912c94d7", "report": "/mnt/nvme/17402-r17-review/report.md" },
+				{ "pr": 17412, "round": 6, "head_sha": "f8cddb4da5997f858ead9f5a3ab81e690517e081", "report": "/mnt/nvme/astra-17412-r6/report.md" },
+				{ "pr": 17421, "round": 17, "head_sha": "8b9cb46ff95c0c6fdc95e4bce9efe0d8db2ff59e", "report": "/mnt/nvme/17421-r17-AstraReview17421r17/report.md" }
+			],
+			"excluded_running": "#17394 round 17, #17398 round 20, #17412 round 8 and #17421 round 18 were still running at the cut.",
+			"records": "corpus/findings-b/<pr>.jsonl, same schema as corpus/findings/ (corpus/SCHEMA.md)",
+			"cases": "cases-b.json, written from the records by agents that were not shown the candidate prompt or the hypothesis, and frozen and committed before the first stratum-B model call",
+			"diff_base": "the merge-base of each head with upstream/main",
+			"snapshots": "git archive of the full head sha, root node_modules entries linked to the first eval's dependency donor (bun.lock and every package.json are identical to pr17399-r3), @oh-my-pi workspace links pointing into the snapshot itself, the native addon linked from the donor, then made read-only",
+			"in_sample_warning": "The class was named from these rounds. Stratum B is the hypothesis-generating set, so a gain there is weaker evidence than a gain on A, and is never reported without saying so."
+		}
+	},
+	"arms": [
+		{ "name": "rederive", "prompt": "prompts/rederive.md", "model": "anthropic/claude-opus-5-5", "role": "candidate" },
+		{ "name": "control", "prompt": null, "model": "anthropic/claude-opus-5-5", "role": "control, run fresh beside the candidate" },
+		{ "name": "candidate", "prompt": "prompts/candidate.md", "model": "anthropic/claude-opus-5-5", "role": "attribution: the first eval's probe-first prompt, run fresh, to tell naming the class apart from any prompt that makes the reviewer run probes" }
+	],
+	"held_fixed": {
+		"trials_per_head": 4,
+		"trials_reason": "The first eval's 2 trials per head gave a paired interval 28 pp wide on 6 pairs. 4 trials keep the design and the bootstrap and give 12 pairs on A and 20 on B. The pairing unit and every formula are unchanged.",
+		"budget_minutes": 20,
+		"max_cost_usd_per_run": 6,
+		"max_cost_reason": "A safety cap, the same for every arm. The first eval's same-family runs never reached $3; a run that reaches the cap exits 3 and is excluded and counted, never scored zero.",
+		"tools": "read,grep,glob,bash,write,edit",
+		"thinking": "high",
+		"flags": "--no-session --no-title --no-extensions --no-skills --no-rules --no-context-files --auto-approve",
+		"user_prompt": "run.ts userPrompt, unchanged",
+		"bun_on_path": "/home/sami/.mise/installs/bun/1.4.4/bin first on PATH for every arm",
+		"concurrency": 6,
+		"arms_interleaved": "Arms run in the same time window, so provider drift and box load fall on all arms alike."
+	},
+	"comparisons": {
+		"primary": [
+			{ "name": "A", "test": "rederive - control", "stratum": "A", "reads": "like for like with the first eval's -3.3 pp: does naming the class find more on cases the class was not named from" },
+			{ "name": "B", "test": "rederive - control", "stratum": "B", "reads": "the same on the rounds the class was named from" }
+		],
+		"secondary": [
+			{ "name": "attribution", "test": "rederive - candidate", "strata": ["A", "B"] },
+			{ "name": "probe-prompt replication", "test": "candidate - control", "strata": ["A", "B"] },
+			{ "name": "class subgroup", "test": "rederive - control on the findings labelled `instance` only, and on the rest", "strata": ["A", "B"] },
+			{ "name": "continuity", "test": "rederive (this lane) against the first eval's stored control runs, unpaired rates", "strata": ["A"] },
+			{ "name": "pooled", "test": "rederive - control over A and B together, always labelled pooled", "strata": ["A+B"] }
+		],
+		"null_rule": "A comparison is a null result when its 95% paired interval contains 0.",
+		"reading_rule": "The lever is supported only if primary A excludes 0. Primary B excluding 0 with A null is an in-sample result and is reported as that."
+	},
+	"intervals": {
+		"per_arm": "Wilson over (finding, run) pairs and a cluster bootstrap over runs, grade.ts, 10000 iterations, seed 20261030",
+		"paired": "rounds.ts pairedCompare: cluster bootstrap over (head, trial) pairs, 10000 iterations, seed 20261030",
+		"report_rule": "n and the 95% interval always; never a bare delta"
+	},
+	"classification": {
+		"rubric": "rederive-rubric.md",
+		"rubric_sha256": "1fd88cad7650ff08b306fb20916ab36d222c705a1720b8eb89616479b4c8cacb",
+		"labellers": "two independent labellers from different model families, each labelling every record of both strata without seeing the other's labels or any run; disagreements are adjudicated against the rubric with the reason recorded",
+		"agreement": "raw agreement and Cohen's kappa on the three labels and on instance against the rest",
+		"reported": "the share of `instance` findings in the 197-finding corpus, in the 30 cases, and in stratum B, each with a Wilson interval",
+		"frozen_before_grading": true
+	}
+}

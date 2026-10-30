@@ -29,6 +29,7 @@ const ARMS: Record<string, Arm> = {
 	control: { name: "control", prompt: null, model: "anthropic/claude-opus-5-5" },
 	current: { name: "current", prompt: "prompts/current.md", model: "anthropic/claude-opus-5-5" },
 	candidate: { name: "candidate", prompt: "prompts/candidate.md", model: "anthropic/claude-opus-5-5" },
+	rederive: { name: "rederive", prompt: "prompts/rederive.md", model: "anthropic/claude-opus-5-5" },
 	crossfamily: { name: "crossfamily", prompt: "prompts/candidate.md", model: "openai/gpt-6-astra" },
 	"crossfamily-current": { name: "crossfamily-current", prompt: "prompts/current.md", model: "openai/gpt-6-astra" },
 };
