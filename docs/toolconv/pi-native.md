@@ -221,6 +221,15 @@ A non-streamed pi-native request keeps the gateway's own retry whatever it
 claims: its error envelope is `{ error: { type, message } }`, which carries no
 marker. The omp client always streams.
 
+Two other upstream attempts the gateway can make on a client's behalf are
+outside this handoff. The provider SDK's own HTTP retries (the Anthropic SDK is
+constructed with `maxRetries: 5`) are not reachable from the gateway: the
+budget is a constructor literal, and `maxHttpAttempts` is scoped to the OpenAI
+chat-completions transport. The thinking-loop re-samples in
+`resolveWithThinkingLoopRetries` run only under `completeSimple`, which this
+route takes for `stream: false`; the omp client always streams, so nothing it
+sends can reach them.
+
 The client consumes streaming responses only. The server endpoint also
 supports `stream: false`, returning:
 
