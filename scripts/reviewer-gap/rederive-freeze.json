@@ -9,8 +9,8 @@
 		"grader_sha256": "396d854054c6a1b8c404db05ecb657e1e7d1141ab99dabad2bc364918645cfe1",
 		"composer": "rounds.ts (pairedCompare only)",
 		"composer_sha256": "25a9bdb7144ce115bb895698647e52159961671bf1af32aeec9554ce1e6df029",
-		"runner": "run.ts, with one added arm entry `rederive`",
-		"runner_sha256": "dde626aba088231f49712c324c2a219f4f028b42092c2c08d6dc2a2fff6e49b9",
+		"runner": "run.ts, with the `rederive` arm entry, a `--no-repo-gate` switch for the user prompt, and job claims so a second runner can widen a run",
+		"runner_sha256": "87b16e7146f834bb0826314643a604b9fb2c62179d78036236896ba9af30045c",
 		"note": "Detection (`detects`, window_chars 1200, every mechanism and trigger group inside one window), exclusion of errored runs, the per-arm Wilson and cluster-bootstrap intervals and the paired cluster bootstrap over (head, trial) pairs are the first eval's code, unchanged. grade.ts, rounds.ts and cases.json hash to the values the rounds freeze recorded."
 	},
 	"candidate": {
@@ -40,8 +40,13 @@
 			"excluded_running": "#17394 round 17, #17398 round 20, #17412 round 8 and #17421 round 18 were still running at the cut.",
 			"records": "corpus/findings-b/<pr>.jsonl, same schema as corpus/findings/ (corpus/SCHEMA.md)",
 			"cases": "cases-b.json, written from the records by agents that were not shown the candidate prompt or the hypothesis, and frozen and committed before the first stratum-B model call",
+			"cases_sha256": "13b179a18cdff66872b05840e7af8d441a8a0a6c5ba87d580f70efe4be07852b",
+			"findings": 32,
+			"findings_by_head": { "pr17394-r16": 5, "pr17398-r19": 8, "pr17402-r17": 9, "pr17412-r6": 3, "pr17421-r17": 7 },
+			"count_against_estimate": "The lane assignment expected forty-odd findings; the rule gives 32. The four rounds still running would add more, but they had no completed report at the cut.",
 			"diff_base": "the merge-base of each head with upstream/main",
-			"snapshots": "git archive of the full head sha, root node_modules entries linked to the first eval's dependency donor (bun.lock and every package.json are identical to pr17399-r3), @oh-my-pi workspace links pointing into the snapshot itself, the native addon linked from the donor, then made read-only",
+			"snapshots": "snapshot.ts build: git archive of the full head sha; root node_modules entries linked to a donor this lane owns (/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/donor, a hard-linked copy of the first eval's donor /mnt/nvme/sami/tmp/astra17399-r2/source; bun.lock is the same blob, ad3b2401, at every head of both strata); workspace links copied as their relative targets, so they resolve inside the snapshot; the native addon linked from the donor; then made read-only. snapshot.ts check reports 0 dangling links and 0 workspace links outside the snapshot for all five.",
+			"no_rust": "pr17412-r6 changes Rust crates. No reviewer can build them (no Rust toolchain), and the donor's native addon is not built from that head, so its findings can be reached by reading and by timing the shipped binary only, in every arm alike.",
 			"in_sample_warning": "The class was named from these rounds. Stratum B is the hypothesis-generating set, so a gain there is weaker evidence than a gain on A, and is never reported without saying so."
 		}
 	},
@@ -59,10 +64,10 @@
 		"tools": "read,grep,glob,bash,write,edit",
 		"thinking": "high",
 		"flags": "--no-session --no-title --no-extensions --no-skills --no-rules --no-context-files --auto-approve",
-		"user_prompt": "run.ts userPrompt, unchanged",
+		"user_prompt": "run.ts userPrompt with --no-repo-gate for every arm: the sentence offering `bun run check:ts` is replaced by one saying the repository-wide typecheck and repository-wide test runs are unavailable in this window. Main set a CPU width cap on the box at 12:20Z (load 257 on 64 cores) and asked that no reviewer run the repository gate while it holds. Held for the whole lane, so it is a constant across arms and across time, and one declared difference from the first eval.",
 		"bun_on_path": "MISE_BUN_VERSION=1.4.4 and /home/sami/.mise/installs/bun/1.4.4/bin first on PATH for every arm. The omp shim re-derives PATH from `mise env` in the run's cwd, and `mise env` in the scratch directory resolves Bun 1.4.2 (measured), so the PATH prefix alone does not hold; the mise override does (measured: 1.4.4). The first eval did not record its reviewers' Bun; the shim's default then was the same 1.4.2, so this is one declared difference from it, the same for every arm.",
-		"concurrency": 6,
-		"arms_interleaved": "One run.ts process per arm, each at concurrency 2, started together, so every arm runs in the same time window and provider drift and box load fall on all arms alike. run.ts orders jobs arm by arm, so a single process would run the arms one after another."
+		"concurrency": "3 under the width cap: one runner per arm at concurrency 1, started together; stratum A then stratum B in each runner. If the cap lifts, one more runner per arm on the same directories takes the next unclaimed job, which makes 6. Concurrency changes only how many runs share the box at once; every run keeps its own 20-minute budget, tools and prompt, and every arm is at the same width at every moment.",
+		"arms_interleaved": "run.ts orders jobs arm by arm, so a single process would run the arms one after another. One runner per arm keeps every arm in the same time window, so provider drift and box load fall on all arms alike."
 	},
 	"comparisons": {
 		"primary": [
@@ -76,8 +81,18 @@
 			{ "name": "continuity", "test": "rederive (this lane) against the first eval's stored control runs, unpaired rates", "strata": ["A"] },
 			{ "name": "pooled", "test": "rederive - control over A and B together, always labelled pooled", "strata": ["A+B"] }
 		],
+		"prompt_satisfiable": {
+			"candidate.md": ["17394-R7-4", "17394-R7-5", "17394-R8-10", "17394-R8-3", "17394-R8-8"],
+			"rederive.md": ["17394-R8-4"]
+		},
+		"guard": "Each comparison is also run without the findings whose spec an arm's prompt satisfies by itself (the union above, 6 findings, all in stratum A), because an arm can score those by repeating its prompt. The first eval's candidate prompt satisfies 5 of its 30 specs on its own; that eval did not check.",
 		"null_rule": "A comparison is a null result when its 95% paired interval contains 0.",
-		"reading_rule": "The lever is supported only if primary A excludes 0. Primary B excluding 0 with A null is an in-sample result and is reported as that."
+		"reading_rule": "The lever is supported only if primary A excludes 0 and its guard comparison agrees in sign and also excludes 0. Primary B excluding 0 with A null is an in-sample result and is reported as that."
+	},
+	"deviations": {
+		"stratum_a_snapshots": "At 12:13Z the snapshots of pr17394-r7 and pr17394-r8 had all 252 dependency links dangling: their donor, /mnt/nvme/17394-astra-r6/head, had been deleted to free disk. Their 16 workspace links, and pr17399-r3's, pointed at other trees. snapshot.ts relink re-pointed all three to this lane's donor and their workspace links into the snapshot itself; no source file changed. After: 0 dangling, 0 foreign. A focused suite (packages/coding-agent test/tools/) then ran inside the repaired pr17394-r7 snapshot.",
+		"voided_runs": "Six runs (rederive, control and candidate on pr17394-r7, trials 1 and 2) started at 12:07Z on the broken snapshots and were killed by exact PID after about four minutes. None wrote a record; they are not data and are not reported as scores.",
+		"first_eval_audit": "The deletion time of /mnt/nvme/17394-astra-r6/head was not recorded, so whether the first two lanes' pr17394 runs had working dependencies cannot be proved from their records. None of their committed reports quotes a missing-module or unresolved-package error."
 	},
 	"intervals": {
 		"per_arm": "Wilson over (finding, run) pairs and a cluster bootstrap over runs, grade.ts, 10000 iterations, seed 20261030",
@@ -89,6 +104,7 @@
 		"rubric_sha256": "1fd88cad7650ff08b306fb20916ab36d222c705a1720b8eb89616479b4c8cacb",
 		"labellers": "two independent labellers from different model families, each labelling every record of both strata without seeing the other's labels or any run; disagreements are adjudicated against the rubric with the reason recorded",
 		"agreement": "raw agreement and Cohen's kappa on the three labels and on instance against the rest",
+		"rubric_example_overlap": "The rubric's one worked example (equal stats taken as proof that the bytes read are the bytes published) was written from the lane assignment's 'comparing stats instead of digesting the bytes' shape. Stratum B's 17398-R19-4 is that defect, so that one B label is not independent of the rubric.",
 		"reported": "the share of `instance` findings in the 197-finding corpus, in the 30 cases, and in stratum B, each with a Wilson interval",
 		"frozen_before_grading": true
 	}

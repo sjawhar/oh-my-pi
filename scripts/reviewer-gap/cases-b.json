@@ -1,0 +1,1319 @@
+{
+	"frozen_at": "2026-10-30T12:25:00Z",
+	"note": "Stratum B of the re-derivation lane (rederive-freeze.json). Frozen before any stratum-B model call. Every mechanism/trigger pattern was written from the stratum-B corpus record of the same id (corpus/findings-b/) by agents that were not shown the candidate prompt or the hypothesis, and each was checked to fire on its own report section and not on its siblings titles or on generic prose. Detection rule, window and matching are those of cases.json.",
+	"window_chars": 1200,
+	"corpus": "scripts/reviewer-gap/corpus/findings-b",
+	"heads": [
+		{
+			"id": "pr17394-r16",
+			"pr": 17394,
+			"round": 16,
+			"head_sha": "5e70deb62c2185d777378adb51c06ec8f67a9cd6",
+			"base_sha": "31147f9d1a76608549821c3759f8487b4d66c72d",
+			"checkout": "/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/heads/5e70deb62c2185d777378adb51c06ec8f67a9cd6",
+			"diff": "/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/diffs/5e70deb62c2185d777378adb51c06ec8f67a9cd6.diff",
+			"subject": "eval kernel reclaim and isolated task worktrees: sandbox path allocation, writer records and owner cleanup",
+			"packages": [
+				"packages/coding-agent"
+			]
+		},
+		{
+			"id": "pr17398-r19",
+			"pr": 17398,
+			"round": 19,
+			"head_sha": "e43656228da50276c8d2a5d50b4e0809efb373cf",
+			"base_sha": "31147f9d1a76608549821c3759f8487b4d66c72d",
+			"checkout": "/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/heads/e43656228da50276c8d2a5d50b4e0809efb373cf",
+			"diff": "/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/diffs/e43656228da50276c8d2a5d50b4e0809efb373cf.diff",
+			"subject": "`omp gc --archive`: keep an archived session resumable and its rows intact",
+			"packages": [
+				"packages/coding-agent"
+			]
+		},
+		{
+			"id": "pr17402-r17",
+			"pr": 17402,
+			"round": 17,
+			"head_sha": "9af7d8eb683da64b5888a996d7a4a28a912c94d7",
+			"base_sha": "338d2ce6658dfdbfba19efe0f006f0d5a8edd66d",
+			"checkout": "/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/heads/9af7d8eb683da64b5888a996d7a4a28a912c94d7",
+			"diff": "/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/diffs/9af7d8eb683da64b5888a996d7a4a28a912c94d7.diff",
+			"subject": "asides and extensions: settle what an aside promises across a transition, and own provider and bus registrations by session",
+			"packages": [
+				"packages/coding-agent",
+				"packages/ai"
+			]
+		},
+		{
+			"id": "pr17412-r6",
+			"pr": 17412,
+			"round": 6,
+			"head_sha": "f8cddb4da5997f858ead9f5a3ab81e690517e081",
+			"base_sha": "338d2ce6658dfdbfba19efe0f006f0d5a8edd66d",
+			"checkout": "/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/heads/f8cddb4da5997f858ead9f5a3ab81e690517e081",
+			"diff": "/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/diffs/f8cddb4da5997f858ead9f5a3ab81e690517e081.diff",
+			"subject": "shell interpreter: yield in unbounded loops and bound array, copy and expansion work",
+			"packages": [
+				"packages/coding-agent",
+				"crates/pi-shell",
+				"crates/pi-builtins",
+				"crates/vendor"
+			]
+		},
+		{
+			"id": "pr17421-r17",
+			"pr": 17421,
+			"round": 17,
+			"head_sha": "8b9cb46ff95c0c6fdc95e4bce9efe0d8db2ff59e",
+			"base_sha": "338d2ce6658dfdbfba19efe0f006f0d5a8edd66d",
+			"checkout": "/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/heads/8b9cb46ff95c0c6fdc95e4bce9efe0d8db2ff59e",
+			"diff": "/mnt/nvme/tmp-omp-batch/reviewer-gap-rederive/diffs/8b9cb46ff95c0c6fdc95e4bce9efe0d8db2ff59e.diff",
+			"subject": "resuming a session another live process owns as a fork, and artifact reads from eval cells",
+			"packages": [
+				"packages/coding-agent"
+			]
+		}
+	],
+	"findings": [
+		{
+			"id": "17394-R16-1",
+			"head": "pr17394-r16",
+			"severity": "P1",
+			"how_found_primary": "two-processes-barrier",
+			"title": "record publication is not a deletion barrier, and its rejection still releases protection",
+			"mechanism": [
+				[
+					"recordWriter",
+					"writer record",
+					"writerRecord",
+					"record publication",
+					"publish(ed|ing)? .{0,30}record"
+				],
+				[
+					"barrier",
+					"not .{0,20}(joined|durable|published)",
+					"before .{0,40}publish",
+					"detached",
+					"race",
+					"deleti?on",
+					"delete",
+					"captures and deletes"
+				],
+				[
+					"dropWorkspaceLease",
+					"releas\\w* .{0,30}(lease|protection)",
+					"lease",
+					"protection"
+				]
+			],
+			"trigger": [
+				[
+					"dispose\\(\\)",
+					"disposal",
+					"completion callback",
+					"shutdown handler",
+					"abandoned"
+				],
+				[
+					"ENOSPC",
+					"rejected promise",
+					"reject\\w*",
+					"fail\\w* .{0,20}(write|publication)",
+					"ENOENT"
+				]
+			]
+		},
+		{
+			"id": "17394-R16-2",
+			"head": "pr17394-r16",
+			"severity": "P2",
+			"how_found_primary": "two-processes-barrier",
+			"title": "the new mint can repeat, and materialisation destroys the existing path instead of allocating another",
+			"mechanism": [
+				[
+					"Snowflake",
+					"mint",
+					"snowflake\\.next"
+				],
+				[
+					"repeat",
+					"collision",
+					"collide",
+					"duplicate",
+					"same path",
+					"not distributed",
+					"process-local counter"
+				],
+				[
+					"ensureIsolation",
+					"materialis",
+					"materializ",
+					"allocat",
+					"clears the old workspace",
+					"destro",
+					"erase",
+					"reuse"
+				]
+			],
+			"trigger": [
+				[
+					"wall-clock",
+					"millisecond",
+					"counter",
+					"entropy",
+					"22[- ]bit",
+					"clock"
+				]
+			]
+		},
+		{
+			"id": "17394-R16-3",
+			"head": "pr17394-r16",
+			"severity": "P2",
+			"how_found_primary": "measure-timing",
+			"title": "successful record clearing can be followed by a new record at grace, with nobody left to clear it",
+			"mechanism": [
+				[
+					"clearWriterRecord",
+					"clear\\w* .{0,25}record",
+					"record .{0,20}clear"
+				],
+				[
+					"grace"
+				],
+				[
+					"second record",
+					"new record",
+					"publishes a .{0,15}record",
+					"recordWriter\\(\\)",
+					"two marks",
+					"nobody left to clear",
+					"never cleared"
+				]
+			],
+			"trigger": [
+				[
+					"lease release",
+					"release .{0,30}(wait|behind|delay)",
+					"sandbox lock",
+					"30 second",
+					"30-second",
+					"timer .{0,20}cancel",
+					"cancelled only after"
+				]
+			]
+		},
+		{
+			"id": "17394-R16-4",
+			"head": "pr17394-r16",
+			"severity": "P2",
+			"how_found_primary": "two-processes-barrier",
+			"title": "the retained record can keep its own process alive after every handler has finished",
+			"mechanism": [
+				[
+					"retained record",
+					"kept.?record",
+					"writer record",
+					"record\\b"
+				],
+				[
+					"keeps? .{0,30}process alive",
+					"process alive",
+					"does not exit",
+					"never exits",
+					"prevent\\w* .{0,30}exit",
+					"pin"
+				],
+				[
+					"watcher",
+					"poll",
+					"isolation-lease",
+					"lease watcher",
+					"teardown waits"
+				]
+			],
+			"trigger": [
+				[
+					"shutdown handler",
+					"handler .{0,20}finish",
+					"every handler has finished",
+					"abandons? a shutdown"
+				]
+			]
+		},
+		{
+			"id": "17394-R16-5",
+			"head": "pr17394-r16",
+			"severity": "P2",
+			"how_found_primary": "real-kernel-resource",
+			"title": "the real native descriptor error does not take the new errno branch; the advertised recovery view still omits the holder",
+			"mechanism": [
+				[
+					"EMFILE",
+					"ENFILE",
+					"errno",
+					"GenericFailure",
+					"Too many open files"
+				],
+				[
+					"native",
+					"from_reason",
+					"file_lock",
+					"FileLock",
+					"N-API"
+				],
+				[
+					"does not .{0,25}(take|match|return)",
+					"misdiagnos",
+					"misleading",
+					"wrong .{0,20}(branch|message|explanation)",
+					"still .{0,25}(60|contention|generic)",
+					"omits",
+					"no PID"
+				]
+			],
+			"trigger": [
+				[
+					"descriptor",
+					"nofile",
+					"prlimit",
+					"exhaust"
+				]
+			]
+		},
+		{
+			"id": "17398-R19-1",
+			"head": "pr17398-r19",
+			"severity": "P1",
+			"how_found_primary": "inject-fault",
+			"title": "a swapped stage's unique replacement is deleted on refusal",
+			"mechanism": [
+				[
+					"tempPath",
+					"temp path",
+					"staging path",
+					"stage\\b",
+					"staged"
+				],
+				[
+					"fs\\.rm",
+					"rm\\(",
+					"remov",
+					"delet",
+					"clean"
+				],
+				[
+					"foreign",
+					"replacement",
+					"another writer",
+					"no longer belongs",
+					"not belong"
+				]
+			],
+			"trigger": [
+				[
+					"refus",
+					"archived: 0",
+					"identity check"
+				],
+				[
+					"fresh stat",
+					"second stat",
+					"renamed aside",
+					"swapped",
+					"swap"
+				]
+			]
+		},
+		{
+			"id": "17398-R19-2",
+			"head": "pr17398-r19",
+			"severity": "P2",
+			"how_found_primary": "real-kernel-resource",
+			"title": "nonempty wrong files and symlinks still turn a failed restore into successful incomplete resume",
+			"mechanism": [
+				[
+					"symlink",
+					"wrong (file|bytes|content)",
+					"NOT THE ARCHIVED BYTES",
+					"wrong-sized",
+					"wrong-content"
+				],
+				[
+					"restor"
+				],
+				[
+					"resume",
+					"open(s|ed)? successfully",
+					"succeed",
+					"success"
+				],
+				[
+					"incomplete",
+					"failed restore",
+					"not restored",
+					"missing",
+					"wrong"
+				]
+			],
+			"trigger": [
+				[
+					"isFile",
+					"nonzero length",
+					"non-?empt",
+					"nonempty",
+					"second attempt",
+					"twice",
+					"retry"
+				]
+			]
+		},
+		{
+			"id": "17398-R19-3",
+			"head": "pr17398-r19",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "a genuinely complete session cannot resume after an intentional empty artifact rewrite",
+			"mechanism": [
+				[
+					"empty",
+					"zero bytes",
+					"zero-byte"
+				],
+				[
+					"refus",
+					"conflict",
+					"cannot resume",
+					"fails",
+					"fail",
+					"false[- ]refusal"
+				],
+				[
+					"complete"
+				]
+			],
+			"trigger": [
+				[
+					"rewrit",
+					"emptie",
+					"intentional",
+					"truncat"
+				]
+			]
+		},
+		{
+			"id": "17398-R19-4",
+			"head": "pr17398-r19",
+			"severity": "P2",
+			"how_found_primary": "real-kernel-resource",
+			"title": "equal size and timestamps do not prove that the bytes read are the bytes published",
+			"mechanism": [
+				[
+					"mtime",
+					"timestamp",
+					"ctime"
+				],
+				[
+					"same[- ]length",
+					"same size",
+					"equal size",
+					"identical",
+					"same-size"
+				],
+				[
+					"WRONG",
+					"wrong bytes",
+					"wrong archived",
+					"publish",
+					"corrupt"
+				]
+			],
+			"trigger": [
+				[
+					"minix",
+					"coarse",
+					"one-second",
+					"seconds-resolution",
+					"second-resolution"
+				],
+				[
+					"after the real descriptor read",
+					"rewritten in place",
+					"before the .{0,40}second stat",
+					"between the .{0,40}stat",
+					"uncoordinated"
+				]
+			]
+		},
+		{
+			"id": "17398-R19-5",
+			"head": "pr17398-r19",
+			"severity": "P2",
+			"how_found_primary": "real-kernel-resource",
+			"title": "a FIFO in a required artifact path blocks ordinary resume",
+			"mechanism": [
+				[
+					"fifo",
+					"named pipe",
+					"special node",
+					"character device"
+				],
+				[
+					"block",
+					"hang",
+					"unbounded",
+					"timed out",
+					"timeout",
+					"exit 124",
+					"never (printed|returned)"
+				]
+			],
+			"trigger": [
+				[
+					"open",
+					"copyEntryDereferenced",
+					"read mode"
+				],
+				[
+					"resume",
+					"restore",
+					"artifact"
+				]
+			]
+		},
+		{
+			"id": "17398-R19-6",
+			"head": "pr17398-r19",
+			"severity": "P3",
+			"how_found_primary": "write-probe",
+			"title": "the claimed all-instruction recovery cutover is incomplete",
+			"mechanism": [
+				[
+					"printed command",
+					"recovery instruction",
+					"instruction",
+					"omp gc --archive",
+					"printed .{0,20}command"
+				],
+				[
+					"wrong default",
+					"WRONG DEFAULT",
+					"wrong (agent )?director",
+					"--agent-dir",
+					"getAgentDir",
+					"wrong context"
+				]
+			],
+			"trigger": [
+				[
+					"--apply",
+					"--forward-only",
+					"archiveReadError",
+					"dry-run",
+					"sessions: 0/0"
+				]
+			]
+		},
+		{
+			"id": "17398-R19-7",
+			"head": "pr17398-r19",
+			"severity": "P3",
+			"how_found_primary": "read-surrounding",
+			"title": "published contract still contradicts current behavior and these probes",
+			"mechanism": [
+				[
+					"CHANGELOG",
+					"PR body",
+					"published contract",
+					"documentation",
+					"docs\\b"
+				],
+				[
+					"contradict",
+					"still (says|claims|claim)",
+					"stale",
+					"out of date",
+					"disagree",
+					"wrong"
+				]
+			],
+			"trigger": [
+				[
+					"--forward-only",
+					"removes the archived copy",
+					"drops its archive",
+					"lifecycle table",
+					"three-stat",
+					"recovery instruction"
+				]
+			]
+		},
+		{
+			"id": "17398-R19-8",
+			"head": "pr17398-r19",
+			"severity": "P1",
+			"how_found_primary": "two-processes-barrier",
+			"title": "untouched native joining-child loss: a child joining after enumeration loses its flushed turn to reclaim",
+			"mechanism": [
+				[
+					"child"
+				],
+				[
+					"join"
+				],
+				[
+					"lose",
+					"lost",
+					"loss",
+					"lacks",
+					"absent",
+					"missing",
+					"discard"
+				]
+			],
+			"trigger": [
+				[
+					"reclaim",
+					"claimSession",
+					"lease",
+					"enumerat"
+				]
+			]
+		},
+		{
+			"id": "17402-R17-1",
+			"head": "pr17402-r17",
+			"severity": "P1",
+			"how_found_primary": "two-processes-barrier",
+			"title": "a selected custom stream outlives its owning child's credential restriction",
+			"mechanism": [
+				[
+					"stream"
+				],
+				[
+					"outliv",
+					"still (be )?(work|produc|running)",
+					"after .{0,40}dispos",
+					"not .{0,25}(owned|tracked|settled)",
+					"runOwned",
+					"lifetime",
+					"completion"
+				],
+				[
+					"credential",
+					"unrestricted-key",
+					"credential pool",
+					"restrict"
+				],
+				[
+					"event[- ]?stream",
+					"EventStream",
+					"api-registry",
+					"result\\(\\)"
+				]
+			],
+			"trigger": [
+				[
+					"child",
+					"restricted child",
+					"owning session",
+					"dispos"
+				]
+			]
+		},
+		{
+			"id": "17402-R17-2",
+			"head": "pr17402-r17",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "a modifier-produced `resolveHeaders` callback escapes the enumerated gates",
+			"mechanism": [
+				[
+					"resolveHeaders",
+					"resolve headers",
+					"header resolver",
+					"header resolution"
+				],
+				[
+					"modif(y|ier|ies|ied)",
+					"modifyModels",
+					"callback",
+					"produced"
+				],
+				[
+					"escape",
+					"without .{0,40}(admission|gate|ownership|knowing)",
+					"not .{0,25}(admitted|gated|owned|enumerated)",
+					"outside .{0,30}(admission|gate|enumerat)",
+					"bypass",
+					"unowned"
+				]
+			],
+			"trigger": [
+				[
+					"dispos",
+					"retire",
+					"after .{0,40}session"
+				],
+				[
+					"streamSimple",
+					"streaming consumer",
+					"cached .{0,20}model",
+					"projection"
+				]
+			]
+		},
+		{
+			"id": "17402-R17-3",
+			"head": "pr17402-r17",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "top-level configuration getters still run outside admission, including after retirement",
+			"mechanism": [
+				[
+					"getter",
+					"accessor",
+					"property evaluation",
+					"property read"
+				],
+				[
+					"top-level",
+					"configuration",
+					"config\\.",
+					"streamSimple",
+					"fetchDynamicModels"
+				],
+				[
+					"outside .{0,30}admission",
+					"without .{0,20}admission",
+					"not admitted",
+					"ungated",
+					"outside the gate",
+					"still run",
+					"remain ordinary"
+				]
+			],
+			"trigger": [
+				[
+					"registration",
+					"registerProvider",
+					"queue",
+					"drain"
+				],
+				[
+					"retire",
+					"dispos"
+				]
+			]
+		},
+		{
+			"id": "17402-R17-4",
+			"head": "pr17402-r17",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "ModelRegistry withdrawal and source handoff still destroy shared registration state",
+			"mechanism": [
+				[
+					"withdraw",
+					"unregisterProvider",
+					"unregister"
+				],
+				[
+					"source handoff",
+					"different extension source",
+					"two different .{0,20}sources",
+					"clearRuntimeProviderState",
+					"handoff"
+				],
+				[
+					"parent",
+					"shared registration",
+					"overlay",
+					"registration state"
+				],
+				[
+					"destroy",
+					"delet",
+					"clear",
+					"remov",
+					"lose",
+					"lost"
+				]
+			],
+			"trigger": [
+				[
+					"same provider name",
+					"child",
+					"gate"
+				]
+			]
+		},
+		{
+			"id": "17402-R17-5",
+			"head": "pr17402-r17",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "queued ownership keyed by the configuration object conflates sessions",
+			"mechanism": [
+				[
+					"WeakMap",
+					"keyed by",
+					"configuration object",
+					"callback-ownership",
+					"shared object"
+				],
+				[
+					"owner",
+					"ownership"
+				],
+				[
+					"conflate",
+					"collapse",
+					"replace",
+					"cannot represent",
+					"two registrations",
+					"one entry"
+				]
+			],
+			"trigger": [
+				[
+					"queue",
+					"drain"
+				],
+				[
+					"retir",
+					"child",
+					"parent"
+				]
+			]
+		},
+		{
+			"id": "17402-R17-6",
+			"head": "pr17402-r17",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "projection and discovery still snapshot methods and lose the author's receiver",
+			"mechanism": [
+				[
+					"receiver",
+					"`this`",
+					"this is the registry",
+					"detach"
+				],
+				[
+					"snapshot",
+					"captur"
+				],
+				[
+					"modifyModels",
+					"fetchDynamicModels",
+					"projection",
+					"discovery",
+					"modifier",
+					"fetcher"
+				]
+			],
+			"trigger": [
+				[
+					"private field",
+					"class method",
+					"refresh",
+					"mutat",
+					"replace"
+				]
+			]
+		},
+		{
+			"id": "17402-R17-7",
+			"head": "pr17402-r17",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "usage request collection still selects before an invalidating await",
+			"mechanism": [
+				[
+					"collectUsageRequests",
+					"collectProviderRequests",
+					"usage request collection",
+					"collection"
+				],
+				[
+					"select",
+					"selection",
+					"chooses an entry",
+					"reselect"
+				],
+				[
+					"await",
+					"wait",
+					"suspend"
+				]
+			],
+			"trigger": [
+				[
+					"retire",
+					"gate refuses",
+					"dispos"
+				]
+			]
+		},
+		{
+			"id": "17402-R17-8",
+			"head": "pr17402-r17",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "a failed departing usage call installs a cooldown against the live successor",
+			"mechanism": [
+				[
+					"cooldown",
+					"failure cache",
+					"failure (policy|backoff)"
+				],
+				[
+					"departing",
+					"retired",
+					"withdraw",
+					"superseded",
+					"in-flight"
+				],
+				[
+					"successor",
+					"healthy parent",
+					"live .{0,25}(parent|successor|registration)"
+				]
+			],
+			"trigger": [
+				[
+					"fail",
+					"returns `?null`?",
+					"failure path"
+				]
+			]
+		},
+		{
+			"id": "17402-R17-9",
+			"head": "pr17402-r17",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the health guard reads a stateful supports getter twice",
+			"mechanism": [
+				[
+					"supports"
+				],
+				[
+					"twice",
+					"two reads",
+					"double[- ]read",
+					"second read",
+					"another read",
+					"presence read",
+					"reads?:2"
+				],
+				[
+					"getter",
+					"accessor",
+					"stateful"
+				]
+			],
+			"trigger": [
+				[
+					"health"
+				]
+			]
+		},
+		{
+			"id": "17412-R6-1",
+			"head": "pr17412-r6",
+			"severity": "P1",
+			"how_found_primary": "measure-timing",
+			"title": "charging a huge element prepays yields, then still executes an unbounded copy",
+			"mechanism": [
+				[
+					"unbounded",
+					"not bounded",
+					"no bound",
+					"does not bound",
+					"monopoli"
+				],
+				[
+					"charg(e|es|ed|ing)",
+					"prepa(y|ys|id|ying)",
+					"budget",
+					"checkpoint"
+				],
+				[
+					"512 ?MiB",
+					"huge element",
+					"enormous",
+					"from_assignment_elements",
+					"array ?literal",
+					"variables\\.rs",
+					"interp\\.rs"
+				]
+			],
+			"trigger": [
+				[
+					"cancel"
+				],
+				[
+					"copy",
+					"clone",
+					"element"
+				]
+			]
+		},
+		{
+			"id": "17412-R6-2",
+			"head": "pr17412-r6",
+			"severity": "P2",
+			"how_found_primary": "measure-timing",
+			"title": "the global 5 ms exemption admits a genuine missing-checkpoint loop",
+			"mechanism": [
+				[
+					"exempt(ion|ions|s)?",
+					"toleran(ce|t)",
+					"5 ?ms"
+				],
+				[
+					"assert_yields_throughout",
+					"assertion",
+					"tests\\.rs",
+					"negative control",
+					"non-?vacu"
+				],
+				[
+					"missing[- ]checkpoint",
+					"without a checkpoint",
+					"no checkpoint",
+					"checkpoint-free",
+					"checkpoints=false",
+					"admits"
+				]
+			],
+			"trigger": [
+				[
+					"async builtin",
+					"loop",
+					"longest",
+					"4 ?ms"
+				]
+			]
+		},
+		{
+			"id": "17412-R6-3",
+			"head": "pr17412-r6",
+			"severity": "P2",
+			"how_found_primary": "measure-timing",
+			"title": "under 5% was not independently reproduced",
+			"mechanism": [
+				[
+					"under[- ]5%",
+					"under 5 ?%",
+					"5%"
+				],
+				[
+					"regress(ion|ed)?",
+					"\\+5\\.76",
+					"\\+5\\.57",
+					"\\+5\\.05",
+					"slower"
+				],
+				[
+					"benchmark",
+					"median",
+					"sample",
+					"measurement"
+				]
+			],
+			"trigger": [
+				[
+					"baseline",
+					"\\bhead\\b",
+					"`local` profile",
+					"arm"
+				]
+			]
+		},
+		{
+			"id": "17421-R17-1",
+			"head": "pr17421-r17",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "Python snapshots the previous request's root before applying this request's environment",
+			"mechanism": [
+				[
+					"runner\\.py",
+					"context ?var",
+					"context variable",
+					"_apply_request_runtime",
+					"prelude\\.py"
+				],
+				[
+					"snapshot",
+					"captur",
+					"pinn?ed",
+					"set from"
+				],
+				[
+					"previous request",
+					"preceding request",
+					"one cell behind",
+					"earlier request",
+					"still snapshots A",
+					"ROOT A",
+					"wrong root"
+				],
+				[
+					"os\\.environ",
+					"environment",
+					"request's own environment"
+				]
+			],
+			"trigger": [
+				[
+					"adopt",
+					"suspend",
+					"next request",
+					"concurrent"
+				]
+			]
+		},
+		{
+			"id": "17421-R17-2",
+			"head": "pr17421-r17",
+			"severity": "P1",
+			"how_found_primary": "two-processes-barrier",
+			"title": "a root-specific miss still delegates to the session's newer root after the final listing",
+			"mechanism": [
+				[
+					"helpers\\.ts",
+					"ReadTool",
+					"delegat"
+				],
+				[
+					"miss",
+					"undefined"
+				],
+				[
+					"newer root",
+					"current root",
+					"resolves C",
+					"WRONG C",
+					"root A that the request carried",
+					"wrong root"
+				]
+			],
+			"trigger": [
+				[
+					"final listing",
+					"after the .{0,20}listing",
+					"post-?list"
+				],
+				[
+					"copy",
+					"suspend",
+					"adopt"
+				]
+			]
+		},
+		{
+			"id": "17421-R17-3",
+			"head": "pr17421-r17",
+			"severity": "P2",
+			"how_found_primary": "inject-fault",
+			"title": "a background Python read inherits the newest cell's cancellation and status ownership",
+			"mechanism": [
+				[
+					"tool-bridge",
+					"PyToolBridgeEntry",
+					"standing map",
+					"standing entry",
+					"fallback"
+				],
+				[
+					"signal",
+					"abort",
+					"cancel"
+				],
+				[
+					"newest cell",
+					"newer cell",
+					"another cell",
+					"unrelated",
+					"borrow"
+				],
+				[
+					"background read",
+					"background thread",
+					"outlived reader",
+					"background reader"
+				]
+			],
+			"trigger": [
+				[
+					"after completion",
+					"still active",
+					"pending copy",
+					"no-copy read"
+				]
+			]
+		},
+		{
+			"id": "17421-R17-4",
+			"head": "pr17421-r17",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "any nonempty unknown Python run can use the session fallback for ordinary tools",
+			"mechanism": [
+				[
+					"tool-bridge",
+					"session fallback",
+					"map fallback",
+					"fallback"
+				],
+				[
+					"runId",
+					"run id",
+					"never-registered",
+					"unknown run",
+					"nonempty",
+					"stale"
+				],
+				[
+					"ordinary",
+					"every.{0,10}name",
+					"name restriction",
+					"ReadTool",
+					"any tool"
+				]
+			],
+			"trigger": [
+				[
+					"removed",
+					"lookup miss",
+					"run lookup",
+					"misses",
+					"bypass"
+				]
+			]
+		},
+		{
+			"id": "17421-R17-5",
+			"head": "pr17421-r17",
+			"severity": "P2",
+			"how_found_primary": "two-processes-barrier",
+			"title": "standing Python registrations are not scoped or retired with the kernel that owns them",
+			"mechanism": [
+				[
+					"tool-bridge",
+					"executor\\.ts",
+					"standing (entry|entries|registration)",
+					"session map"
+				],
+				[
+					"retire",
+					"retirement",
+					"unregister",
+					"dispos",
+					"clear",
+					"remov"
+				],
+				[
+					"kernel",
+					"owner",
+					"per-call",
+					"lifetime",
+					"generation"
+				]
+			],
+			"trigger": [
+				[
+					"another live kernel",
+					"same eval session identity",
+					"per-call",
+					"disposePyToolBridge",
+					"shutdown",
+					"B remains alive"
+				]
+			]
+		},
+		{
+			"id": "17421-R17-6",
+			"head": "pr17421-r17",
+			"severity": "P2",
+			"how_found_primary": "inject-fault",
+			"title": "JavaScript treats an error containing the run-gone phrase as proof that the run ended",
+			"mechanism": [
+				[
+					"runtime\\.ts",
+					"message\\.includes",
+					"substring",
+					"phrase",
+					"error text",
+					"arbitrary error"
+				],
+				[
+					"Run no longer active",
+					"run-?gone",
+					"run having ended",
+					"run ended"
+				],
+				[
+					"directory",
+					"artifact path",
+					"bound(ed)? error"
+				],
+				[
+					"misclassif",
+					"swallow",
+					"detach",
+					"run-?less",
+					"falls? back",
+					"fallback"
+				]
+			],
+			"trigger": [
+				[
+					"directory (named|containing|with that phrase)",
+					"contains that phrase",
+					"sixteen overlapping",
+					"aborts at listing"
+				]
+			]
+		},
+		{
+			"id": "17421-R17-7",
+			"head": "pr17421-r17",
+			"severity": "P3",
+			"how_found_primary": "write-probe",
+			"title": "the new completed-overlap repository test does not reject the old pending-only algorithm",
+			"mechanism": [
+				[
+					"artifact-readiness\\.test",
+					"repository test",
+					"new completed-(overlap|copy) test",
+					"regression guard"
+				],
+				[
+					"pending-only",
+					"old (algorithm|implementation)",
+					"previous implementation",
+					"does not (reject|discriminat)",
+					"neither requires"
+				],
+				[
+					"fresh(,| ) ?(not|listing)",
+					"stale snapshot",
+					"second listing",
+					"captur(e|ing) names"
+				]
+			],
+			"trigger": [
+				[
+					"hook",
+					"finishes the copy",
+					"one.{0,10}listing"
+				]
+			]
+		}
+	]
+}

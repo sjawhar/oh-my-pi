@@ -11,7 +11,7 @@
  *   bun scripts/reviewer-gap/run.ts --out <dir> [--arms current,candidate,control,crossfamily]
  *                                   [--trials 2] [--heads pr17394-r7,...]
  *                                   [--concurrency 6] [--max-time 25m] [--max-cost 3]
- *                                   [--dry-run]
+ *                                   [--cases cases.json] [--no-repo-gate] [--dry-run]
  */
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
@@ -34,7 +34,12 @@ const ARMS: Record<string, Arm> = {
 	"crossfamily-current": { name: "crossfamily-current", prompt: "prompts/current.md", model: "openai/gpt-6-astra" },
 };
 
-export function userPrompt(head: HeadCase, scratch: string, minutes: number): string {
+/**
+ * `repoGate: false` tells the reviewer the repository-wide typecheck is
+ * unavailable. Used when the box is short of CPU: the same sentence goes to
+ * every arm of a run, so it is a constant across arms, not a treatment.
+ */
+export function userPrompt(head: HeadCase, scratch: string, minutes: number, repoGate = true): string {
 	return [
 		`Review this change for defects its author must fix before merge.`,
 		``,
@@ -48,7 +53,9 @@ export function userPrompt(head: HeadCase, scratch: string, minutes: number): st
 		`  Put any probe, test or fixture here. Run one with \`bun test ${scratch}/<name>.test.ts\` from the`,
 		`  relevant package directory inside the snapshot, e.g. \`cd ${head.checkout}/${head.packages[0]} && bun test ${scratch}/probe.test.ts\`.`,
 		`  \`bun\` is on PATH. Rust toolchains are unavailable on this machine: never run cargo or a native build.`,
-		`  \`bun run check:ts\` is available; \`bun check\` is not.`,
+		repoGate
+			? `  \`bun run check:ts\` is available; \`bun check\` is not.`
+			: `  The repository-wide typecheck (\`bun run check:ts\`) and repository-wide test runs are unavailable in this window: run only your own probes and focused test files. \`bun check\` is not available either.`,
 		``,
 		`Budget: ${minutes} minutes of wall clock. When it runs out, report what you have.`,
 		``,
@@ -126,7 +133,7 @@ async function main(): Promise<void> {
 	const outDir = get("--out");
 	if (outDir === undefined) {
 		console.error(
-			"usage: run.ts --out <dir> [--arms ...] [--trials N] [--heads ...] [--concurrency N] [--max-time 25m] [--max-cost 3] [--dry-run]",
+			"usage: run.ts --out <dir> [--arms ...] [--trials N] [--heads ...] [--concurrency N] [--max-time 25m] [--max-cost 3] [--cases cases.json] [--no-repo-gate] [--dry-run]",
 		);
 		process.exit(2);
 	}
@@ -139,6 +146,7 @@ async function main(): Promise<void> {
 	const maxTime = get("--max-time") ?? "25m";
 	const maxCost = get("--max-cost") ?? "3";
 	const dryRun = argv.includes("--dry-run");
+	const repoGate = !argv.includes("--no-repo-gate");
 	const minutes = Number.parseInt(maxTime, 10);
 
 	fs.mkdirSync(outDir, { recursive: true });
@@ -162,7 +170,7 @@ async function main(): Promise<void> {
 	}
 	fs.writeFileSync(
 		path.join(outDir, "plan.json"),
-		`${JSON.stringify({ started: new Date().toISOString(), cases: casesPath, frozen_at: cases.frozen_at, armNames, trials, maxTime, maxCost, jobs: jobs.map(j => j.runId) }, null, 2)}\n`,
+		`${JSON.stringify({ started: new Date().toISOString(), cases: casesPath, frozen_at: cases.frozen_at, armNames, trials, maxTime, maxCost, repoGate, jobs: jobs.map(j => j.runId) }, null, 2)}\n`,
 	);
 	console.log(`${jobs.length} runs: ${armNames.join(", ")} x ${heads.length} heads x ${trials} trials`);
 	if (dryRun) {
@@ -178,6 +186,20 @@ async function main(): Promise<void> {
 			const outPath = path.join(outDir, `${job.runId}.json`);
 			if (fs.existsSync(outPath)) {
 				console.log(`skip ${job.runId} (already recorded)`);
+				continue;
+			}
+			// A claim lets a second runner on the same directory widen a run that is
+			// already going without repeating a job. The record is written before the
+			// claim is released, so a job claimed after release is found recorded.
+			const claim = `${outPath}.claim`;
+			try {
+				fs.closeSync(fs.openSync(claim, "wx"));
+			} catch {
+				console.log(`skip ${job.runId} (claimed by another runner)`);
+				continue;
+			}
+			if (fs.existsSync(outPath)) {
+				fs.rmSync(claim, { force: true });
 				continue;
 			}
 			const scratch = path.join(outDir, "scratch", job.runId);
@@ -212,7 +234,7 @@ async function main(): Promise<void> {
 				TMPDIR: scratch,
 				BUN_INSTALL_CACHE_DIR: path.join(scratch, "bun-cache"),
 			};
-			const result = await runOmp(args, userPrompt(job.head, scratch, minutes), scratch, env);
+			const result = await runOmp(args, userPrompt(job.head, scratch, minutes, repoGate), scratch, env);
 			// `omp -p` exits 3 when --max-cost stops it. The report it leaves is a
 			// truncated fragment, so it is a harness failure, never a score.
 			const failure =
@@ -234,6 +256,7 @@ async function main(): Promise<void> {
 				...(failure === undefined ? {} : { error: failure }),
 			};
 			fs.writeFileSync(outPath, `${JSON.stringify(record, null, 2)}\n`);
+			fs.rmSync(claim, { force: true });
 			console.log(
 				`done  ${job.runId} exit=${result.exitCode} cost=$${result.costUsd.toFixed(2)} chars=${result.report.length} ${Math.round((Date.now() - started) / 1000)}s`,
 			);
