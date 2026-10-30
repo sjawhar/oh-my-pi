@@ -159,7 +159,12 @@ export interface UpstreamAttemptState {
  * recovery whose work a client could not replay safely. `onDecline` runs
  * before the rejection, so the gateway marks the failure it will emit.
  *
- * Per request: the count and the latch are this closure's, never shared.
+ * The count and the latch live in `state`, which belongs to the request rather
+ * than to this factory: the transport may build the same wrapper more than once
+ * for one request (a later hold joins a build in place, `withoutDispatchHold`
+ * makes a separate unheld one), and a count held inside the factory would reset
+ * on each build and never decline. One `state` per request, never shared
+ * between them.
  */
 export function declineUpstreamRetries(
 	state: UpstreamAttemptState,

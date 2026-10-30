@@ -20,6 +20,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { clearCustomApis } from "@oh-my-pi/pi-ai/api-registry";
+import { declineUpstreamRetries } from "@oh-my-pi/pi-ai/auth-gateway/retry-operations";
 import { registerOAuthProvider, unregisterOAuthProviders } from "@oh-my-pi/pi-ai/registry/oauth";
 import { streamPiNative } from "@oh-my-pi/pi-ai/providers/pi-native-client";
 import { startAuthGateway } from "@oh-my-pi/pi-ai/auth-gateway";
@@ -179,7 +180,9 @@ describe("pi-native credential rotation and the caller's dispatch hold", () => {
 			expect(outcome).toBe("held");
 			expect(upstreamWhilePaused).toEqual([]);
 			expect(harness.mock.calls).toHaveLength(1);
-			expect(holdsWhilePaused).toBe(1);
+			// How often a transport asks a hold per attempt is that layer's
+			// business; that the held attempt entered it is this one's.
+			expect(holdsWhilePaused).toBeGreaterThanOrEqual(1);
 
 			// The rotation is held, not cancelled: the resume finishes the same
 			// turn on the sibling credential.
@@ -473,7 +476,7 @@ describe("an authentication operation spread over several requests", () => {
 				},
 			});
 			await parked.promise;
-			expect(holds).toBe(1);
+			expect(holds).toBeGreaterThanOrEqual(1);
 			expect(harness.mock.calls).toHaveLength(1);
 			paused = false;
 			resumed.resolve();
@@ -570,4 +573,38 @@ describe("the provider transport's own retries", () => {
 			// hand-back arrives seconds after the failure it answers.
 		}, 30_000);
 	}
+});
+
+describe("the declined-retry wrapper's per-request state", () => {
+	it("keeps counting when the transport builds it more than once", async () => {
+		// The transport composes a wrapper into more than one build of the same
+		// request's fetch — a later hold joins a build in place, `withoutDispatchHold`
+		// makes a separate unheld one — so the factory can run again. The count
+		// that decides a decline belongs to the request, not to a build: state
+		// held inside the factory would reset and never decline.
+		const state = { attempts: 0, delivered: false };
+		let declines = 0;
+		const wrap = declineUpstreamRetries(state, 1, () => {
+			declines += 1;
+			return true;
+		});
+		const upstream: FetchImpl = async () => Response.json({ error: "nope" }, { status: 503 });
+		const first = wrap(upstream);
+		expect((await first("http://upstream.invalid", { method: "POST" })).status).toBe(503);
+		const second = wrap(upstream);
+		await expect(second("http://upstream.invalid", { method: "POST" })).rejects.toThrow("declined this retry");
+		expect(declines).toBe(1);
+		expect(state.attempts).toBe(1);
+	});
+
+	it("stops declining once an attempt has come back usable", async () => {
+		const state = { attempts: 0, delivered: false };
+		const wrap = declineUpstreamRetries(state, 1, () => true);
+		const upstream: FetchImpl = async () => new Response("ok", { status: 200 });
+		const fetchImpl = wrap(upstream);
+		expect((await fetchImpl("http://upstream.invalid", { method: "POST" })).status).toBe(200);
+		// A mid-stream recovery after a usable response is never a hand-back.
+		expect((await fetchImpl("http://upstream.invalid", { method: "POST" })).status).toBe(200);
+		expect(state.delivered).toBe(true);
+	});
 });
