@@ -60,3 +60,37 @@ bun scripts/reviewer-gap/run-rounds.ts --out <dir> --arms retry-blind,rounds-car
 bun scripts/reviewer-gap/rounds.ts --runs scripts/reviewer-gap/runs/rounds-2026-10-30,scripts/reviewer-gap/runs/2026-10-30
 bun scripts/reviewer-gap/rounds-audit.ts --runs scripts/reviewer-gap/runs/rounds-2026-10-30
 ```
+
+## The re-derivation lane
+
+A third lever: a prompt that names one defect class (a fact established at T1
+is re-derived at T2 from something that can change in between) and tells a
+running reviewer to enumerate every re-lookup and attack the window between.
+
+- `prompts/rederive.md` — the candidate, 2851 characters.
+- `rederive-freeze.json` — arms, strata, trials, comparisons, the guard and the
+  deviations. Frozen and committed before the first recorded model call.
+- `rederive-rubric.md` and `corpus/rederive-labels/` — the labelling rule, two
+  independent labellers' labels of all 229 records, and the adjudication of
+  every disagreement.
+- `corpus/findings-b/` and `cases-b.json` — stratum B: the findings of the
+  latest completed round of five pull requests, and their frozen specs.
+- `snapshot.ts` — builds a read-only head snapshot whose dependencies link to a
+  donor this lane owns, and `check`s that no link dangles or leaves the
+  snapshot. The first two lanes' snapshots linked to reviewers' own trees, two
+  of which were deleted later.
+- `rederive.ts` — scoring. Per-arm rates are `gradeRuns`, paired deltas are
+  `pairedCompare`, unchanged; this file selects strata, subsets and the guard
+  (findings an arm's prompt satisfies by itself), and reports the class share.
+- `results-rederive-2026-10-30.md` — the report. Runs at
+  `runs/rederive-2026-10-30/{a,b}/<arm>/`.
+
+```bash
+bun scripts/reviewer-gap/snapshot.ts check <snapshot>...
+MISE_BUN_VERSION=1.4.4 bun scripts/reviewer-gap/run.ts --out <dir>/a/rederive --arms rederive --trials 4 --concurrency 1 --max-time 20m --max-cost 6 --no-repo-gate
+MISE_BUN_VERSION=1.4.4 bun scripts/reviewer-gap/run.ts --cases scripts/reviewer-gap/cases-b.json --out <dir>/b/rederive --arms rederive --trials 4 --concurrency 1 --max-time 20m --max-cost 6 --no-repo-gate
+bun scripts/reviewer-gap/rederive.ts --a <a dirs> --b <b dirs> --stored scripts/reviewer-gap/runs/2026-10-30
+```
+
+One `run.ts` per arm, started together, keeps the arms in the same time window;
+a second runner on the same directory takes the next unclaimed job.
