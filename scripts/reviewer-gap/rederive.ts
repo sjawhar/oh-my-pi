@@ -66,7 +66,10 @@ export function finalLabels(labelDir: string): FinalLabel[] {
 	const used = new Set<string>();
 	for (const stratum of ["A", "B"] as const) {
 		const [first, second] = LABELLERS.map(
-			who => new Map(readJsonl<LabelRecord>(path.join(labelDir, `${who}-${stratum.toLowerCase()}.jsonl`)).map(r => [r.id, r])),
+			who =>
+				new Map(
+					readJsonl<LabelRecord>(path.join(labelDir, `${who}-${stratum.toLowerCase()}.jsonl`)).map(r => [r.id, r]),
+				),
 		) as [Map<string, LabelRecord>, Map<string, LabelRecord>];
 		if (first.size !== second.size) throw new Error(`stratum ${stratum}: the labellers cover different records`);
 		for (const [id, a] of first) {
@@ -80,7 +83,8 @@ export function finalLabels(labelDir: string): FinalLabel[] {
 			const d = adj.decisions[id];
 			if (d === undefined) throw new Error(`${id}: labellers disagree and no adjudication decides it`);
 			const kept = d.from === LABELLERS[0] ? a : b;
-			if (kept.label !== d.label) throw new Error(`${id}: adjudication keeps ${d.from}, whose label is ${kept.label}`);
+			if (kept.label !== d.label)
+				throw new Error(`${id}: adjudication keeps ${d.from}, whose label is ${kept.label}`);
 			used.add(id);
 			out.push({ ...kept, stratum, labellers, adjudication: d.why });
 		}
@@ -293,7 +297,9 @@ function main(): void {
 	];
 	out.shares = shares;
 	console.log("### share of the class (adjudicated)\n");
-	console.log("| scope | n | instance | adjacent | not | instance share (95% Wilson) | instance or adjacent (95% Wilson) |");
+	console.log(
+		"| scope | n | instance | adjacent | not | instance share (95% Wilson) | instance or adjacent (95% Wilson) |",
+	);
 	console.log("|---|---:|---:|---:|---:|---|---|");
 	for (const s of shares)
 		console.log(
@@ -301,7 +307,8 @@ function main(): void {
 		);
 	console.log("");
 	const shapes: Record<string, number> = {};
-	for (const l of labels) if (l.label === "instance") shapes[`${l.stratum}:${l.shape}`] = (shapes[`${l.stratum}:${l.shape}`] ?? 0) + 1;
+	for (const l of labels)
+		if (l.label === "instance") shapes[`${l.stratum}:${l.shape}`] = (shapes[`${l.stratum}:${l.shape}`] ?? 0) + 1;
 	out.shapes = shapes;
 	console.log(`instance shapes by stratum: ${JSON.stringify(shapes)}\n`);
 
@@ -332,7 +339,12 @@ function main(): void {
 		const guarded = subsetCases(cases, id => !echoIds.has(id));
 		if (guarded.findings.length < cases.findings.length)
 			for (const [label, a, b] of PAIRS)
-				emit(`guard, ${label}, without ${cases.findings.length - guarded.findings.length} prompt-satisfiable`, guarded, a, b);
+				emit(
+					`guard, ${label}, without ${cases.findings.length - guarded.findings.length} prompt-satisfiable`,
+					guarded,
+					a,
+					b,
+				);
 		if (labels.length > 0) {
 			const inClass = subsetCases(cases, id => labelOf.get(id) === "instance");
 			emit(`instance findings only (${inClass.findings.length})`, inClass, "rederive", "control");

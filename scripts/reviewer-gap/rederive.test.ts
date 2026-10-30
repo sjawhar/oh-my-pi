@@ -160,8 +160,24 @@ const toy: CaseFile = {
 		{ id: "h1", pr: 1, round: 1, head_sha: "a", base_sha: "b", checkout: "", diff: "", subject: "", packages: [] },
 	],
 	findings: [
-		{ id: "F-1", head: "h1", severity: "P1", how_found_primary: "write-probe", title: "", mechanism: [["alpha"]], trigger: [["beta"]] },
-		{ id: "F-2", head: "h1", severity: "P2", how_found_primary: "write-probe", title: "", mechanism: [["gamma"]], trigger: [["delta"]] },
+		{
+			id: "F-1",
+			head: "h1",
+			severity: "P1",
+			how_found_primary: "write-probe",
+			title: "",
+			mechanism: [["alpha"]],
+			trigger: [["beta"]],
+		},
+		{
+			id: "F-2",
+			head: "h1",
+			severity: "P2",
+			how_found_primary: "write-probe",
+			title: "",
+			mechanism: [["gamma"]],
+			trigger: [["delta"]],
+		},
 	],
 };
 
