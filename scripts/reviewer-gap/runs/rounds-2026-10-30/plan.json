@@ -1,0 +1,18 @@
+{
+  "started": "2026-10-30T06:48:16.973Z",
+  "freeze_frozen_at": "2026-10-30T06:40:00Z",
+  "cases": "/home/sami/src/oh-my-pi-worktrees/infra-724-reviewer-gap-evals/scripts/reviewer-gap/cases.json",
+  "cases_frozen_at": "2026-10-30T06:05:00Z",
+  "prompt": "/home/sami/src/oh-my-pi-worktrees/infra-724-reviewer-gap-evals/scripts/reviewer-gap/prompts/candidate.md",
+  "arms": [
+    "rounds-carry"
+  ],
+  "trials": 1,
+  "minutes": 20,
+  "maxCost": 6,
+  "budget": 85,
+  "sequences": [
+    "rounds-carry__pr17399-r3__t1"
+  ],
+  "totalRuns": 3
+}

@@ -1,0 +1,381 @@
+{
+  "cases_frozen_at": "2026-10-30T06:05:00Z",
+  "design_frozen_at": "2026-10-30T06:40:00Z",
+  "scores": {
+    "union": [
+      {
+        "arm": "rounds-carry",
+        "model": "anthropic/claude-opus-5-5",
+        "scope": "union",
+        "sequences": 6,
+        "roundsPerSequence": 3,
+        "n": 60,
+        "detected": 24,
+        "rate": 0.4,
+        "wilson": {
+          "lo": 0.2856949053488256,
+          "hi": 0.5263394650795924
+        },
+        "bootstrap": {
+          "lo": 0.33962264150943394,
+          "hi": 0.46774193548387094
+        },
+        "costUsd": 25.345046000000004,
+        "failedRounds": 0,
+        "firstSeenAtRound": {
+          "1": 16,
+          "2": 3,
+          "3": 5
+        }
+      },
+      {
+        "arm": "crossfamily-single",
+        "model": "openai/gpt-6-astra",
+        "scope": "union",
+        "sequences": 6,
+        "roundsPerSequence": 1,
+        "n": 60,
+        "detected": 23,
+        "rate": 0.38333333333333336,
+        "wilson": {
+          "lo": 0.27088272374082023,
+          "hi": 0.5098240417590009
+        },
+        "bootstrap": {
+          "lo": 0.21052631578947367,
+          "hi": 0.5
+        },
+        "costUsd": 30.516620399999997,
+        "failedRounds": 0,
+        "firstSeenAtRound": {
+          "1": 23
+        }
+      },
+      {
+        "arm": "retry-blind",
+        "model": "anthropic/claude-opus-5-5",
+        "scope": "union",
+        "sequences": 6,
+        "roundsPerSequence": 3,
+        "n": 60,
+        "detected": 21,
+        "rate": 0.35,
+        "wilson": {
+          "lo": 0.24167774406017561,
+          "hi": 0.4763738115824513
+        },
+        "bootstrap": {
+          "lo": 0.27419354838709675,
+          "hi": 0.43333333333333335
+        },
+        "costUsd": 31.055613,
+        "failedRounds": 0,
+        "firstSeenAtRound": {
+          "1": 12,
+          "2": 8,
+          "3": 1
+        }
+      },
+      {
+        "arm": "single",
+        "model": "anthropic/claude-opus-5-5",
+        "scope": "union",
+        "sequences": 6,
+        "roundsPerSequence": 1,
+        "n": 60,
+        "detected": 14,
+        "rate": 0.23333333333333334,
+        "wilson": {
+          "lo": 0.14439561736642834,
+          "hi": 0.35436270377601964
+        },
+        "bootstrap": {
+          "lo": 0.1,
+          "hi": 0.34285714285714286
+        },
+        "costUsd": 9.4530126,
+        "failedRounds": 0,
+        "firstSeenAtRound": {
+          "1": 14
+        }
+      }
+    ],
+    "final": [
+      {
+        "arm": "crossfamily-single",
+        "model": "openai/gpt-6-astra",
+        "scope": "final",
+        "sequences": 6,
+        "roundsPerSequence": 1,
+        "n": 60,
+        "detected": 23,
+        "rate": 0.38333333333333336,
+        "wilson": {
+          "lo": 0.27088272374082023,
+          "hi": 0.5098240417590009
+        },
+        "bootstrap": {
+          "lo": 0.21052631578947367,
+          "hi": 0.5
+        },
+        "costUsd": 30.516620399999997,
+        "failedRounds": 0,
+        "firstSeenAtRound": {}
+      },
+      {
+        "arm": "single",
+        "model": "anthropic/claude-opus-5-5",
+        "scope": "final",
+        "sequences": 6,
+        "roundsPerSequence": 1,
+        "n": 60,
+        "detected": 14,
+        "rate": 0.23333333333333334,
+        "wilson": {
+          "lo": 0.14439561736642834,
+          "hi": 0.35436270377601964
+        },
+        "bootstrap": {
+          "lo": 0.1,
+          "hi": 0.34285714285714286
+        },
+        "costUsd": 9.4530126,
+        "failedRounds": 0,
+        "firstSeenAtRound": {}
+      },
+      {
+        "arm": "rounds-carry",
+        "model": "anthropic/claude-opus-5-5",
+        "scope": "final",
+        "sequences": 6,
+        "roundsPerSequence": 3,
+        "n": 60,
+        "detected": 13,
+        "rate": 0.21666666666666667,
+        "wilson": {
+          "lo": 0.13123044048190305,
+          "hi": 0.33620027573194783
+        },
+        "bootstrap": {
+          "lo": 0.17391304347826086,
+          "hi": 0.2537313432835821
+        },
+        "costUsd": 25.345046000000004,
+        "failedRounds": 0,
+        "firstSeenAtRound": {}
+      },
+      {
+        "arm": "retry-blind",
+        "model": "anthropic/claude-opus-5-5",
+        "scope": "final",
+        "sequences": 6,
+        "roundsPerSequence": 3,
+        "n": 60,
+        "detected": 11,
+        "rate": 0.18333333333333332,
+        "wilson": {
+          "lo": 0.10557796889197636,
+          "hi": 0.2991975374646805
+        },
+        "bootstrap": {
+          "lo": 0.1320754716981132,
+          "hi": 0.23880597014925373
+        },
+        "costUsd": 31.055613,
+        "failedRounds": 0,
+        "firstSeenAtRound": {}
+      }
+    ],
+    "first": [
+      {
+        "arm": "crossfamily-single",
+        "model": "openai/gpt-6-astra",
+        "scope": "first",
+        "sequences": 6,
+        "roundsPerSequence": 1,
+        "n": 60,
+        "detected": 23,
+        "rate": 0.38333333333333336,
+        "wilson": {
+          "lo": 0.27088272374082023,
+          "hi": 0.5098240417590009
+        },
+        "bootstrap": {
+          "lo": 0.21052631578947367,
+          "hi": 0.5
+        },
+        "costUsd": 30.516620399999997,
+        "failedRounds": 0,
+        "firstSeenAtRound": {}
+      },
+      {
+        "arm": "rounds-carry",
+        "model": "anthropic/claude-opus-5-5",
+        "scope": "first",
+        "sequences": 6,
+        "roundsPerSequence": 3,
+        "n": 60,
+        "detected": 16,
+        "rate": 0.26666666666666666,
+        "wilson": {
+          "lo": 0.1713264000328055,
+          "hi": 0.39008713096683645
+        },
+        "bootstrap": {
+          "lo": 0.1568627450980392,
+          "hi": 0.35443037974683544
+        },
+        "costUsd": 25.345046000000004,
+        "failedRounds": 0,
+        "firstSeenAtRound": {}
+      },
+      {
+        "arm": "single",
+        "model": "anthropic/claude-opus-5-5",
+        "scope": "first",
+        "sequences": 6,
+        "roundsPerSequence": 1,
+        "n": 60,
+        "detected": 14,
+        "rate": 0.23333333333333334,
+        "wilson": {
+          "lo": 0.14439561736642834,
+          "hi": 0.35436270377601964
+        },
+        "bootstrap": {
+          "lo": 0.1,
+          "hi": 0.34285714285714286
+        },
+        "costUsd": 9.4530126,
+        "failedRounds": 0,
+        "firstSeenAtRound": {}
+      },
+      {
+        "arm": "retry-blind",
+        "model": "anthropic/claude-opus-5-5",
+        "scope": "first",
+        "sequences": 6,
+        "roundsPerSequence": 3,
+        "n": 60,
+        "detected": 12,
+        "rate": 0.2,
+        "wilson": {
+          "lo": 0.11828505322897492,
+          "hi": 0.317818058056279
+        },
+        "bootstrap": {
+          "lo": 0.10416666666666667,
+          "hi": 0.2638888888888889
+        },
+        "costUsd": 31.055613,
+        "failedRounds": 0,
+        "firstSeenAtRound": {}
+      }
+    ]
+  },
+  "paired": [
+    {
+      "a": "rounds-carry",
+      "b": "single",
+      "pairs": 6,
+      "deltaPp": 16.666666666666664,
+      "lo": 2.7777777777777777,
+      "hi": 35.08771929824561,
+      "aWins": 5,
+      "bWins": 1,
+      "ties": 0
+    },
+    {
+      "a": "rounds-carry",
+      "b": "retry-blind",
+      "pairs": 6,
+      "deltaPp": 5,
+      "lo": -5.172413793103448,
+      "hi": 14.516129032258066,
+      "aWins": 3,
+      "bWins": 2,
+      "ties": 1
+    },
+    {
+      "a": "retry-blind",
+      "b": "single",
+      "pairs": 6,
+      "deltaPp": 11.666666666666666,
+      "lo": 2.7777777777777777,
+      "hi": 25,
+      "aWins": 4,
+      "bWins": 0,
+      "ties": 2
+    },
+    {
+      "a": "crossfamily-single",
+      "b": "rounds-carry",
+      "pairs": 6,
+      "deltaPp": -1.6666666666666667,
+      "lo": -18.75,
+      "hi": 12.5,
+      "aWins": 3,
+      "bWins": 3,
+      "ties": 0
+    }
+  ],
+  "symlinkClass": [
+    {
+      "arm": "crossfamily-single",
+      "sequences": 4,
+      "pairs": 6,
+      "hits": 3,
+      "firstSeenAtRound": {
+        "1": 3
+      }
+    },
+    {
+      "arm": "retry-blind",
+      "sequences": 4,
+      "pairs": 6,
+      "hits": 1,
+      "firstSeenAtRound": {
+        "2": 1
+      }
+    },
+    {
+      "arm": "rounds-carry",
+      "sequences": 4,
+      "pairs": 6,
+      "hits": 2,
+      "firstSeenAtRound": {
+        "1": 2
+      }
+    },
+    {
+      "arm": "single",
+      "sequences": 4,
+      "pairs": 6,
+      "hits": 0,
+      "firstSeenAtRound": {}
+    }
+  ],
+  "symlinkFisher": [
+    {
+      "a": "crossfamily-single",
+      "b": "rounds-carry",
+      "p": 0.9999999999999981
+    },
+    {
+      "a": "crossfamily-single",
+      "b": "single",
+      "p": 0.1818181818181817
+    },
+    {
+      "a": "rounds-carry",
+      "b": "single",
+      "p": 0.4545454545454557
+    },
+    {
+      "a": "rounds-carry",
+      "b": "retry-blind",
+      "p": 0.9999999999999996
+    }
+  ],
+  "totalCost": 96.370292
+}

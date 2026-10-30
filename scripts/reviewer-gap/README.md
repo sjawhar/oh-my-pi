@@ -49,9 +49,14 @@ every arm of the first lane was one cold round.
   and adds the paired bootstrap and Fisher's exact test. `rounds.test.ts`
   reproduces the first lane's published numbers from its committed runs, which
   is what proves the grading was not redefined.
+- `rounds-audit.ts` — per-round diagnostics: report length, prompt growth,
+  minutes used, whether a later round named an earlier one, probe files left.
+  Never a score. It reads the probe files under `runs/<dir>/scratch/`.
+- `results-rounds-2026-10-30.md` — the report. Runs at `runs/rounds-2026-10-30/`.
 
 ```bash
 bun scripts/reviewer-gap/run-rounds.ts --out <dir> --arms retry-blind,rounds-carry --dry-run
 bun scripts/reviewer-gap/run-rounds.ts --out <dir> --arms retry-blind,rounds-carry --concurrency 6 --budget 85
-bun scripts/reviewer-gap/rounds.ts --runs <dir>,scripts/reviewer-gap/runs/2026-10-30 --json <dir>/rounds-results.json
+bun scripts/reviewer-gap/rounds.ts --runs scripts/reviewer-gap/runs/rounds-2026-10-30,scripts/reviewer-gap/runs/2026-10-30
+bun scripts/reviewer-gap/rounds-audit.ts --runs scripts/reviewer-gap/runs/rounds-2026-10-30
 ```
