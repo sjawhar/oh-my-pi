@@ -5,13 +5,12 @@
  * Nothing here redefines detection. Per-arm rates are `gradeRuns` from
  * `grade.ts`, paired deltas are `pairedCompare` from `rounds.ts`, both as the
  * first two lanes used them. This file only selects strata, arms and finding
- * subsets, and adds the corpus classification summary and the agreement of the
- * two labellers.
+ * subsets, and adds the corpus classification: the two labellers' agreement
+ * and the share of the class, from `corpus/rederive-labels/`.
  *
  * Usage:
- *   bun scripts/reviewer-gap/rederive.ts --a <dir>[,<dir>...] --b <dir>[,<dir>...]
- *        [--stored <first-eval run dir>] [--labels corpus/rederive-labels.jsonl]
- *        [--agreement <labels a>,<labels b>] [--json <out.json>]
+ *   bun scripts/reviewer-gap/rederive.ts [--a <dir>[,<dir>...]] [--b <dir>[,<dir>...]]
+ *        [--stored <first-eval run dir>] [--json <out.json>]
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -47,6 +46,48 @@ export interface FinalLabel extends LabelRecord {
 	labellers: Record<string, Label>;
 	/** Present when the labellers disagreed: why the final label was chosen. */
 	adjudication?: string;
+}
+
+export const LABELLERS = ["claude", "astra"] as const;
+
+interface Adjudication {
+	decisions: Record<string, { from: (typeof LABELLERS)[number]; label: Label; why: string }>;
+}
+
+/**
+ * One label per record of both strata. Where the two labellers agree the first
+ * labeller's record is kept; where they disagree the adjudication names whose
+ * record is kept and why. A disagreement without a decision, or a decision
+ * whose label is not that labeller's, is an error.
+ */
+export function finalLabels(labelDir: string): FinalLabel[] {
+	const adj = JSON.parse(fs.readFileSync(path.join(labelDir, "adjudication.json"), "utf8")) as Adjudication;
+	const out: FinalLabel[] = [];
+	const used = new Set<string>();
+	for (const stratum of ["A", "B"] as const) {
+		const [first, second] = LABELLERS.map(
+			who => new Map(readJsonl<LabelRecord>(path.join(labelDir, `${who}-${stratum.toLowerCase()}.jsonl`)).map(r => [r.id, r])),
+		) as [Map<string, LabelRecord>, Map<string, LabelRecord>];
+		if (first.size !== second.size) throw new Error(`stratum ${stratum}: the labellers cover different records`);
+		for (const [id, a] of first) {
+			const b = second.get(id);
+			if (b === undefined) throw new Error(`${id} has no second label`);
+			const labellers = { [LABELLERS[0]]: a.label, [LABELLERS[1]]: b.label };
+			if (a.label === b.label) {
+				out.push({ ...a, stratum, labellers });
+				continue;
+			}
+			const d = adj.decisions[id];
+			if (d === undefined) throw new Error(`${id}: labellers disagree and no adjudication decides it`);
+			const kept = d.from === LABELLERS[0] ? a : b;
+			if (kept.label !== d.label) throw new Error(`${id}: adjudication keeps ${d.from}, whose label is ${kept.label}`);
+			used.add(id);
+			out.push({ ...kept, stratum, labellers, adjudication: d.why });
+		}
+	}
+	const stale = Object.keys(adj.decisions).filter(id => !used.has(id));
+	if (stale.length > 0) throw new Error(`adjudications for records the labellers agree on: ${stale.join(", ")}`);
+	return out.sort((x, y) => x.id.localeCompare(y.id));
 }
 
 export function readJsonl<T>(file: string): T[] {
@@ -220,42 +261,49 @@ function main(): void {
 	const runsB = loadRunDirs(split(get("--b"))).filter(r => ARMS.includes(r.arm));
 	const out: Record<string, unknown> = { casesA: casesA.frozen_at, casesB: casesB.frozen_at };
 
-	const labelsPath = get("--labels") ?? path.join(dir, "corpus", "rederive-labels.jsonl");
-	const labels = fs.existsSync(labelsPath) ? readJsonl<FinalLabel>(labelsPath) : [];
+	const labelDir = path.join(dir, "corpus", "rederive-labels");
+	const labels = finalLabels(labelDir);
 	const labelOf = new Map(labels.map(l => [l.id, l.label]));
+	out.labels = labels;
 
-	const agreeArg = split(get("--agreement"));
-	if (agreeArg.length === 2) {
-		const [x, y] = agreeArg.map(f => readJsonl<LabelRecord>(f)) as [LabelRecord[], LabelRecord[]];
-		const ag = agreement(x, y);
-		out.agreement = ag;
-		console.log("### labeller agreement\n");
-		console.log(
-			`n = ${ag.n}; three labels: ${ag.agree} agree (${pct(ag.agree / ag.n)}), kappa ${ag.kappa.toFixed(2)}; instance against the rest: ${ag.binaryAgree} agree (${pct(ag.binaryAgree / ag.n)}), kappa ${ag.binaryKappa.toFixed(2)}`,
-		);
-		console.log(`confusion (first/second): ${JSON.stringify(ag.confusion)}\n`);
-	}
-
-	if (labels.length > 0) {
-		const corpusIds = new Set(loadFindings().map(f => f.id));
-		const caseIds = new Set(casesA.findings.map(f => f.id));
-		const bIds = new Set(casesB.findings.map(f => f.id));
-		const pick = (ids: Set<string>): Label[] => labels.filter(l => ids.has(l.id)).map(l => l.label);
-		const shares = [
-			share("corpus (197 findings)", pick(corpusIds)),
-			share("stratum A cases (30 findings)", pick(caseIds)),
-			share("stratum B (batch extension)", pick(bIds)),
+	console.log("### labeller agreement (before adjudication)\n");
+	const agreements: Record<string, Agreement> = {};
+	for (const stratum of ["a", "b"]) {
+		const [x, y] = LABELLERS.map(who => readJsonl<LabelRecord>(path.join(labelDir, `${who}-${stratum}.jsonl`))) as [
+			LabelRecord[],
+			LabelRecord[],
 		];
-		out.shares = shares;
-		console.log("### share of the class\n");
-		console.log("| scope | n | instance | adjacent | not | instance share (95% Wilson) | instance or adjacent (95% Wilson) |");
-		console.log("|---|---:|---:|---:|---:|---|---|");
-		for (const s of shares)
-			console.log(
-				`| ${s.scope} | ${s.n} | ${s.counts.instance} | ${s.counts.adjacent} | ${s.counts.not} | ${pct(s.instance.share)} (${pct(s.instance.wilson.lo)}–${pct(s.instance.wilson.hi)}) | ${pct(s.instanceOrAdjacent.share)} (${pct(s.instanceOrAdjacent.wilson.lo)}–${pct(s.instanceOrAdjacent.wilson.hi)}) |`,
-			);
-		console.log("");
+		const ag = agreement(x, y);
+		agreements[stratum.toUpperCase()] = ag;
+		console.log(
+			`stratum ${stratum.toUpperCase()}: n = ${ag.n}; three labels ${ag.agree} agree (${pct(ag.agree / ag.n)}), kappa ${ag.kappa.toFixed(2)}; instance against the rest ${ag.binaryAgree} agree (${pct(ag.binaryAgree / ag.n)}), kappa ${ag.binaryKappa.toFixed(2)}`,
+		);
 	}
+	out.agreement = agreements;
+	console.log("");
+
+	const corpusIds = new Set(loadFindings().map(f => f.id));
+	const caseIds = new Set(casesA.findings.map(f => f.id));
+	const bIds = new Set(casesB.findings.map(f => f.id));
+	const pick = (ids: Set<string>): Label[] => labels.filter(l => ids.has(l.id)).map(l => l.label);
+	const shares = [
+		share("corpus (197 findings)", pick(corpusIds)),
+		share("stratum A cases (30 findings)", pick(caseIds)),
+		share("stratum B (batch extension)", pick(bIds)),
+	];
+	out.shares = shares;
+	console.log("### share of the class (adjudicated)\n");
+	console.log("| scope | n | instance | adjacent | not | instance share (95% Wilson) | instance or adjacent (95% Wilson) |");
+	console.log("|---|---:|---:|---:|---:|---|---|");
+	for (const s of shares)
+		console.log(
+			`| ${s.scope} | ${s.n} | ${s.counts.instance} | ${s.counts.adjacent} | ${s.counts.not} | ${pct(s.instance.share)} (${pct(s.instance.wilson.lo)}–${pct(s.instance.wilson.hi)}) | ${pct(s.instanceOrAdjacent.share)} (${pct(s.instanceOrAdjacent.wilson.lo)}–${pct(s.instanceOrAdjacent.wilson.hi)}) |`,
+		);
+	console.log("");
+	const shapes: Record<string, number> = {};
+	for (const l of labels) if (l.label === "instance") shapes[`${l.stratum}:${l.shape}`] = (shapes[`${l.stratum}:${l.shape}`] ?? 0) + 1;
+	out.shapes = shapes;
+	console.log(`instance shapes by stratum: ${JSON.stringify(shapes)}\n`);
 
 	const strata: [string, CaseFile, RunRecord[]][] = [
 		["A", casesA, runsA],

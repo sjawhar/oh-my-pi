@@ -8,6 +8,7 @@ import {
 	agreement,
 	cohenKappa,
 	compare,
+	finalLabels,
 	poolCases,
 	promptSatisfiable,
 	readJsonl,
@@ -56,6 +57,21 @@ describe("stratum B corpus records", () => {
 	test("no stratum B id collides with the original corpus", () => {
 		const a = new Set(loadFindings().map(f => f.id));
 		for (const f of recordsB) expect(a.has(f.id)).toBe(false);
+	});
+});
+
+describe("corpus classification", () => {
+	test("every record of both strata has exactly one final label, and every disagreement is adjudicated", () => {
+		const labels = finalLabels(path.join(dir, "corpus", "rederive-labels"));
+		const ids = [...loadFindings().map(f => f.id), ...recordsB.map(f => f.id)].sort();
+		expect(labels.map(l => l.id)).toEqual(ids);
+		for (const l of labels) {
+			const votes = Object.values(l.labellers);
+			expect(votes).toHaveLength(2);
+			expect(l.adjudication !== undefined).toBe(votes[0] !== votes[1]);
+			if (l.label === "not") expect([l.t1, l.t2, l.window, l.shape]).toEqual([null, null, null, null]);
+			if (l.label === "instance") expect(l.shape).not.toBeNull();
+		}
 	});
 });
 
