@@ -44,6 +44,14 @@ export interface PiNativeParsedRequest {
 	 * field — keeps the retry inside the gateway.
 	 */
 	rotationRetry?: "client";
+	/**
+	 * The `rotationToken` of the hand-back this request continues, echoed back
+	 * by the client. It names the authentication operation whose history the
+	 * gateway must keep applying — which bearers it has tried, and that it has
+	 * already spent its refresh step. Absent on a first request, and an
+	 * unknown one simply starts a fresh operation.
+	 */
+	rotationRetryToken?: string;
 }
 /**
  * Subset of {@link SimpleStreamOptions} accepted from the wire. Function-valued
@@ -173,6 +181,7 @@ export function parseRequest(body: unknown, _headers?: Headers): PiNativeParsedR
 		options,
 		stream,
 		rotationRetry,
+		rotationRetryToken: typeof obj.rotationRetryToken === "string" ? obj.rotationRetryToken : undefined,
 	};
 }
 // ---------------------------------------------------------------------------
@@ -242,13 +251,22 @@ export function encodeStream(
 				}, STREAM_KEEPALIVE_INTERVAL_MS);
 				for await (const event of events) {
 					if (cancelled) return;
-					// A terminal error the gateway declined to rotate past carries
-					// the marker that tells the client the next attempt is its own.
-					// Any other frame crosses verbatim.
-					const frame =
-						event.type === "error" && control?.rotationHandedBack?.()
-							? { ...event, rotation: "retryable" }
-							: event;
+					// A terminal error whose next attempt the gateway handed to the
+					// client carries the marker and the token that names the
+					// authentication operation to continue. Any other frame crosses
+					// verbatim.
+					const handedBack =
+						event.type === "error"
+							? control?.handedBack?.(event.error?.errorClassificationMessage ?? event.error?.errorMessage)
+							: undefined;
+					const frame = handedBack
+						? {
+								...event,
+								rotation: "retryable",
+								rotationToken: handedBack.token,
+								...(handedBack.retryAfterMs === undefined ? {} : { retryAfterMs: handedBack.retryAfterMs }),
+							}
+						: event;
 					controller.enqueue(SSE_ENCODER.encode(`data: ${JSON.stringify(frame)}\n\n`));
 					if (event.type === "done" || event.type === "error") break;
 				}
@@ -265,12 +283,19 @@ export function encodeStream(
 					// rebuilds that payload from its own model.
 					const message = err instanceof Error ? err.message : String(err);
 					// A pre-emit upstream failure reaches us as a thrown iterator, not
-					// an `error` event, so the handed-back marker belongs here too.
+					// an `error` event, so the marker belongs here too.
+					const handedBack = control?.handedBack?.(err);
 					const frame = {
 						type: "error",
 						reason: "error",
 						errorMessage: message,
-						...(control?.rotationHandedBack?.() ? { rotation: "retryable" } : {}),
+						...(handedBack
+							? {
+									rotation: "retryable",
+									rotationToken: handedBack.token,
+									...(handedBack.retryAfterMs === undefined ? {} : { retryAfterMs: handedBack.retryAfterMs }),
+								}
+							: {}),
 					};
 					controller.enqueue(SSE_ENCODER.encode(`data: ${JSON.stringify(frame)}\n\n`));
 					controller.enqueue(SSE_DONE);

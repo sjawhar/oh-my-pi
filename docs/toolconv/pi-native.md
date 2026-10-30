@@ -78,7 +78,8 @@ Accept: text/event-stream
   },
   "options": {},
   "stream": true,
-  "rotationRetry": "client"
+  "rotationRetry": "client",
+  "rotationRetryToken": "…"
 }
 ```
 
@@ -87,9 +88,10 @@ requests streaming. The server also accepts `modelId`, a string `model`, or
 `model.id`; its lower-level request parser defaults `stream` to `true`.
 
 `rotationRetry` is sent as `"client"` only when the caller supplied a
-`beforeDispatch` hold, and only that value means anything: see
-[Credential rotation](#credential-rotation). Any other value, and its absence,
-leave the retry inside the gateway.
+`beforeDispatch` hold, and only that value means anything; `rotationRetryToken`
+is present only on a request continuing a hand-back. See
+[Retries the client owns](#retries-the-client-owns). Any other value, and the
+field's absence, leave the retries inside the gateway.
 
 Validation at the gateway boundary is intentionally shallow:
 
@@ -182,32 +184,60 @@ and a signal already aborted before the request fail the stream directly.
 `reason` is the top-level event field; `stopReason` belongs to the nested
 `AssistantMessage`.
 
-## Credential rotation
+## Retries the client owns
 
-When an upstream attempt fails before emitting anything — an expired token, a
-usage limit — the gateway's credential resolver blocks or invalidates the
-credential and picks a successor. Who then makes the next inference attempt
-depends on `rotationRetry`.
+Two kinds of upstream attempt a gateway request would otherwise make on the
+client's behalf: the one its credential resolver drives after an authentication
+failure, and the one its transport drives after a transient one. `rotationRetry`
+decides who makes them.
 
-- **Absent (default).** The gateway retries inside the same request, as it
-  always has. The client sees one HTTP request and one answer.
-- **`"client"`, on a streamed request.** The gateway does the same bookkeeping
-  and stops. It writes the failure it captured with an extra field —
-  `{"type":"error", ..., "rotation":"retryable"}` — and the client re-sends the
-  whole request. The point is the client's own dispatch chokepoint: its
-  `beforeDispatch` hold, its in-flight limit and its abort signal all gate that
-  attempt, so a session paused mid-turn stops paying. The client drops the
-  held-back `start` and the marked error and publishes nothing from the
-  abandoned attempt; once anything else has been published the marker is
-  ignored and the error stands, which keeps the prohibition on replaying a turn
-  whose output already committed.
+- **Absent (default).** The gateway makes both itself, as it always has. The
+  client sees one HTTP request and one answer.
+- **`"client"`, on a streamed request.** The gateway keeps every credential
+  decision — the usage-limit block, the invalidation, the sibling selection —
+  and makes no further inference attempt. It writes the failure it captured
+  with `"rotation":"retryable"`, a `rotationToken`, and for a transient failure
+  a `retryAfterMs`; the client waits that long and re-sends the whole request.
+  The point is the client's own dispatch chokepoint: its `beforeDispatch` hold,
+  its in-flight limit and its abort signal all gate that attempt, so a session
+  paused mid-turn stops paying.
 
-The gateway marks only an attempt that would use a *different* credential. A
-refresh that returned the same bearer is one its own retry driver refuses and
-escalates past; handing that back would spin the client on a credential that
-cannot succeed. Unmarked errors are terminal, so the loop ends when the
-credentials do, under the same `AUTH_RETRY_MAX_ATTEMPTS` ceiling the in-process
-driver answers to.
+Replay safety is the client's rule and the gateway's together. The client holds
+back a leading `start` and drops it with the marked error, publishing nothing
+from the abandoned attempt; once anything else has been published the marker is
+ignored and the error stands. The gateway marks nothing once an upstream
+attempt has returned a usable response, because the turn may already have
+committed output a fresh request cannot replay.
+
+### What ends the loop
+
+A hand-back is marked only when the next attempt is one the in-process driver
+would have made:
+
+- **A different credential.** A refresh that returned the same bearer, or a
+  rotation that cycled onto one this operation already sent, is refused and
+  escalated past rather than handed back.
+- **The operation's own history.** The `rotationToken` names it: which bearers
+  it has spent, and that its refresh-current step is gone. Without that memory
+  each request would build a fresh `AuthRetryKeyState` and start the policy
+  over — one stored account whose refresh mints a new bearer would never reach
+  invalidation. The client echoes the token as `rotationRetryToken`; the
+  history stays on the gateway, bounded by an entry ceiling and an age.
+- **A transient failure the gateway capped.** When the client named no
+  `maxHttpAttempts`, the gateway allows one upstream attempt and answers a
+  408/429/5xx failure with a hand-back and a backoff. A client that named its
+  own budget gets exactly that budget: it asked for that many attempts, not for
+  that many per request.
+- **The shared ceiling.** `AUTH_RETRY_MAX_ATTEMPTS` counts across the whole
+  operation, not per request.
+
+An unmarked error is terminal, as it always was.
+
+Where a transport's attempt budget is a constructor literal — the Anthropic SDK
+is built with `maxRetries: 5` — no option reaches it, so a `wrapTransport`
+wrapper declines those attempts before the wire instead. They cost no traffic,
+but the transport that wanted them still spends its own backoff on the
+refusals, so such a hand-back can arrive seconds after the failure it answers.
 
 Mixed versions are defined in both directions, and both are the behaviour that
 predates the field:
@@ -217,18 +247,14 @@ predates the field:
 | Sends `rotationRetry` | Ignores unknown top-level fields | The gateway retries internally; no marker is ever written, so the client never retries. |
 | Sends nothing | Reads `rotationRetry` | The gateway retries internally. |
 
-A non-streamed pi-native request keeps the gateway's own retry whatever it
+A non-streamed pi-native request keeps the gateway's own retries whatever it
 claims: its error envelope is `{ error: { type, message } }`, which carries no
 marker. The omp client always streams.
 
-Two other upstream attempts the gateway can make on a client's behalf are
-outside this handoff. The provider SDK's own HTTP retries (the Anthropic SDK is
-constructed with `maxRetries: 5`) are not reachable from the gateway: the
-budget is a constructor literal, and `maxHttpAttempts` is scoped to the OpenAI
-chat-completions transport. The thinking-loop re-samples in
-`resolveWithThinkingLoopRetries` run only under `completeSimple`, which this
-route takes for `stream: false`; the omp client always streams, so nothing it
-sends can reach them.
+The thinking-loop re-samples in `resolveWithThinkingLoopRetries` are the one
+upstream attempt left outside this handoff. They run only under
+`complete`/`completeSimple`, which this route takes for `stream: false`, so no
+request the omp client can make reaches them.
 
 The client consumes streaming responses only. The server endpoint also
 supports `stream: false`, returning:

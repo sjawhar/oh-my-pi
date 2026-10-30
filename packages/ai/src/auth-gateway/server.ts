@@ -32,7 +32,12 @@ import { Effort } from "@oh-my-pi/pi-catalog/effort";
 import { clampThinkingLevelForModel, getSupportedEfforts } from "@oh-my-pi/pi-catalog/model-thinking";
 import { type ModelKind, modelKind } from "@oh-my-pi/pi-catalog/types";
 import { logger } from "@oh-my-pi/pi-utils";
-import { type ApiKeyResolution, type ApiKeyResolveContext, resolvedApiKeyBearer } from "../auth-retry";
+import {
+	type ApiKeyResolution,
+	type ApiKeyResolveContext,
+	AUTH_RETRY_MAX_ATTEMPTS,
+	resolvedApiKeyBearer,
+} from "../auth-retry";
 import { classifyGatewayError } from "../error/gateway";
 import * as anthropicMessages from "../providers/anthropic-messages-server";
 import * as openaiChat from "../providers/openai-chat-server";
@@ -73,8 +78,15 @@ import { handleSpeech } from "./routes/speech";
 import { handleSystemOne } from "./routes/systemone";
 import { handleTranscriptions } from "./routes/transcriptions";
 import { handleVideoContent, handleVideoPoll, handleVideoSubmit } from "./routes/video";
+import {
+	AuthGatewayRetryOperationStore,
+	declinedRetryDelayMs,
+	declineUpstreamRetries,
+	type UpstreamAttemptState,
+} from "./retry-operations";
 import { AuthGatewaySessionStateStore } from "./session-state";
 import type {
+	AuthGatewayHandBack,
 	AuthGatewayServerHandle,
 	AuthGatewayFormatModule as FormatModule,
 	AuthGatewayParsedRequest as ParsedFormatRequest,
@@ -565,6 +577,7 @@ async function handlePiNative(
 	req: Request,
 	peer: string,
 	sessionStates: AuthGatewaySessionStateStore,
+	retryOperations: AuthGatewayRetryOperationStore,
 ): Promise<Response> {
 	const startedAt = performance.now();
 	const requestId = crypto.randomUUID();
@@ -646,31 +659,119 @@ async function handlePiNative(
 		resolved => lease.updateAccount(resolveGatewayAccount(resolved)),
 	);
 	// A client that carries a `beforeDispatch` hold claims the retry its own
-	// dispatch chokepoint can gate (`rotationRetry: "client"`). The resolver
-	// still runs — the usage-limit block, the credential invalidation and the
-	// sibling selection are the gateway's, and the client's next request picks
-	// the credential they left sticky — but the inference attempt it would have
-	// driven here does not happen: the loop in `streamSimpleRequest` stops on an
+	// dispatch chokepoint can gate (`rotationRetry: "client"`). The credential
+	// decisions stay here — the usage-limit block, the credential invalidation
+	// and the sibling selection all run — but the inference attempt they would
+	// have driven does not: the loop in `streamSimpleRequest` stops on an
 	// `undefined` resolution and emits the captured failure, which
 	// `encodeStream` marks so the client knows to come back. Only a streamed
 	// turn can be marked, so a non-streamed one keeps the gateway's own retry.
-	let rotationHandedBack = false;
+	//
+	// Spreading one authentication operation over several requests would
+	// otherwise restart its policy on each: every request builds a fresh
+	// `AuthRetryKeyState`, so a refresh that mints a new bearer each time never
+	// escalates to invalidation, and a credential cycle never repeats. The
+	// operation record carries that history (see `retry-operations.ts`); the
+	// client only echoes its token.
 	const clientRetriesRotation = parsed.rotationRetry === "client" && parsed.stream;
+	const operation = retryOperations.resume(parsed.rotationRetryToken, apiKey.apiKey);
+	let handedBack: AuthGatewayHandBack | undefined;
+	// Set when the credential resolver saw this request's failure and chose not
+	// to hand it back. Its "no" is final: the transient rule below must not
+	// hand back a turn whose credentials are spent or cycling.
+	let resolverDeclined = false;
+	const upstreamAttempts: UpstreamAttemptState = { attempts: 0, delivered: false };
+	// Only a budget this gateway imposed is one it may answer with a retry. A
+	// client that named its own `maxHttpAttempts` asked for exactly that many
+	// attempts, not for that many per request.
+	const gatewayCappedTransport = clientRetriesRotation && parsed.options.maxHttpAttempts === undefined;
+	/**
+	 * The hand-back the terminal error about to be written ends in. A rotation
+	 * or a declined retry has already decided; otherwise this is the failure a
+	 * transport stopped short of retrying, and only one it would have retried
+	 * — a timeout, a throttle, an upstream fault — is worth a fresh request.
+	 */
+	const handBackFor = (error: unknown): AuthGatewayHandBack | undefined => {
+		if (handedBack !== undefined) return handedBack;
+		if (!gatewayCappedTransport || resolverDeclined) return undefined;
+		// Nothing came back usable, and the transport stopped where this gateway
+		// capped it: that is the retry it did not make. A turn that got a usable
+		// response has committed output a fresh request cannot replay.
+		if (upstreamAttempts.delivered || upstreamAttempts.attempts === 0) return undefined;
+		if (operation.attempts >= AUTH_RETRY_MAX_ATTEMPTS) return undefined;
+		const { status } = classifyGatewayError(error);
+		if (status !== 408 && status !== 429 && status < 500) return undefined;
+		handedBack = {
+			token: retryOperations.handOff(operation, apiKey.apiKey),
+			retryAfterMs: declinedRetryDelayMs(operation.attempts),
+		};
+		return handedBack;
+	};
 	streamOpts.apiKey = clientRetriesRotation
 		? async (ctx: ApiKeyResolveContext): Promise<ApiKeyResolution> => {
+				// Past the hand-back the driver must take no further step: its
+				// escalation would invalidate a bearer this request never sent.
+				if (handedBack !== undefined) return undefined;
+				if (ctx.error === undefined) return resolveApiKey(ctx);
+				// The refresh-current step is spent once per operation, as it is
+				// in-process. Declining it without resolving leaves the driver to
+				// escalate to the sibling step, which is what spends the credential.
+				if (!ctx.lastChance) {
+					if (operation.refreshSpent) return undefined;
+					operation.refreshSpent = true;
+				}
 				const resolved = await resolveApiKey(ctx);
-				if (ctx.error === undefined || resolved === undefined) return resolved;
-				// Only an attempt that would use a different credential is worth
-				// handing back. A force-refresh that returned the same bearer is one
-				// the in-process retry driver refuses and escalates past; handing it
-				// back would spin the client on a credential that cannot succeed,
-				// and would skip the escalation's own bookkeeping.
+				if (resolved === undefined) {
+					// The credentials are spent. A transient failure after this is
+					// not one a fresh request would survive either.
+					resolverDeclined = true;
+					return resolved;
+				}
 				const next = resolvedApiKeyBearer(resolved);
+				// Only an attempt that would use a credential this operation has not
+				// already sent is worth handing back. A refresh that returned the
+				// same bearer, or a rotation that cycled back onto one, is an
+				// attempt the in-process driver refuses and escalates past; handing
+				// it back would spin the client on a credential that cannot succeed.
 				if (next === undefined || next === (ctx.previousKey ?? apiKey.apiKey)) return resolved;
-				rotationHandedBack = true;
+				if (operation.attempted.has(next)) {
+					resolverDeclined = true;
+					return undefined;
+				}
+				if (operation.attempts >= AUTH_RETRY_MAX_ATTEMPTS) {
+					resolverDeclined = true;
+					return resolved;
+				}
+				// A rotated credential is ready now; nothing is waiting on time.
+				handedBack = { token: retryOperations.handOff(operation, next) };
 				return undefined;
 			}
 		: resolveApiKey;
+	// The provider SDK's own HTTP retries are the other attempts this request
+	// would make on the client's behalf, and no option reaches them — the
+	// budget is a constructor literal. The wrapper declines them instead, and
+	// the client re-sends behind its hold after the wait the gateway's own
+	// backoff would have taken. Only while nothing has come back usable: a
+	// mid-stream recovery keeps its retries, because output already published
+	// cannot be replayed by a new request.
+	if (clientRetriesRotation) {
+		// Where the transport honours an attempt budget, saying so costs no
+		// backoff: it stops after the attempt the client asked for instead of
+		// sleeping between refusals the wrapper below would make anyway. The
+		// wrapper still covers transports whose budget is a constructor literal.
+		if (parsed.options.maxHttpAttempts === undefined) streamOpts.maxHttpAttempts = 1;
+		streamOpts.wrapTransport = declineUpstreamRetries(
+			upstreamAttempts,
+			Math.max(1, parsed.options.maxHttpAttempts ?? 1),
+			() => {
+				if (handedBack !== undefined) return true;
+				if (operation.attempts >= AUTH_RETRY_MAX_ATTEMPTS) return false;
+				const token = retryOperations.handOff(operation, apiKey.apiKey);
+				handedBack = { token, retryAfterMs: declinedRetryDelayMs(operation.attempts) };
+				return true;
+			},
+		);
+	}
 	if (model.compat && "supportsSamplingParams" in model.compat && model.compat.supportsSamplingParams === false) {
 		delete streamOpts.temperature;
 		delete streamOpts.topP;
@@ -744,6 +845,9 @@ async function handlePiNative(
 	const settle = (): void => {
 		lease.release();
 		clientHold?.();
+		// A turn that settled without handing an attempt back has no history
+		// worth keeping; one that did leaves it for the request that continues it.
+		if (handedBack === undefined) retryOperations.release(operation);
 	};
 	let streamOwnsLease = false;
 	try {
@@ -773,7 +877,7 @@ async function handlePiNative(
 					controller.abort(reason instanceof Error ? reason : new Error("client closed request"));
 				}
 			},
-			rotationHandedBack: () => rotationHandedBack,
+			handedBack: error => handBackFor(error),
 		});
 		return new Response(sseStream, {
 			status: 200,
@@ -943,6 +1047,7 @@ function scopeRouteOptions(opts: AuthGatewayRouteOptions, client: AuthGatewayCli
  */
 export function createAuthGatewayRouter(hostOpts: AuthGatewayRouteOptions): AuthGatewayRouter {
 	const sessionStates = new AuthGatewaySessionStateStore();
+	const retryOperations = new AuthGatewayRetryOperationStore();
 	const route = async (req: Request, peer: string, client?: AuthGatewayClientScope): Promise<Response> => {
 		const pathname = new URL(req.url).pathname;
 		const opts = client ? scopeRouteOptions(hostOpts, client) : hostOpts;
@@ -972,7 +1077,7 @@ export function createAuthGatewayRouter(hostOpts: AuthGatewayRouteOptions): Auth
 			// Pi-native fast path. Same auth + provider plumbing as the
 			// foreign-wire routes, just without the wire-format translation.
 			if (req.method === "POST" && pathname === "/v1/pi/stream") {
-				return await handlePiNative(opts, req, peer, sessionStates);
+				return await handlePiNative(opts, req, peer, sessionStates, retryOperations);
 			}
 
 			// TypeSafe System One judgments (jev). TypeSafe SDKs and omp's own
@@ -1042,7 +1147,13 @@ export function createAuthGatewayRouter(hostOpts: AuthGatewayRouteOptions): Auth
 			return json(500, { error: "internal error" });
 		}
 	};
-	return { route, close: () => sessionStates.close() };
+	return {
+		route,
+		close: () => {
+			sessionStates.close();
+			retryOperations.close();
+		},
+	};
 }
 
 export function startAuthGateway(opts: AuthGatewayBootOptions): AuthGatewayServerHandle {

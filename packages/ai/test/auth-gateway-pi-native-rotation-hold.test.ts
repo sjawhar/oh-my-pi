@@ -20,6 +20,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { clearCustomApis } from "@oh-my-pi/pi-ai/api-registry";
+import { registerOAuthProvider, unregisterOAuthProviders } from "@oh-my-pi/pi-ai/registry/oauth";
+import { streamPiNative } from "@oh-my-pi/pi-ai/providers/pi-native-client";
 import { startAuthGateway } from "@oh-my-pi/pi-ai/auth-gateway";
 import { AuthStorage, SqliteAuthCredentialStore } from "@oh-my-pi/pi-ai/auth-storage";
 import { ProviderHttpError } from "@oh-my-pi/pi-ai/error";
@@ -128,6 +130,7 @@ async function bootGateway(options: GatewayOptions = {}) {
 
 afterEach(() => {
 	clearCustomApis();
+	unregisterOAuthProviders("gateway-hold-test");
 });
 
 describe("pi-native credential rotation and the caller's dispatch hold", () => {
@@ -335,4 +338,236 @@ describe("pi-native client retry marker", () => {
 		expect(requests).toBe(1);
 		expect(message.stopReason).toBe("error");
 	});
+});
+
+describe("an authentication operation spread over several requests", () => {
+	/**
+	 * One stored account, both of its tokens rejected. The in-process driver
+	 * spends its refresh once and then invalidates; a hand-back that forgot
+	 * that history would refresh again on every pass, minting a fresh bearer
+	 * each time and never reaching the invalidation — 64 upstream attempts
+	 * where there should be two.
+	 */
+	for (const clientOwnsRetry of [false, true]) {
+		it(`spends one refresh and then invalidates, client-owned=${clientOwnsRetry}`, async () => {
+			let refreshed = 0;
+			registerOAuthProvider({
+				id: "gateway-hold-oauth",
+				name: "hold test",
+				sourceId: "gateway-hold-test",
+				async login() {
+					return { access: "token-0", refresh: "refresh-0", expires: Date.now() + 3_600_000 };
+				},
+				async refreshToken(credential) {
+					refreshed += 1;
+					return {
+						...credential,
+						access: `token-${refreshed}`,
+						refresh: `refresh-${refreshed}`,
+						expires: Date.now() + 3_600_000,
+					};
+				},
+				getApiKey: credential => credential.access,
+			});
+			registerMockApi();
+			const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gw-hold-oauth-"));
+			const storage = new AuthStorage(await SqliteAuthCredentialStore.open(path.join(dir, "auth.db")));
+			await storage.credentials.set("gateway-hold-oauth", {
+				type: "oauth",
+				access: "token-0",
+				refresh: "refresh-0",
+				expires: Date.now() + 3_600_000,
+			});
+			const mock = createMockModel({
+				provider: "gateway-hold-oauth",
+				handler: () => {
+					throw new ProviderHttpError("Invalid API key", 401, { code: "invalid_api_key" });
+				},
+			});
+			const invalidated = spyOn(storage.limits, "invalidateMatching");
+			const handle = startAuthGateway({
+				bind: "127.0.0.1:0",
+				bearerTokens: [BEARER],
+				storage,
+				resolveModel: () => mock.model,
+				version: "test",
+			});
+			try {
+				const message = await streamSimple(gatewayModel(handle.url), baseContext, {
+					apiKey: BEARER,
+					sessionId: "gw-oauth-operation",
+					...(clientOwnsRetry ? { beforeDispatch: () => {} } : {}),
+				}).result();
+				expect(message.stopReason).toBe("error");
+				expect(mock.calls).toHaveLength(2);
+				expect(refreshed).toBe(1);
+				// The invalidation must name the bearer the failing attempt sent,
+				// not the one storage has already replaced.
+				expect(invalidated.mock.calls.map(call => call[1])).toEqual(["token-1"]);
+			} finally {
+				invalidated.mockRestore();
+				await handle.close();
+				storage.close();
+				await fs.rm(dir, { recursive: true, force: true });
+			}
+		});
+	}
+
+	it("does not charge the hold's wait to the response deadline", async () => {
+		// The watchdog is a platform timer behind a real HTTP fetch: there is no
+		// seam to drive it from fake time, so this waits for real.
+		let paused = false;
+		const held = Promise.withResolvers<void>();
+		const resumed = Promise.withResolvers<void>();
+		const harness = await bootGateway({
+			onAttempt: attempt => {
+				if (attempt === 1) paused = true;
+			},
+		});
+		try {
+			const stream = streamSimple(gatewayModel(harness.url), baseContext, {
+				apiKey: BEARER,
+				sessionId: "gw-deadline",
+				streamFirstEventTimeoutMs: 20,
+				beforeDispatch: async () => {
+					if (!paused) return;
+					held.resolve();
+					await resumed.promise;
+				},
+			});
+			await held.promise;
+			await Bun.sleep(60);
+			paused = false;
+			resumed.resolve();
+			const message = await stream.result();
+			expect(message.stopReason).toBe("stop");
+			expect(harness.mock.calls).toHaveLength(2);
+		} finally {
+			resumed.resolve();
+			await harness.close();
+		}
+	});
+
+	it("holds its own retry when the caller's fetch carries no hold", async () => {
+		// `streamPiNative` is exported: a caller can supply a hold with an
+		// ordinary fetch. The ownership it claims on the wire has to be backed
+		// by this client awaiting that hold itself.
+		let paused = false;
+		let holds = 0;
+		const resumed = Promise.withResolvers<void>();
+		const parked = Promise.withResolvers<void>();
+		const harness = await bootGateway({
+			onAttempt: attempt => {
+				if (attempt === 1) paused = true;
+			},
+		});
+		try {
+			const stream = streamPiNative(gatewayModel(harness.url), baseContext, {
+				apiKey: BEARER,
+				sessionId: "gw-direct-client",
+				beforeDispatch: async () => {
+					if (!paused) return;
+					holds += 1;
+					parked.resolve();
+					await resumed.promise;
+				},
+			});
+			await parked.promise;
+			expect(holds).toBe(1);
+			expect(harness.mock.calls).toHaveLength(1);
+			paused = false;
+			resumed.resolve();
+			const message = await stream.result();
+			expect(message.stopReason).toBe("stop");
+			expect(harness.mock.calls).toHaveLength(2);
+		} finally {
+			resumed.resolve();
+			await harness.close();
+		}
+	});
+});
+
+describe("the provider transport's own retries", () => {
+	/**
+	 * A transient upstream failure the provider transport would re-send itself.
+	 * For a client that owns its retries the gateway declines that attempt and
+	 * hands it back, so the client's hold gates it; for any other client it
+	 * keeps re-sending, as it always has.
+	 */
+	for (const clientOwnsRetry of [false, true]) {
+		it(`declines the transport's own retry only for a client that owns it: owned=${clientOwnsRetry}`, async () => {
+			const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gw-transport-"));
+			const storage = new AuthStorage(await SqliteAuthCredentialStore.open(path.join(dir, "auth.db")));
+			await storage.credentials.set("transport-test", [{ type: "api_key", key: "only-key" }]);
+			const upstream = buildModel({
+				id: "model",
+				name: "transport test",
+				api: "openai-completions",
+				provider: "transport-test",
+				baseUrl: "http://upstream.invalid/v1",
+				reasoning: false,
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 200000,
+				maxTokens: 1000,
+			} as ModelSpec<"openai-completions">);
+			let upstreamAttempts = 0;
+			const upstreamFetch: FetchImpl = async () => {
+				upstreamAttempts += 1;
+				if (upstreamAttempts === 1) {
+					return Response.json(
+						{ error: { message: "temporarily unavailable", type: "server_error" } },
+						{ status: 503, headers: { "retry-after-ms": "1" } },
+					);
+				}
+				const chunks = [
+					{
+						id: "r",
+						object: "chat.completion.chunk",
+						choices: [{ index: 0, delta: { role: "assistant", content: "ok" }, finish_reason: null }],
+					},
+					{ id: "r", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+				];
+				return new Response(
+					`${chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
+					{
+						headers: { "content-type": "text/event-stream" },
+					},
+				);
+			};
+			const handle = startAuthGateway({
+				bind: "127.0.0.1:0",
+				bearerTokens: [BEARER],
+				storage,
+				resolveModel: () => upstream,
+				version: "test",
+				fetch: upstreamFetch,
+			});
+			let httpRequests = 0;
+			const countingFetch: FetchImpl = (input, init) => {
+				httpRequests += 1;
+				return fetch(input as string, init);
+			};
+			try {
+				const message = await streamSimple(gatewayModel(handle.url), baseContext, {
+					apiKey: BEARER,
+					fetch: countingFetch,
+					sessionId: "gw-transport-retry",
+					...(clientOwnsRetry ? { beforeDispatch: () => {} } : {}),
+				}).result();
+				expect(message.stopReason).toBe("stop");
+				expect(upstreamAttempts).toBe(2);
+				// One client dispatch per upstream attempt when the client owns the
+				// retry; the gateway's own transport re-send otherwise.
+				expect(httpRequests).toBe(clientOwnsRetry ? 2 : 1);
+			} finally {
+				await handle.close();
+				storage.close();
+				await fs.rm(dir, { recursive: true, force: true });
+			}
+			// A declined attempt is refused before the wire, but the transport
+			// that wanted it still spends its own backoff on the refusals, so a
+			// hand-back arrives seconds after the failure it answers.
+		}, 30_000);
+	}
 });

@@ -122,19 +122,33 @@ export interface AuthGatewayParsedRequest {
 	options: AuthGatewayParsedRequestOptions;
 }
 
+/**
+ * An attempt the gateway did not make, left to the client that claimed it.
+ *
+ * `token` names the authentication operation the client's next request
+ * continues — which bearers it has spent, and whether its refresh step is
+ * gone. `retryAfterMs` is how long that request should wait: a credential
+ * rotation is ready at once, a declined transport retry inherits the backoff
+ * the gateway's own budget would have taken.
+ */
+export interface AuthGatewayHandBack {
+	token: string;
+	retryAfterMs?: number;
+}
+
 export interface AuthGatewayStreamControl {
 	/** Gateway request signal. Encoders stop producing frames when it aborts. */
 	signal?: AbortSignal;
 	/** Called when the HTTP response body is cancelled by the client. */
 	onCancel?: (reason?: unknown) => void;
 	/**
-	 * Whether the gateway has done a credential rotation's bookkeeping and left
-	 * the inference attempt to the client (pi-native `rotationRetry: "client"`).
-	 * Read when a terminal error frame is written, so the client can tell a
-	 * handed-back attempt from an exhausted one. Formats whose clients cannot
-	 * claim the retry never set it.
+	 * The hand-back this request ends in, `undefined` when it made every
+	 * attempt itself. Called once, with the failure about to be written, when a
+	 * terminal error frame is encoded: a gateway that stopped its transport
+	 * short decides here whether that failure is one the client should answer.
+	 * Formats whose clients cannot claim a retry never set it.
 	 */
-	rotationHandedBack?: () => boolean;
+	handedBack?: (error: unknown) => AuthGatewayHandBack | undefined;
 }
 
 export interface AuthGatewayFormatModule {
