@@ -1,0 +1,26 @@
+{
+  "started": "2026-10-30T12:38:10.848Z",
+  "cases": "/home/sami/src/oh-my-pi-worktrees/infra-724-reviewer-gap-evals/scripts/reviewer-gap/cases.json",
+  "frozen_at": "2026-10-30T06:05:00Z",
+  "armNames": [
+    "rederive"
+  ],
+  "trials": 4,
+  "maxTime": "20m",
+  "maxCost": "6",
+  "repoGate": false,
+  "jobs": [
+    "rederive__pr17394-r7__t1",
+    "rederive__pr17394-r7__t2",
+    "rederive__pr17394-r7__t3",
+    "rederive__pr17394-r7__t4",
+    "rederive__pr17394-r8__t1",
+    "rederive__pr17394-r8__t2",
+    "rederive__pr17394-r8__t3",
+    "rederive__pr17394-r8__t4",
+    "rederive__pr17399-r3__t1",
+    "rederive__pr17399-r3__t2",
+    "rederive__pr17399-r3__t3",
+    "rederive__pr17399-r3__t4"
+  ]
+}

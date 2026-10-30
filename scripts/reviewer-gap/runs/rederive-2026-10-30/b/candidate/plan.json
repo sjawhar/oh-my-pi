@@ -1,0 +1,34 @@
+{
+  "started": "2026-10-30T13:42:43.568Z",
+  "cases": "scripts/reviewer-gap/cases-b.json",
+  "frozen_at": "2026-10-30T12:25:00Z",
+  "armNames": [
+    "candidate"
+  ],
+  "trials": 4,
+  "maxTime": "20m",
+  "maxCost": "6",
+  "repoGate": false,
+  "jobs": [
+    "candidate__pr17394-r16__t1",
+    "candidate__pr17394-r16__t2",
+    "candidate__pr17394-r16__t3",
+    "candidate__pr17394-r16__t4",
+    "candidate__pr17398-r19__t1",
+    "candidate__pr17398-r19__t2",
+    "candidate__pr17398-r19__t3",
+    "candidate__pr17398-r19__t4",
+    "candidate__pr17402-r17__t1",
+    "candidate__pr17402-r17__t2",
+    "candidate__pr17402-r17__t3",
+    "candidate__pr17402-r17__t4",
+    "candidate__pr17412-r6__t1",
+    "candidate__pr17412-r6__t2",
+    "candidate__pr17412-r6__t3",
+    "candidate__pr17412-r6__t4",
+    "candidate__pr17421-r17__t1",
+    "candidate__pr17421-r17__t2",
+    "candidate__pr17421-r17__t3",
+    "candidate__pr17421-r17__t4"
+  ]
+}

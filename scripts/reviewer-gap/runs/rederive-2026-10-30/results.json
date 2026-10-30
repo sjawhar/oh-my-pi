@@ -1,0 +1,5594 @@
+{
+  "casesA": "2026-10-30T06:05:00Z",
+  "casesB": "2026-10-30T12:25:00Z",
+  "labels": [
+    {
+      "id": "17394-R16-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "Detached record publication is not awaited and its rejection still releases protection; the record states missing ordering and error cleanup, not a fact re-derived through a moving handle.",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "The record states a publication that is not awaited and a rejection that still releases protection: ordering and error cleanup, with no re-lookup."
+    },
+    {
+      "id": "17394-R16-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a 22-bit counter seeded from 22 random bits lets two sources mint the same id, and materialisation clears the colliding path: an identity collision from weak generation, no earlier established identity re-obtained",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R16-3",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "The grace timer is scheduled to mark unfinished writer work.",
+      "t2": "The timer publishes another writer record after completion has cleared the first one.",
+      "window": "Lease release waits behind a sandbox lock long enough for the not-yet-cancelled grace timer to fire.",
+      "reason": "The scheduled unfinished-work decision becomes stale after completion; the defect is the delayed timer acting on the same completed operation rather than re-resolving an identity.",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "adjacent"
+      },
+      "adjudication": "The grace timer acts on an unfinished-work decision made false by completion; it publishes against the same operation without a second lookup."
+    },
+    {
+      "id": "17394-R16-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the teardown waits for a process its own watcher keeps alive: a lifetime deadlock, no T1/T2",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R16-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "The native error uses a different code than the new errno branch expects, and the recovery view omits a holder; neither mechanism states re-derivation.",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "The new branch tests an errno code the native error does not carry; no message text is matched as a type and nothing established is derived again."
+    },
+    {
+      "id": "17394-R7-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "branch-mode refusal returns no branch name or applied work: missing metadata on a result path, no fact established then obtained again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R7-2",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "owner release decides the descendant's work is captured",
+      "t2": "deferred teardown removes the same directory",
+      "window": "descendant writes after parent release and before its own release",
+      "reason": "teardown acts on the same directory with the stale capture decision; nothing is looked up again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "not"
+      },
+      "adjudication": "Teardown deletes the same directory on a capture decision the late write made false; nothing is looked up again."
+    },
+    {
+      "id": "17394-R7-3",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "scan reads the owner marker and decides the sandbox is dead or unreadable",
+      "t2": "clear removes the directory by its pathname",
+      "window": "a new ensureIsolation materialises live data at that path between the scan and the remove",
+      "reason": "the path is resolved again at removal time and no longer names what the scan judged",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17394-R7-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "The stated defect is in-process lease state invisible to another process, an explicit exclusion.",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "The stated mechanism is in-process lease state invisible to a second process, the rubric's named exclusion; no key narrower than a lifetime is stated."
+    },
+    {
+      "id": "17394-R7-5",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "old cleanup reads the isolation claim for the worktree root",
+      "t2": "old cleanup deletes that root after waiting",
+      "window": "a new ensureIsolation through the symlink alias writes a new generation and live data while the old cleanup waits",
+      "reason": "the deletion re-resolves the root path and destroys a generation the claim read never covered",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17394-R7-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a rename failure falls back to in-place teardown that never settles, denying new lock acquisition: availability from an unhandled fault, no T1/T2",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R7-7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "an injected removal error leaves a retired directory behind: a fault that is not cleaned up",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R7-8",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "lock file opened before its parent directory is created: an ordering and platform-support gap, no re-derived fact",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R7-9",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "refusal releases before an unbounded deferred disposal finishes: lifetime and timeout handling, no fact obtained a second time",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "materialisation replaces an existing sandbox without consulting the lease at all: a missing check, not a stale second look-up",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-10",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a realpath EIO is swallowed and the alias is used, so two names lock separately: fault handling plus aliasing, no earlier established identity re-obtained",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-11",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "correlated injected write and removal failures leave an unreclaimable claim: faults not cleaned up",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-12",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a sandbox base inferred from a directory name and marker existence: identity computed from a path with no earlier established identity",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-13",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a never-resolving disposal step outlives the timer: a bound that does not hold, no T1/T2",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-14",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "an intermittent loss of refusal metadata with no root cause established: no mechanism stated that names an establishment and a re-derivation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-2",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the under-lock decideIsolationReclaim judges the scanned root reclaimable",
+      "t2": "clear removes that root by pathname",
+      "window": "the root symlink is swapped between the decision and the removal",
+      "reason": "the pathname resolves to a different, live directory when the removal re-resolves it",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17394-R8-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "cross-process lease release or crash never notifies the owner: in-process notification state invisible to another process, with no second derivation of a fact",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-4",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the under-lock deferTeardownWhileLeased check finds no live lease",
+      "t2": "the rename retires the same directory",
+      "window": "a valid new lease is taken between the check and the rename",
+      "reason": "teardown acts on the same object with a decision that became false; it does not look the lease up again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17394-R8-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "an EIO reading the lease directory is treated as no leases: an error mishandled, no re-derivation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "an ENOSPC on the lease write returns a silent no-op lease: an injected fault mishandled",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a symlinked cwd yields a different sandbox base than the canonical one: aliasing of two names at the same moment, not re-derivation of an established identity",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17394-R8-8",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the old stop renames its generation and holds its notion of the slot",
+      "t2": "the finishing stop deletes bookkeeping for that slot",
+      "window": "a successor is materialised into the same slot and leased while the old stop is paused",
+      "reason": "the slot name is resolved again at the end of the old teardown and now names the successor's bookkeeping",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17394-R8-9",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the in-place stop establishes the directory it is tearing down",
+      "t2": "after the ten-second bound and lock release it deletes that path",
+      "window": "ensureIsolation rematerialises a newer generation at the path during the overrun",
+      "reason": "the delayed delete re-resolves the path and destroys the newer generation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17396-R1-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the jittered delay is tested against the cap before the authoritative retry-after hint is applied, and the fail-fast cap then ends the turn: ordering of bound checks, no fact established then obtained again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R1-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "empty blocks re-charge a retry budget already spent: budget arithmetic",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R2-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "lower-layer replay paths do not report their counts: an incomplete inventory of replaying code paths",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R2-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a failed Codex reopen is never counted: a missed branch in the counting inventory",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R2-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the discovered-model Cursor replay path reports zero: a missed variant, no re-derivation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R2-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the wrapper discards the inner attempt's known count: lost accounting, not a second look-up of a fact",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R3-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "caller-owned clients omit the new reporting hook: an incomplete enumeration of client constructions",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R3-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the counter is incremented before the busy-socket rejection: ordering of a counter against a branch, no established fact re-obtained",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R3-3",
+      "label": "instance",
+      "shape": "message-for-type",
+      "t1": "the provider reports that it made no replay for this attempt",
+      "t2": "recovery re-derives whether the model progressed by matching the error wording",
+      "window": "error text that reads like a late failure while the known count says zero",
+      "reason": "the message is matched as a proxy for the kind of outcome the provider already established",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17396-R3-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "replays preceding a discarded empty success are not carried forward: lost accounting",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R3-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "inconsistent reporting on cancellation exits inflates or drops totals: arithmetic and error-path handling",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R4-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "an older client omits the hook so its provider-made retries are invisible: an incomplete inventory of clients",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R4-2",
+      "label": "instance",
+      "shape": "choice-across-await",
+      "t1": "Call A checks that the shared socket is available before onPayload.",
+      "t2": "Call A rechecks ownership after onPayload but retains the charged WebSocket-attempt decision.",
+      "window": "Call B claims the socket while A is paused in the callback.",
+      "reason": "The ownership choice spans a callback and the later lookup sees another owner.",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "instance"
+      },
+      "adjudication": "The charge is decided at the early ownership check, before onPayload, and kept after the callback in which another call took the socket: shape 6."
+    },
+    {
+      "id": "17396-R4-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the accumulated total is installed only on error terminals, so successes report none: a missed branch",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R4-4",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the caller-abort check finds the signal live before onRequestAttempt",
+      "t2": "fetchOnce attaches a listener to that signal and sends",
+      "window": "the hook aborts the caller's signal in between",
+      "reason": "it acts on the same signal with a decision that became false and never inspects its state again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17396-R4-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a subclass can omit the hook on a rebuilt call, so aggregates cannot prove completeness: an enumeration argument",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17396-R4-6",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "The wrapper proceeds on a decision to charge and run another retry.",
+      "t2": "It charges the retry and invokes the next factory on the same cancelled operation.",
+      "window": "A retry-wait hook or count getter aborts before that factory reaches transport.",
+      "reason": "Caller code invalidates the decision between checking and acting, without a second identity lookup.",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "adjacent"
+      },
+      "adjudication": "The decision to retry stands after the wait hook cancelled; it acts on the same operation with a stale decision, and a retry decision is not a selected target."
+    },
+    {
+      "id": "17398-R19-1",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the exclusive copy and open pin the staged inode and its fresh stat",
+      "t2": "the refusal path deletes the staging pathname",
+      "window": "the original inode renamed aside and another writer putting WRONG at that path between the two stats",
+      "reason": "the staging name is resolved again at deletion and names a replacement the run never created",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R19-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "wrong nonempty files and symlinks satisfy the second resume attempt: a weak conflict comparator",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R19-3",
+      "label": "instance",
+      "shape": "metadata-proxy",
+      "t1": "Restore completes with no unrestored artifacts and a complete live session.",
+      "t2": "Later resume treats the zero-byte artifact as evidence that restoration is incomplete or conflicting.",
+      "window": "A tool intentionally rewrites the already restored output to an empty file.",
+      "reason": "Artifact emptiness is used to re-derive restoration completion even though legitimate post-restore work can change that metadata.",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "Artifact non-emptiness is taken as the record that restoration finished, and legitimate later work changes it (shape 2)."
+    },
+    {
+      "id": "17398-R19-4",
+      "label": "instance",
+      "shape": "metadata-proxy",
+      "t1": "the descriptor read obtains the staged bytes",
+      "t2": "a second stat is compared for equality as proof those bytes are what is published",
+      "window": "a same-length in-place rewrite of the stage between the read and the second stat",
+      "reason": "size and timestamps stand in for content, so the wrong bytes are archived as verified",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R19-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a FIFO with no writer makes ordinary resume hang until an external timeout: a blocking open with no bound",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R19-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a recovery instruction names a command that does not retry correctly: a diagnostic-text claim and an incomplete cutover",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R19-7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the changelog states a contract the probes contradict: a documentation claim",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R19-8",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the parent enumerates the session's ownership tree and decides what to reclaim",
+      "t2": "reclaim acts on that enumeration and takes the child's workspace",
+      "window": "a native child joining, leasing and flushing its turn after the enumeration",
+      "reason": "reclaim proceeds on a membership decision that became false without enumerating again",
+      "stratum": "B",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17398-R4-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "an EACCES reading the existing archived artifact is treated as license to overwrite it: an error mishandled, no re-derivation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R4-2",
+      "label": "instance",
+      "shape": "metadata-proxy",
+      "t1": "the archived copy and the live path are established as distinct surviving entries",
+      "t2": "nlink from a stat is read as proof the live path still has its own directory entry",
+      "window": "the code's own tree deletion removes both of the links the count covered",
+      "reason": "link count stands in for the existence of a separate entry, so deleting the tree removes the only copies",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "The record's own title states the proxy: a link count from a stat is taken to establish a surviving entry, and the code's own deletion makes it false (shape 2)."
+    },
+    {
+      "id": "17398-R4-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the record fallback declares records carried before any header requirement and skips opaque bytes: a weak comparator, no second derivation of an established fact",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R4-4",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "staging compares the destination and source contents",
+      "t2": "rename publishes onto the destination pathname and the source is deleted by name",
+      "window": "the destination or source is replaced between the comparison and the rename",
+      "reason": "the names are resolved again at publication, so the bytes compared are not the bytes replaced",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R4-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the fallback uses a descriptor the fast path auto-closed and the catch turns that into false: a lifecycle and error-handling bug",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R4-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "header comparison rejects legitimate version migrations before record containment applies: a comparator that is too strict",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R4-7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the mkdir walk does not carry source directory modes: a permission regression with no T1/T2",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R5-N1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the same-inode refusal compares the archived descriptor against the temporary copy rather than the live source, so aliases pass: the wrong object is checked, and the fixture is static aliasing",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R5-N2",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "a name snapshot of the destination tree records what existed before the run",
+      "t2": "rollback re-enumerates the tree and deletes every name absent from the snapshot as its own creation",
+      "window": "a user file created at that name after the snapshot and before the failed link",
+      "reason": "ownership of the file is derived a second time from the pathname diff, so a foreign file is deleted as ours",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R5-N3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "transcript semantics are granted by the .jsonl extension alone: identity computed from a name with no earlier established identity",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R5-N4",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the absence check establishes that no transcript occupies the destination",
+      "t2": "the replacing rename publishes onto that pathname",
+      "window": "a valid new transcript appears at the destination between the check and the rename",
+      "reason": "the destination name is resolved again at the rename and now names the user's new work",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R5-N5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the v1 exception ignores parent and compaction fields, accepting divergent history: a comparator gap",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R5-N6",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the caller knows the candidate is the transcript child.jsonl and stages it",
+      "t2": "the callee re-derives the file's classification from the staged .tmp suffix",
+      "window": "the code's own staging rename changes the name the classification is read from",
+      "reason": "the kind of the file is derived a second time from a pathname that the staging step changed",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R5-N7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "archive copying chmods an existing private destination directory to the source mode: a permission regression, no re-derivation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R6-N1",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the comparison pins a descriptor and compares that inode",
+      "t2": "the stage is renamed over whatever the destination name now holds",
+      "window": "a new inode renamed in at the destination after the comparison",
+      "reason": "the destination is resolved again at the rename and is no longer the inode compared",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R6-N2",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the creation ledger records the pathname the run published",
+      "t2": "rollback unlinks that pathname",
+      "window": "the created file is renamed aside and new user work is created at the name before the failure",
+      "reason": "the ledger owns a name, so rollback re-resolves it and deletes a file it never created",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R6-N3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "restore never excludes a process holding the session ownership lease: a missing exclusion the safety contract claims, no second derivation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R6-N4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the v1 topology check accepts all-null parents and misindexed compaction boundaries: a comparator gap",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R6-N5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the same mapping refuses genuine v1 migrations: a comparator that is too strict",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R6-N6",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the archived artifact holds the only copy of the unique suffix",
+      "t2": "the live candidate is copied onto the reused staging name, which still links to that archived inode",
+      "window": "a crash remnant leaves the stage name hard-linked to the archive and the snowflake name repeats",
+      "reason": "the staging name is resolved again to the archived inode and truncates it before any comparison",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R6-N7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "unrecorded directories and temps survive rollback and a failed chmod leaves widened modes: faults not cleaned up",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R7-R1",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "archiving accepts the transcript whose header gives the session id, and the owner holds that session's lease",
+      "t2": "restore derives the session name from the archive filename and acquires a lease under that name",
+      "window": "a custom basename or a nested child whose lease the parent lease does not cover",
+      "reason": "the identity is derived a second time from the filename, so the lease taken is not the lease that protects the file",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R7-R2",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "byte comparison through the existing archive name establishes an archived copy of the live file",
+      "t2": "cleanup deletes the live files by name, and the archived name resolves through the symlink to one of them",
+      "window": "the code's own cleanup step removes the symlink target",
+      "reason": "the archived name resolves to the live file it was supposed to preserve, so the archive is left dangling",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R7-R3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the positional check requires only that an id be a string, so empty names pass: a comparator gap",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R7-R4",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "restore finds the canonical destination absent and stages under a reused name",
+      "t2": "the write goes through the staging name, which is hard-linked to the moved-aside live copy",
+      "window": "a crashed publication leaves stage and destination linked and the snowflake name repeats",
+      "reason": "the staging pathname resolves to the surviving inode, so the write lands on the copy it meant to preserve",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R7-R5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a failed temp removal after publication is never recorded, so rollback leaves it behind: a fault not cleaned up",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R8-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "restore's header parser accepts fewer shapes than the real session loader: an incomplete enumeration of header forms",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R8-2",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "Restore enumerates the child lease set before copying artifacts.",
+      "t2": "Restore deletes the same archived artifacts under that fixed lease decision.",
+      "window": "A child transcript and its ownership lease are added after enumeration and before final deletion.",
+      "reason": "The lease-coverage decision becomes stale as children are added, without another lookup in the failing action.",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "adjacent"
+      },
+      "adjudication": "The lease set is enumerated once and deletion acts on the same artifacts under that stale coverage decision; no second lookup returns another object."
+    },
+    {
+      "id": "17398-R8-3",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the gzip digest match establishes that the archive name already holds the transcript",
+      "t2": "artifact archiving copies and then deletes the live file the archive name points at",
+      "window": "the code's own artifact pass removes the symlink target",
+      "reason": "the archive name is resolved again to a live artifact, so unlinking the ordinary transcript leaves no readable archive",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R8-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "duplicate nonempty ids still pass every immediate-parent comparison: a comparator gap",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R8-5",
+      "label": "instance",
+      "shape": "acquire-outside-finally",
+      "t1": "the parent's native lease is acquired",
+      "t2": "the child-lease probe throws and the parent lease is never released",
+      "window": "an acquisition error between the parent acquire and the release path",
+      "reason": "the parent acquire sits outside the try/finally that would release it",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17398-R8-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the promised appended-transcript route and restore instruction do not exist in the command output: a diagnostic-text and documentation claim",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17398-R8-7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "unrelated formatting rewrote literal tokens in shipped prompt assets: a text-content regression with no establishment and re-derivation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17399-R3-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "paid-capable remote memory paths are missing from the pause inventory: an incomplete enumeration of request paths",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17399-R3-2",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "dispatchHold checks the process gate and finds it open",
+      "t2": "the request is sent once next resolves",
+      "window": "the process gate closes while next waits an event-loop turn",
+      "reason": "the send proceeds on a stale open-gate decision without consulting the gate again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17399-R3-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a steering queue drained while paused is consumed on cancellation and never delivered: work lost on an abort path",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17399-R3-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the idle budget runs while the append is parked at the hold, so a healthy round-trip aborts: a timeout that counts held time",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17399-R3-5",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the SigV4 signer signs the request at the current clock",
+      "t2": "the signed request goes on the wire after the hold",
+      "window": "ten minutes of clock advance while parked",
+      "reason": "the same signed request is sent on a validity decision that expired; nothing is signed or read again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17399-R3-6",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "prewarmUnlessPaused checks the pause state on entry",
+      "t2": "the HEAD request is sent after request-debug preparation resolves",
+      "window": "a pause taken while the preparation await is outstanding",
+      "reason": "the send stands on a stale not-paused decision and no second check exists",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17399-R3-7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "four providers grant the body iterator a fresh first-event budget, doubling the effective bound: a wrong bound and a false lane explanation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17400-R1-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the settle loop spins to its call cap when agentId is absent and a background job runs: a loop termination condition, no fact established then obtained again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17400-R1-2",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "each approval opens with its own permission kind and prompt",
+      "t2": "the controller reports the session's currently open generic wait bracket as this approval's kind and question",
+      "window": "a second approval-gated tool starts while the first tool's bracket is still open",
+      "reason": "session-wide current wait state is read where the value belonging to this approval should be",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "The trigger names the session-wide generic wait bracket as what the second approval reports, in place of the approval's own kind and question (shape 3)."
+    },
+    {
+      "id": "17400-R1-3",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the pending approval was published as kind permission with its tool prompt",
+      "t2": "the focus rebuild re-derives the outstanding dialog from session-level wait state",
+      "window": "focusing away and back before the approval is answered",
+      "reason": "the rebuild reconstructs the frame from generic session state rather than the approval's own record",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "The measured before/after shows the focus rebuild re-deriving the published permission frame as a generic question: the frame is derived again instead of kept."
+    },
+    {
+      "id": "17400-R2-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "each parallel tool registers its own approval record",
+      "t2": "the controller derives the reported active wait from a single shared current-wait slot",
+      "window": "one approval is answered while another is still outstanding and the first tool's execution is held open",
+      "reason": "one session-level slot stands for several per-call approvals, so the reported operation is not the one waiting",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "The status reports the answered first approval while the active wait is the second: a shared current slot read where the call's own wait belongs."
+    },
+    {
+      "id": "17400-R2-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the ui.select exemption classifies real RPC approvals as questions by the UI method used: a misclassification rule, no window in which a source changes",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17400-R2-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a committed regression test still expects the old wording and fails: a test left failing",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17400-R3-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the approval for the first tool is answered and its own record settled",
+      "t2": "an unrelated ui.custom question reads the controller's shared blocked status and inherits the approval's permission kind and message",
+      "window": "an ordinary question opened while approvals are answered and denied around it",
+      "reason": "the shared current status is read where this dialog's own kind belongs",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "An unrelated question inherits the answered approval's status from the shared current state (shape 3)."
+    },
+    {
+      "id": "17400-R4-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the suspended tool's per-call record holds blocked/permission",
+      "t2": "a user_wait_end from an unrelated session question deletes the controller's current wait record",
+      "window": "an unrelated session.waitForUser question answered while the approval is still live",
+      "reason": "the end event is matched against session-level current state instead of the call it belongs to",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17400-R5-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "The non-oldest dialog never gets a published wait frame and is not retired; this is incomplete event inventory.",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "The record states that the dialog was never published as a wait frame: a missing publication, not a re-lookup."
+    },
+    {
+      "id": "17400-R5-2",
+      "label": "instance",
+      "shape": "other",
+      "t1": "each approval is registered with its own tool-call identity (mock-tc-1, mock-tc-2)",
+      "t2": "retirement re-identifies the dialog to erase by its prompt text",
+      "window": "two live approvals whose prompt text collides, or an untracked frame with no name",
+      "reason": "the dialog is looked up a second time by rendered text rather than the identity already established for it",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17400-R5-3",
+      "label": "instance",
+      "shape": "other",
+      "t1": "the approval is registered and then answered, with its own tracked identity",
+      "t2": "retirement matches the stored prompt text against the host's rendered label",
+      "window": "the host publishes a localized, whitespace-normalized or truncated label",
+      "reason": "the finished approval is re-identified by text that the host renders differently, so it is never retired",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17401-R3-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a colon in the cwd splits the composed LOCPATH value: string composition without quoting, no established fact re-obtained",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17401-R3-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "an alias-only GCONV_PATH changes locale acceptance in the reference but not the helper: a behavioural divergence, no T1/T2",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17401-R3-3",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the shell's cwd identifies the directory whose relative LOCPATH entries were meant",
+      "t2": "the helper resolves those relative entries against the recorded absolute pathname of that cwd",
+      "window": "the directory is removed, so the stale pathname no longer names the inherited cwd",
+      "reason": "the directory identity is obtained again through a pathname that can resolve differently from the inherited cwd",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17401-R3-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "truncated output and a reaping timeout still yield a Loaded charset: faults and bounds mishandled",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17401-R3-5",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "std::io::pipe allocates the answer pipe and the code holds fds 1 and 2 as that pipe",
+      "t2": "the spawn file actions apply addopen(2) and adddup2 to those same descriptor numbers in the child",
+      "window": "stdin/stdout/stderr already closed, so the pipe takes the low numbers the file actions then redefine",
+      "reason": "the descriptor number is resolved again in the child and no longer names the pipe it was opened as",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17401-R3-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "newlocale handles composite LC_ALL names differently from setlocale: a behavioural divergence",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17401-R3-7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "documentation claims about signal mask and inherited descriptors are too broad: a documentation claim",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17401-R4-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "dropping all relative LOCPATH entries selects an installed archive locale instead: a behavioural divergence from the reference, stationary fixture",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17401-R4-2",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "The shell already holds the original cwd identity.",
+      "t2": "The helper attempts to enter it by its saved pathname and infers locale reachability from failure.",
+      "window": "The cwd is deleted or renamed and the old pathname disappears or becomes a file.",
+      "reason": "The record includes a stale-path repair that rechecks through a handle different from the retained cwd identity.",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "The counterexamples are a deleted, renamed or unsearchable-ancestor cwd entered by its pathname while the process still holds the directory: a pathname re-resolved after the code held what it named."
+    },
+    {
+      "id": "17401-R4-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the non-Linux fallback substitutes ASCII silently rather than reporting: a fault reported as success",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17401-R4-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "composite names the reference accepts are rejected wholesale and the consumer reports ASCII without warning: an over-broad rule",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17401-R4-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a same-group descendant survives the deadline: a cleanup and bound problem, no re-derivation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "A descendant outliving the deadline is a bound on the wrong process, stated as a timing result; the record names no earlier fact derived again."
+    },
+    {
+      "id": "17402-R1-1",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the detached delivery callback passes its disposal check",
+      "t2": "after image normalization it starts a turn on the same session",
+      "window": "the host disposes the session while normalization is suspended",
+      "reason": "it acts on the same session with a disposal decision that became false and never checks again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17402-R1-2",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the final cancellation check finds the prompt live",
+      "t2": "the moved flush dispatches the folded aside",
+      "window": "a synchronous message_start or message_end subscriber calling session.abort()",
+      "reason": "dispatch proceeds on a cancellation verdict that became false, with no second check",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17402-R1-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a user interrupt leaves the promised terminal end unsettled: an obligation not discharged on an abort path",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R1-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a failing deferred dispatch drops an accepted message with only a warning: an error path that loses data",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R10-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "shortcut and fallback callback routes are covered by neither ownership surface: an incomplete inventory of callback paths",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R10-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "deferred disposal busy-polls with one parked callback: a performance defect",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R10-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "work the deferred reset starts writes in-memory transcript state after sealing: cleanup that misses late work",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R10-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "registered slash commands run after dispose() completes because nothing refuses them: a missing admission check",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R11-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "timer, event-bus and onSession callbacks are owned by no surface: an incomplete inventory of callback routes",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R11-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "runScoped's brand check rejects a genuine foreign-realm Promise: a type test that misses a variant",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R11-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a post-disposal prompt still loads and runs deferred extension code: a missing refusal after disposal",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R11-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "terminal in-memory cleanup misses the synchronous first-reset producer and the public bash completion: two paths missing from the inventory",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R17-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the child's selected streaming function is entered under the child's pooled, restricted credential",
+      "t2": "when the stream completes it resolves its credential from the process-level registry again",
+      "window": "the child disposed while the stream is suspended",
+      "reason": "the ambient key is read where the credential the invocation started under belongs",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R17-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a resolveHeaders capability carried on a projected model is invoked by a consumer no gate covers: an incomplete enumeration of gated surfaces",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R17-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "only the nested modifyModels lookup is admitted while other configuration reads are ordinary property evaluations: an incomplete enumeration of admitted reads",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R17-4",
+      "label": "instance",
+      "shape": "scope-narrower-than-lifetime",
+      "t1": "Parent and child own independent live registrations under one provider name.",
+      "t2": "Child withdrawal or source handoff clears shared runtime state using only that provider name.",
+      "window": "The child registration is withdrawn or its source handed off while the parent's registration remains live.",
+      "reason": "Provider-name scope cannot own independent overlapping registration lifetimes; this shared-state deletion determines the label rather than the separate missing custom-API removal.",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "Removal by provider name destroys a second live registration under the same name: the same key-conflates-owners mechanism both labellers called an instance for 17402-R17-5."
+    },
+    {
+      "id": "17402-R17-5",
+      "label": "instance",
+      "shape": "scope-narrower-than-lifetime",
+      "t1": "each registration establishes its own owning session for the queued work",
+      "t2": "the owner is looked up again through a WeakMap keyed by the shared configuration object",
+      "window": "the same configuration object queued in two runtimes before either drains",
+      "reason": "the key identifies the object, not the registration, so it cannot own two registrations and the second replaces the first",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R17-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "Captured functions lose their receivers and ignore later author mutation; the record describes retaining an old function, not re-deriving a fact through a moving lookup or a stated check-then-act decision.",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "A method captured at registration is called later with the wrong receiver: a stale capture carried forward, not a fact derived again."
+    },
+    {
+      "id": "17402-R17-7",
+      "label": "instance",
+      "shape": "choice-across-await",
+      "t1": "#collectUsageRequests selects the registration entry to use",
+      "t2": "after awaiting pruning and credential resolution it calls #supports on that selection",
+      "window": "the newest session retiring during the await, so its gate refuses",
+      "reason": "the chosen provider is made before the await and used after it, when it no longer holds",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R17-8",
+      "label": "instance",
+      "shape": "scope-narrower-than-lifetime",
+      "t1": "the failing fetch belongs to the departing child registration",
+      "t2": "the cooldown is written and read back under the shared report key",
+      "window": "the child retiring or being withdrawn while the parent successor stays healthy",
+      "reason": "the key covers a lifetime wider than the registration whose failure it records, so the successor is suppressed",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R17-9",
+      "label": "instance",
+      "shape": "double-read",
+      "t1": "the presence test reads provider.supports and finds a callable",
+      "t2": "the guard reads provider.supports again to call it",
+      "window": "a stateful getter returning undefined on the second read",
+      "reason": "one read was meant and the field is read twice, producing a false failed-health result",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R2-5",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the message is accepted for the outgoing session",
+      "t2": "the requeue appends it to the session that is current when normalization rejects",
+      "window": "a newSession() completing while normalization is held",
+      "reason": "the session's current transcript is read where the transcript this message arrived for belongs",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R2-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "re-deferral both hands the record to a new carrier and requeues it, delivering it twice: duplicated ownership bookkeeping",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R2-7",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the fold admits the aside while the session is not disposing",
+      "t2": "the nested IRC flush starts a model turn",
+      "window": "a message_start subscriber calling beginDispose() during the fold",
+      "reason": "the turn starts on an admission decision that disposal invalidated, with no recheck",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17402-R2-8",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the owed terminal end is published while its continuation still has an owner: ordering of an obligation against ownership",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R2-9",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "disposal folds the last record and never settles the promised end: an obligation not discharged",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R3-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "this delivery is queued and owns its own acceptance",
+      "t2": "acceptance is derived from whether the session is streaming at that moment",
+      "window": "another run's continuation started through resumeAfterAskReanswer while preflight is gated",
+      "reason": "session-wide streaming state stands for this delivery's own acknowledgement",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R3-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "no settlement is retried when the last carrier drops: a missing retry on a release path",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R3-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "releasing an empty wake hold returns immediately and terminal settlement is never retried: a missing retry",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R3-4",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the deferred message passes its disposal check before usage preflight",
+      "t2": "after preflight it is appended and the model invoked",
+      "window": "beginDispose() called while preflight is held",
+      "reason": "the append proceeds on a disposal verdict that became false and is never re-taken",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17402-R3-5",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the prompt is admitted while the session is not disposing",
+      "t2": "after the compaction wait it appends and runs",
+      "window": "disposal starting while the admitted prompt waits",
+      "reason": "admission stands on a decision disposal invalidated; the alreadyDisposing flag does not re-decide it",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17402-R4-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "disposal removes subscribers before the carrier retries settlement, so the owed end reaches nobody: ordering of teardown against an obligation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R4-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a drained folding batch is not counted as an owner, so release-time settlement publishes early: an incomplete inventory of owners",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R5-1",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the pool carrier passes its liveness check and waits on the prompt rebuild",
+      "t2": "after the rebuild it starts a turn and publishes terminal settlement",
+      "window": "dispose() completing while the rebuild callback is suspended",
+      "reason": "the turn runs on a stale liveness decision about the same session",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17402-R5-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "final settlement is published while the promised continuation is still running: ordering of settlement against a live run",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R5-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a mixed fold and wake batch leaves an owner uncounted: an incomplete inventory of owners",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R6-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "an abandoned first wait skips the second and still marks the drain complete when no handler is momentarily pending: a wrong conclusion from a timeout",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "The stated mechanism is a skipped wait whose block still sets drained; a control-flow error, with no re-lookup in the record."
+    },
+    {
+      "id": "17402-R6-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "disposal can spend two full drain windows: a timeout budget applied twice",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17402-R7-1",
+      "label": "instance",
+      "shape": "metadata-proxy",
+      "t1": "queued extension work is live and holds a claim",
+      "t2": "deferred cleanup reads the cleared #runningPrompt as the record that the session is idle",
+      "window": "disposal's own earlier reset resolves and clears that field while the queued hook still runs",
+      "reason": "a cleared field stands in as the record that work finished, and the code's own reset manufactures it",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R7-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the handler timeout ends the wait while the callback keeps running: a timeout that does not cancel the work",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "A timeout that ends the wait but not the callback; the record states no re-derivation."
+    },
+    {
+      "id": "17402-R7-3",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "session.prompt(\"CURRENT_USER_PROMPT\") establishes the outcome owed to this prompt",
+      "t2": "forced settlement reports the session's last recorded result as this prompt's outcome",
+      "window": "disposal past the deadline while the current prompt is held in its before-model hook",
+      "reason": "a session-level last-result is read where the result belonging to this prompt should be",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R8-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the dispatch runs under the restricted account pool its handlers must use",
+      "t2": "the second queued callback reads its credential from the process-level pool when it starts",
+      "window": "the deferred finalizer releasing the pool in the gap between the two callbacks",
+      "reason": "a process-global credential source is read where the dispatch's own account belongs",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R8-2",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the drained getter answers false at the check",
+      "t2": "disposal releases the pool on that cached verdict",
+      "window": "a queue observer emitting an extension event during the reset, after the check",
+      "reason": "the release acts on a verdict that became false and nothing is consulted again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17402-R9-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the broadcast runs under the restricted account pool for its registered handlers",
+      "t2": "the second handler reads its credential from the process-level pool after the release",
+      "window": "deferred finalization releasing the pool between the two handlers",
+      "reason": "the global credential source is read where the broadcast's own account belongs",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17402-R9-2",
+      "label": "adjacent",
+      "shape": null,
+      "t1": "the deferred finalizer's check finds no pending handler work",
+      "t2": "it releases the pool and completes finalization",
+      "window": "an observer emitting during that same reset, making the verdict false",
+      "reason": "it acts on its own stale verdict about the same session without checking again",
+      "stratum": "A",
+      "labellers": {
+        "claude": "adjacent",
+        "astra": "adjacent"
+      }
+    },
+    {
+      "id": "17402-R9-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the shared pending-work predicate does not count admitted extension commands: an incomplete inventory",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17404-R5-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "request 41 emits its query, establishing that the next colour and DA1 pair belongs to it",
+      "t2": "the arriving pair's owner is re-derived from the terminal's current outstanding request once 41's markers expired",
+      "window": "41's reply arrives after its deadline and marker removal, while request 42 is in flight",
+      "reason": "reply ownership is taken from whichever cycle is current instead of the cycle the answer belongs to",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17404-R5-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the stdin comment describes a tmux attach mechanism the real tmux 3.8 does not show: a comment claim",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17404-R6-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a completed non-report OSC 11 sequence swallows following ordinary input: a parser branch that consumes bytes it does not own",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17404-R6-2",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "each live cycle emits its query and owns the answer pair that follows it",
+      "t2": "the arriving pair's ownership is re-derived from the shared orphan claim state",
+      "window": "one retired unanswered cycle leaves a claim that each later pair pays instead of its own cycle",
+      "reason": "a process-wide claim is consulted where the answer belonging to this request should settle it, and the state recreates itself",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "The arriving pair is attributed through the shared orphan-claim state instead of settling the live cycle that asked, the same mechanism as the family's agreed instances."
+    },
+    {
+      "id": "17404-R6-3",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "requests 41 and 42 each emit a query and each own one answer pair",
+      "t2": "both retired cycles set the same boolean orphan claim, which later answers are matched against",
+      "window": "two markers expiring before 43's answer arrives",
+      "reason": "one shared boolean stands for per-request ownership, so two old replies collapse and 43's own answer is attributed wrongly",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17404-R7-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "request 42 emits its own query and owns its own answer pair",
+      "t2": "41's older reply is read as evidence that 42's answer has been spent, marking 42 absorbed",
+      "window": "41's delayed pair arriving while 42 is live and 43 is queued",
+      "reason": "a shared absorption flag replaces per-request ownership, so a later answer settles the wrong cycle",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17404-R7-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "claim expiry only moves the age threshold from 15 to 25 seconds: a changed bound",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "The record states the mechanism as an expiry threshold moved from 15 to 25 seconds: a bound."
+    },
+    {
+      "id": "17404-R8-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "requests 42 and 43 each emit or queue a cycle that owns its own answer",
+      "t2": "41's and 42's old pairs are matched against the shared claim and absorption state",
+      "window": "old ordered pairs delivered during tmux cache settlement before 43's direct query is sent",
+      "reason": "shared claim state decides which cycle an arriving answer settles, cancelling both the live query and the queued refresh",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17404-R8-2",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the live cycle 42 receives its own colour, establishing that its sentinel is still owed",
+      "t2": "the absorbed flag set from 41's old claim is consulted and deletes 42's sentinel",
+      "window": "41's claim surviving into 42's cycle and 42's sentinel arriving after its deadline",
+      "reason": "a shared flag is read where this cycle's own answer record belongs",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17404-R8-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the count cap discards still-owed claims so recovery is not bounded by one update: a wrong bound and a false claim about it",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "The record states a count cap and a recovery-bound claim: a bound."
+    },
+    {
+      "id": "17404-R9-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a known outstanding sentinel is deleted when the grace timer retires its marker: a timeout that discards state still owed",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "The record states deletion when the grace marker retires: a timeout discarding state still owed."
+    },
+    {
+      "id": "17404-R9-2",
+      "label": "instance",
+      "shape": "choice-across-await",
+      "t1": "Token 42 is retained as the queued refresh behind token 41.",
+      "t2": "The retained token 42 is started after publishing 41's report.",
+      "window": "A synchronous report subscriber starts newer token 43 before control returns to the queued refresh.",
+      "reason": "The queued-target choice spans an author callback that changes which refresh is newest.",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "Token 42 is chosen as the queued target before a subscriber callback makes 43 the newest, and is started after it (shape 6)."
+    },
+    {
+      "id": "17404-R9-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "source comments and the PR body still state recovery properties the measurements contradict: documentation and PR-body claims",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R1-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a synchronous copy holds the only Tokio worker until its pipe write blocks: resource starvation and availability, no T1/T2",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R1-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "expansion and glob traversal run without a checkpoint and monopolise a worker: missing yield points, no re-derivation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R1-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the nonmatching case path has no cancellation checkpoint: a missing yield point",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R2-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "cancelled copies keep blocking-pool threads: resource exhaustion after cancellation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R2-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "nested substitution queues a second blocking task behind the first and deadlocks the pool: resource exhaustion",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R2-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "source length does not bound cancellation latency: a wrong bound and a false claim about it",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R2-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the synchronous expansion preface scales with runtime data, not source size: an unbounded latency",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R2-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "mixed virtual/native copies buffer instead of streaming, raising first-byte latency and memory: performance",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R3-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a stream whose descriptor cannot be borrowed falls to synchronous I/O and wedges the worker: a classification fallback causing starvation, no second derivation of an established fact",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R3-2",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the first copy captures the shared descriptor's flags and sets O_NONBLOCK for its own use",
+      "t2": "on abort it writes the captured flags back onto the descriptor that another copy is now using",
+      "window": "a second copy pending on the same shared descriptor when the first aborts",
+      "reason": "process-wide descriptor flags are treated as this copy's private state, so the restore undoes another copy's requirement",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17412-R3-3",
+      "label": "instance",
+      "shape": "other",
+      "t1": "a buffered reader consumed bytes from the stream, establishing the stream's position and holding data in its buffer",
+      "t2": "the copy obtains the same stream again through raw descriptor syscalls",
+      "window": "the wrapper's buffer and read/write hooks hold or transform data the raw descriptor does not show",
+      "reason": "the stream's contents are fetched a second time through a lower-level handle that resolves differently from the OpenFile contract, so buffered data is lost",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "After the buffered OpenFile consumed bytes, the copy reaches the same stream again through the raw descriptor, a weaker handle that resolves to different data."
+    },
+    {
+      "id": "17412-R3-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "O_NONBLOCK stays set on the caller's stdin after the run aborts: state not restored, a cleanup failure",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R3-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "array construction overruns the claimed residual bound: a wrong bound",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R3-6",
+      "label": "instance",
+      "shape": "acquire-outside-finally",
+      "t1": "PolledFd::new sets O_NONBLOCK on the shared descriptor",
+      "t2": "AsyncFd::new panics, so no PolledFd exists and its Drop never restores the flag",
+      "window": "registration failing between the flag change and the guard's construction",
+      "reason": "the flag change is made before the object whose drop would undo it, so the acquire sits outside its release path",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17412-R3-7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "one expansion element can supply millions of fields between caller checkpoints: a latency bound, no re-derivation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R6-1",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "prepaid yields do not bound a single huge element's copy, which completes after cancellation: a wrong bound",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R6-2",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the 5 ms exemption lets an async builtin with no checkpoint pass the window assertion: a test that does not test what it claims",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17412-R6-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the under-5% regression claim did not reproduce independently: a performance claim",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R17-1",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the request carries its own runtime environment and root",
+      "t2": "the context variable is populated from os.environ before _apply_request_runtime installs this request's environment",
+      "window": "consecutive adoptions, so the ambient environment still holds the previous request's root",
+      "reason": "process environment is read where the value that arrived with this request belongs",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R17-2",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the A cell's stable listing establishes that id 1 is absent for A's root",
+      "t2": "the helper resolves the id again against the session's current, newer root",
+      "window": "adoption of C and a copy adding A's 1.read.log after the final listing",
+      "reason": "the session's current root is used where the root this request was issued against belongs",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R17-3",
+      "label": "instance",
+      "shape": "global-for-request",
+      "t1": "the background read is started by the A cell and belongs to A's lifetime",
+      "t2": "it takes its cancellation signal and status ownership from the newest cell",
+      "window": "B completing and its signal being aborted while A's reader is still pending",
+      "reason": "the current cell's signal is read where the signal of the cell that started this read belongs",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R17-4",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "any nonempty unknown run id falls back to the session's ordinary tools while only the empty case is rejected: a missing validation branch",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R17-5",
+      "label": "instance",
+      "shape": "scope-narrower-than-lifetime",
+      "t1": "each kernel owns its own standing tool-bridge registration",
+      "t2": "the registration is stored and removed under the shared eval session identity",
+      "window": "two retained kernels with different cwd keys registering under the same identity, then one owner disposed",
+      "reason": "the key is the session identity rather than the kernel, so disposing one owner retires a live kernel's registration",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R17-6",
+      "label": "instance",
+      "shape": "message-for-type",
+      "t1": "the host's run-gone response establishes that the run ended",
+      "t2": "the runtime re-derives that outcome by matching \"Run no longer active\" in an error message",
+      "window": "a bound error carrying a directory name containing the phrase",
+      "reason": "message text is matched as a proxy for the host's specific run-gone outcome",
+      "stratum": "B",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R17-7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the new test's hook returns a fresh listing, so the pending-only algorithm also passes: a test that does not discriminate what it claims",
+      "stratum": "B",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R4-1",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the copier records the copied entry and audits it as the file it wrote",
+      "t2": "take-back deletes that entry by pathname",
+      "window": "the destination entry is replaced by a symlink to an outside directory, or by a newer legitimate file, before the deletion",
+      "reason": "the pathname is resolved again at deletion and no longer names the copy that was made",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R4-2",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the initial lstat of the destination root establishes the directory the audit covers",
+      "t2": "the audit and the write walk that root path again",
+      "window": "the root is replaced with a symlink to outside after the lstat",
+      "reason": "the root name is resolved a second time and resolves outside the destination the check approved",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R4-3",
+      "label": "instance",
+      "shape": "acquire-outside-finally",
+      "t1": "switch preparation takes a counted snapshot holder on the old session's lease",
+      "t2": "an exception during preparation leaves that holder counted while the switch completes",
+      "window": "the injected failure between the acquire and the release path",
+      "reason": "the holder is acquired outside the try/finally that would release it, so only manager close frees the lease",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R4-4",
+      "label": "instance",
+      "shape": "acquire-outside-finally",
+      "t1": "startup opens the session manager and holds its lease",
+      "t2": "ownership tracking that would release it begins only after fallible resume work",
+      "window": "settings.reloadForCwd throwing on rescope and rollback before tracking starts",
+      "reason": "the lease is acquired before the registration that releases it, so a throw strands it",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R4-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "a refused final replacement reports nothing changed yet leaves the completed artifact copy on disk: incomplete rollback on an error path",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R4-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the awaited automatic-fork copy blocks resume for tens of seconds on a large tree: performance",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R5-1",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "exclusive creation and rollback's lstat establish the object the cleanup owns",
+      "t2": "cleanup deletes that name",
+      "window": "the stub or old file is renamed aside and an unrelated newer file published at the name before the delete",
+      "reason": "the name is resolved again at deletion, so a file the run never created is removed",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R5-2",
+      "label": "instance",
+      "shape": "metadata-proxy",
+      "t1": "the copy reads the source journal and artifact bytes through its handle",
+      "t2": "ctime from a stat is compared as proof the source was not replaced or altered",
+      "window": "a hard link, chmod or rename-away-and-back changes ctime without changing bytes, and a replacement before copying leaves foreign bytes",
+      "reason": "metadata stands in for the identity of the content copied, so a successful discard leaves foreign artifacts readable",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R5-3",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "mkdir creates the destination directory the copy will own",
+      "t2": "lstat and the later writes resolve that directory path again",
+      "window": "a bind mount installed between the mkdir and the lstat, at the root or a nested directory",
+      "reason": "the directory name resolves to a different object than the one created, so ownership does not cover it",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R5-4",
+      "label": "instance",
+      "shape": "scope-narrower-than-lifetime",
+      "t1": "the inherited conversation establishes artifact://0 as a reference to a particular artifact",
+      "t2": "the allocator derives the next free id from the current directory and hands out 0 again",
+      "window": "the inherited artifact discarded while references to its id survive in the transcript",
+      "reason": "the id's allocation scope is narrower than the lifetime of the references that use it, so an old reference resolves to unrelated new output",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R5-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "interactive resume never emits the missing-artifacts notice: a missing branch on the interactive path",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R5-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the public adoption path awaits the whole copy instead of returning when the inner claim does: performance",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R6-1",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "staging establishes the directory this copier created",
+      "t2": "discard removes that staging path recursively",
+      "window": "the staging directory is renamed aside and a new directory with unrelated content created at the name",
+      "reason": "the staging name is resolved again at discard and names someone else's directory",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R6-2",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "adoption establishes that artifact id 0 belongs to the adopted session",
+      "t2": "the public artifact handler resolves that id to a path and reads it",
+      "window": "the inheriting copy still in flight, so the destination name holds the other session's bytes",
+      "reason": "the artifact is located again through a name whose contents have not yet become this session's",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R6-3",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the initial rename onto the destination establishes the destination the fallback will fill",
+      "t2": "the fallback links entries through the destination path again",
+      "window": "the destination renamed aside and replaced with a symlink to outside before the ENOTEMPTY rejection reaches the caller",
+      "reason": "the destination name is resolved a second time and now points outside the containment boundary",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R6-4",
+      "label": "instance",
+      "shape": "scope-narrower-than-lifetime",
+      "t1": "the inherited reference set fixes which artifact ids are already spoken for",
+      "t2": "after a reopen, a second fork or an early copy error, allocation derives the next id from the live directory alone",
+      "window": "the reservation is not persisted in the header and not tied to the inherited references that outlive it",
+      "reason": "the reservation's scope is narrower than the lifetime of the references it must protect, so old references resolve to new output",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R6-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "the loss notice is appended to the journal but never reaches the running model's context: a missing delivery path",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R6-6",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the source session establishes that the output name Worker is taken by Worker.md",
+      "t2": "the allocator derives the name's availability from the destination directory listing",
+      "window": "the inheriting copy still held, so the destination does not yet contain the inherited name",
+      "reason": "the name is checked a second time against a directory that has not yet received the inherited set, so it collides with inherited output",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R6-7",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "an ENOENT source is counted as skipped yet its empty staged stub is published: a fault mishandled on the copy path",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R6-8",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "crash staging is never swept and leaks into transcript discovery: a fault not cleaned up",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R6-9",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "an ordinary permission failure is reported as source replacement: a wrong diagnostic explanation",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R7-1",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the sweeper's identity and mount checks approve the staging directory to delete",
+      "t2": "the sweeper reads whatever now occupies that name and hands its dev/inode to the remover",
+      "window": "staging replaced after the identity and mount checks, or a mount installed after them",
+      "reason": "the name is resolved again after the decision, so the remover deletes an object the checks never approved",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R7-2",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the source-identity callback succeeds for the staging root that was copied and tallied",
+      "t2": "publication renames whatever that staging path now holds into the destination",
+      "window": "the staging root renamed aside and substituted, or a nested bind inserted after the mount-table check",
+      "reason": "publication re-resolves the staging name without verifying identity, so foreign content is published under the original tally",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R7-3",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "forkFrom, absent artifact directories and persistent header-write failures are not covered by reservation protection: an incomplete enumeration of paths",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "instance"
+      },
+      "adjudication": "The title and trigger list paths the reservation protection does not cover: an incomplete enumeration."
+    },
+    {
+      "id": "17421-R7-4",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "the per-entry lstat establishes the destination object for this entry",
+      "t2": "the hard link is made through the destination path again",
+      "window": "the root is swapped for an outside symlink between the lstat and the link",
+      "reason": "the entry's path is resolved a second time and the link lands outside the destination",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R7-5",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "readiness waits ignore aborts and block consumers of unrelated directories: cancellation handling and over-broad waiting",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R7-6",
+      "label": "not",
+      "shape": null,
+      "t1": null,
+      "t2": null,
+      "window": null,
+      "reason": "export does not wait for readiness and silently omits inherited child transcripts: a missing readiness check on one consumer",
+      "stratum": "A",
+      "labellers": {
+        "claude": "not",
+        "astra": "not"
+      }
+    },
+    {
+      "id": "17421-R7-7",
+      "label": "instance",
+      "shape": "scope-narrower-than-lifetime",
+      "t1": "the adopted transcript establishes agent://Worker as a live reference to the child output",
+      "t2": "after the copy is discarded, allocation derives the name from the directory and returns Worker again",
+      "window": "the discarded copy leaving the name free while the transcript reference survives",
+      "reason": "the name's reservation scope is narrower than the lifetime of the reference that uses it",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "instance"
+      }
+    },
+    {
+      "id": "17421-R7-8",
+      "label": "instance",
+      "shape": "path-reresolved",
+      "t1": "a copier's lstat establishes the staging directory it is about to lease",
+      "t2": "another copier's sweep resolves that same name and removes it, and the live child uses the name afterwards",
+      "window": "the pause between the lstat and the lease acquisition, and killed copiers leaving staging behind",
+      "reason": "the staging name is resolved again by a second party before the lease covers it, so the live child's directory disappears",
+      "stratum": "A",
+      "labellers": {
+        "claude": "instance",
+        "astra": "not"
+      },
+      "adjudication": "The trigger's first case is a child that lstats its staging directory and acquires its lease later, while a sweeper removes the directory by name in between."
+    }
+  ],
+  "agreement": {
+    "A": {
+      "n": 197,
+      "agree": 174,
+      "kappa": 0.77908337396392,
+      "binaryAgree": 176,
+      "binaryKappa": 0.7560011795930405,
+      "confusion": {
+        "not/not": 108,
+        "adjacent/not": 1,
+        "instance/instance": 53,
+        "instance/not": 10,
+        "adjacent/adjacent": 13,
+        "adjacent/instance": 1,
+        "not/adjacent": 1,
+        "instance/adjacent": 1,
+        "not/instance": 9
+      }
+    },
+    "B": {
+      "n": 32,
+      "agree": 26,
+      "kappa": 0.6546762589928058,
+      "binaryAgree": 27,
+      "binaryKappa": 0.6850393700787402,
+      "confusion": {
+        "instance/not": 3,
+        "not/not": 13,
+        "not/adjacent": 1,
+        "instance/instance": 12,
+        "not/instance": 2,
+        "adjacent/adjacent": 1
+      }
+    }
+  },
+  "shares": [
+    {
+      "scope": "corpus (197 findings)",
+      "n": 197,
+      "counts": {
+        "instance": 64,
+        "adjacent": 16,
+        "not": 117
+      },
+      "instance": {
+        "share": 0.3248730964467005,
+        "wilson": {
+          "lo": 0.26336659467066276,
+          "hi": 0.3930788404244819
+        }
+      },
+      "instanceOrAdjacent": {
+        "share": 0.40609137055837563,
+        "wilson": {
+          "lo": 0.3399445127606073,
+          "hi": 0.4758305756237457
+        }
+      }
+    },
+    {
+      "scope": "stratum A cases (30 findings)",
+      "n": 30,
+      "counts": {
+        "instance": 5,
+        "adjacent": 5,
+        "not": 20
+      },
+      "instance": {
+        "share": 0.16666666666666666,
+        "wilson": {
+          "lo": 0.0733654237184855,
+          "hi": 0.3356435050641603
+        }
+      },
+      "instanceOrAdjacent": {
+        "share": 0.3333333333333333,
+        "wilson": {
+          "lo": 0.1923049808367613,
+          "hi": 0.5121994835545615
+        }
+      }
+    },
+    {
+      "scope": "stratum B (batch extension)",
+      "n": 32,
+      "counts": {
+        "instance": 14,
+        "adjacent": 2,
+        "not": 16
+      },
+      "instance": {
+        "share": 0.4375,
+        "wilson": {
+          "lo": 0.28165331115040365,
+          "hi": 0.6067440886314801
+        }
+      },
+      "instanceOrAdjacent": {
+        "share": 0.5,
+        "wilson": {
+          "lo": 0.3363088286932748,
+          "hi": 0.6636911713067252
+        }
+      }
+    }
+  ],
+  "shapes": {
+    "A:path-reresolved": 31,
+    "A:message-for-type": 1,
+    "A:choice-across-await": 2,
+    "B:path-reresolved": 1,
+    "B:metadata-proxy": 2,
+    "A:metadata-proxy": 3,
+    "A:acquire-outside-finally": 4,
+    "A:global-for-request": 17,
+    "A:other": 3,
+    "B:global-for-request": 4,
+    "B:scope-narrower-than-lifetime": 4,
+    "B:choice-across-await": 1,
+    "B:double-read": 1,
+    "B:message-for-type": 1,
+    "A:scope-narrower-than-lifetime": 3
+  },
+  "promptSatisfiable": {
+    "candidate.md": [
+      "17394-R7-4",
+      "17394-R7-5",
+      "17394-R8-10",
+      "17394-R8-3",
+      "17394-R8-8"
+    ],
+    "rederive.md": [
+      "17394-R8-4"
+    ]
+  },
+  "armsA": [
+    {
+      "arm": "candidate",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 12,
+      "n": 120,
+      "detected": 27,
+      "rate": 0.225,
+      "wilson": {
+        "lo": 0.15949154668383533,
+        "hi": 0.30756899484645167
+      },
+      "bootstrap": {
+        "lo": 0.1553398058252427,
+        "hi": 0.2751677852348993
+      },
+      "byHowFound": {
+        "write-probe": {
+          "n": 40,
+          "detected": 7
+        },
+        "inject-fault": {
+          "n": 36,
+          "detected": 8
+        },
+        "two-processes-barrier": {
+          "n": 16,
+          "detected": 7
+        },
+        "real-kernel-resource": {
+          "n": 12,
+          "detected": 2
+        },
+        "read-surrounding": {
+          "n": 4,
+          "detected": 0
+        },
+        "measure-timing": {
+          "n": 12,
+          "detected": 3
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 64,
+          "detected": 20
+        },
+        "P2": {
+          "n": 36,
+          "detected": 6
+        },
+        "unlabelled": {
+          "n": 16,
+          "detected": 1
+        },
+        "P3": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R7-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-3": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-7": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R7-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-1": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R8-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-3": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-4": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-5": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R8-6": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-7": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-8": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-12": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-14": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-5": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-7": {
+          "n": 4,
+          "detected": 1
+        }
+      },
+      "costUsd": 19.223660799999998,
+      "failedRuns": 0
+    },
+    {
+      "arm": "control",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 12,
+      "n": 120,
+      "detected": 28,
+      "rate": 0.23333333333333334,
+      "wilson": {
+        "lo": 0.16665575133182917,
+        "hi": 0.31655447075814613
+      },
+      "bootstrap": {
+        "lo": 0.16981132075471697,
+        "hi": 0.2857142857142857
+      },
+      "byHowFound": {
+        "write-probe": {
+          "n": 40,
+          "detected": 10
+        },
+        "inject-fault": {
+          "n": 36,
+          "detected": 9
+        },
+        "two-processes-barrier": {
+          "n": 16,
+          "detected": 7
+        },
+        "real-kernel-resource": {
+          "n": 12,
+          "detected": 0
+        },
+        "read-surrounding": {
+          "n": 4,
+          "detected": 0
+        },
+        "measure-timing": {
+          "n": 12,
+          "detected": 2
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 64,
+          "detected": 15
+        },
+        "P2": {
+          "n": 36,
+          "detected": 8
+        },
+        "unlabelled": {
+          "n": 16,
+          "detected": 5
+        },
+        "P3": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R7-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-3": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R7-7": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R7-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-9": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R8-1": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-3": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-4": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-7": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-8": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R8-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R8-12": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-14": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-5": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-6": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-7": {
+          "n": 4,
+          "detected": 1
+        }
+      },
+      "costUsd": 19.7778492,
+      "failedRuns": 0
+    },
+    {
+      "arm": "rederive",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 12,
+      "n": 120,
+      "detected": 24,
+      "rate": 0.2,
+      "wilson": {
+        "lo": 0.13824476478840259,
+        "hi": 0.2803667350628196
+      },
+      "bootstrap": {
+        "lo": 0.11428571428571428,
+        "hi": 0.2740740740740741
+      },
+      "byHowFound": {
+        "write-probe": {
+          "n": 40,
+          "detected": 12
+        },
+        "inject-fault": {
+          "n": 36,
+          "detected": 3
+        },
+        "two-processes-barrier": {
+          "n": 16,
+          "detected": 7
+        },
+        "real-kernel-resource": {
+          "n": 12,
+          "detected": 1
+        },
+        "read-surrounding": {
+          "n": 4,
+          "detected": 0
+        },
+        "measure-timing": {
+          "n": 12,
+          "detected": 1
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 64,
+          "detected": 21
+        },
+        "P2": {
+          "n": 36,
+          "detected": 2
+        },
+        "unlabelled": {
+          "n": 16,
+          "detected": 1
+        },
+        "P3": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R7-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-7": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-1": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R8-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-3": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-4": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-6": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R8-7": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-8": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R8-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-12": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-14": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 4,
+          "detected": 4
+        },
+        "17399-R3-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-6": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-7": {
+          "n": 4,
+          "detected": 1
+        }
+      },
+      "costUsd": 17.2451466,
+      "failedRuns": 0
+    }
+  ],
+  "armsB": [
+    {
+      "arm": "candidate",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 20,
+      "n": 128,
+      "detected": 14,
+      "rate": 0.109375,
+      "wilson": {
+        "lo": 0.06627879570700111,
+        "hi": 0.17523445138167734
+      },
+      "bootstrap": {
+        "lo": 0.06299212598425197,
+        "hi": 0.16129032258064516
+      },
+      "byHowFound": {
+        "two-processes-barrier": {
+          "n": 28,
+          "detected": 7
+        },
+        "measure-timing": {
+          "n": 16,
+          "detected": 1
+        },
+        "real-kernel-resource": {
+          "n": 16,
+          "detected": 0
+        },
+        "inject-fault": {
+          "n": 12,
+          "detected": 0
+        },
+        "write-probe": {
+          "n": 52,
+          "detected": 6
+        },
+        "read-surrounding": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 36,
+          "detected": 2
+        },
+        "P2": {
+          "n": 80,
+          "detected": 12
+        },
+        "P3": {
+          "n": 12,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R16-1": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R16-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R16-3": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R16-4": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R16-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-7": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-4": {
+          "n": 4,
+          "detected": 4
+        },
+        "17402-R17-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-7": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17412-R6-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17412-R6-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17412-R6-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-4": {
+          "n": 4,
+          "detected": 2
+        },
+        "17421-R17-5": {
+          "n": 4,
+          "detected": 3
+        },
+        "17421-R17-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-7": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "costUsd": 32.55309719999999,
+      "failedRuns": 0
+    },
+    {
+      "arm": "control",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 20,
+      "n": 128,
+      "detected": 16,
+      "rate": 0.125,
+      "wilson": {
+        "lo": 0.07842644638761664,
+        "hi": 0.19342627081751468
+      },
+      "bootstrap": {
+        "lo": 0.08391608391608392,
+        "hi": 0.168
+      },
+      "byHowFound": {
+        "two-processes-barrier": {
+          "n": 28,
+          "detected": 6
+        },
+        "measure-timing": {
+          "n": 16,
+          "detected": 1
+        },
+        "real-kernel-resource": {
+          "n": 16,
+          "detected": 0
+        },
+        "inject-fault": {
+          "n": 12,
+          "detected": 0
+        },
+        "write-probe": {
+          "n": 52,
+          "detected": 7
+        },
+        "read-surrounding": {
+          "n": 4,
+          "detected": 2
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 36,
+          "detected": 0
+        },
+        "P2": {
+          "n": 80,
+          "detected": 14
+        },
+        "P3": {
+          "n": 12,
+          "detected": 2
+        }
+      },
+      "perFinding": {
+        "17394-R16-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R16-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R16-3": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R16-4": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R16-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-7": {
+          "n": 4,
+          "detected": 2
+        },
+        "17398-R19-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-4": {
+          "n": 4,
+          "detected": 4
+        },
+        "17402-R17-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-7": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17412-R6-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17412-R6-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17412-R6-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-4": {
+          "n": 4,
+          "detected": 3
+        },
+        "17421-R17-5": {
+          "n": 4,
+          "detected": 4
+        },
+        "17421-R17-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-7": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "costUsd": 37.232757199999995,
+      "failedRuns": 0
+    },
+    {
+      "arm": "rederive",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 20,
+      "n": 128,
+      "detected": 10,
+      "rate": 0.078125,
+      "wilson": {
+        "lo": 0.04298737505098223,
+        "hi": 0.1378469318047905
+      },
+      "bootstrap": {
+        "lo": 0.034482758620689655,
+        "hi": 0.12396694214876033
+      },
+      "byHowFound": {
+        "two-processes-barrier": {
+          "n": 28,
+          "detected": 4
+        },
+        "measure-timing": {
+          "n": 16,
+          "detected": 0
+        },
+        "real-kernel-resource": {
+          "n": 16,
+          "detected": 0
+        },
+        "inject-fault": {
+          "n": 12,
+          "detected": 0
+        },
+        "write-probe": {
+          "n": 52,
+          "detected": 6
+        },
+        "read-surrounding": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 36,
+          "detected": 1
+        },
+        "P2": {
+          "n": 80,
+          "detected": 9
+        },
+        "P3": {
+          "n": 12,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R16-1": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R16-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R16-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R16-4": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R16-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-3": {
+          "n": 4,
+          "detected": 1
+        },
+        "17398-R19-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-7": {
+          "n": 4,
+          "detected": 0
+        },
+        "17398-R19-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-4": {
+          "n": 4,
+          "detected": 3
+        },
+        "17402-R17-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-7": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17402-R17-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17412-R6-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17412-R6-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17412-R6-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-4": {
+          "n": 4,
+          "detected": 2
+        },
+        "17421-R17-5": {
+          "n": 4,
+          "detected": 2
+        },
+        "17421-R17-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17421-R17-7": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "costUsd": 32.995998400000005,
+      "failedRuns": 0
+    }
+  ],
+  "paired": {
+    "A": [
+      {
+        "name": "primary",
+        "a": "rederive",
+        "b": "control",
+        "pairs": 12,
+        "deltaPp": -3.3333333333333335,
+        "lo": -12.903225806451612,
+        "hi": 5.172413793103448,
+        "aWins": 3,
+        "bWins": 4,
+        "ties": 5
+      },
+      {
+        "name": "attribution",
+        "a": "rederive",
+        "b": "candidate",
+        "pairs": 12,
+        "deltaPp": -2.5,
+        "lo": -10.204081632653061,
+        "hi": 6.0606060606060606,
+        "aWins": 3,
+        "bWins": 5,
+        "ties": 4
+      },
+      {
+        "name": "probe-prompt replication",
+        "a": "candidate",
+        "b": "control",
+        "pairs": 12,
+        "deltaPp": -0.8333333333333334,
+        "lo": -8.928571428571429,
+        "hi": 6.4,
+        "aWins": 5,
+        "bWins": 5,
+        "ties": 2
+      },
+      {
+        "name": "guard, primary, without 6 prompt-satisfiable",
+        "a": "rederive",
+        "b": "control",
+        "pairs": 12,
+        "deltaPp": -4.166666666666666,
+        "lo": -17.20430107526882,
+        "hi": 8.080808080808081,
+        "aWins": 3,
+        "bWins": 4,
+        "ties": 5
+      },
+      {
+        "name": "guard, attribution, without 6 prompt-satisfiable",
+        "a": "rederive",
+        "b": "candidate",
+        "pairs": 12,
+        "deltaPp": -5.208333333333334,
+        "lo": -15.625,
+        "hi": 6.666666666666667,
+        "aWins": 2,
+        "bWins": 6,
+        "ties": 4
+      },
+      {
+        "name": "guard, probe-prompt replication, without 6 prompt-satisfiable",
+        "a": "candidate",
+        "b": "control",
+        "pairs": 12,
+        "deltaPp": 1.0416666666666665,
+        "lo": -9.67741935483871,
+        "hi": 10,
+        "aWins": 5,
+        "bWins": 4,
+        "ties": 3
+      },
+      {
+        "name": "instance findings only (5)",
+        "a": "rederive",
+        "b": "control",
+        "pairs": 12,
+        "deltaPp": 0,
+        "lo": -15.789473684210526,
+        "hi": 13.333333333333334,
+        "aWins": 1,
+        "bWins": 1,
+        "ties": 10
+      },
+      {
+        "name": "every other finding (25)",
+        "a": "rederive",
+        "b": "control",
+        "pairs": 12,
+        "deltaPp": -4,
+        "lo": -15.217391304347828,
+        "hi": 6,
+        "aWins": 3,
+        "bWins": 4,
+        "ties": 5
+      }
+    ],
+    "B": [
+      {
+        "name": "primary",
+        "a": "rederive",
+        "b": "control",
+        "pairs": 20,
+        "deltaPp": -4.6875,
+        "lo": -9.230769230769232,
+        "hi": -0.7407407407407408,
+        "aWins": 1,
+        "bWins": 6,
+        "ties": 13
+      },
+      {
+        "name": "attribution",
+        "a": "rederive",
+        "b": "candidate",
+        "pairs": 20,
+        "deltaPp": -3.125,
+        "lo": -8.264462809917356,
+        "hi": 1.4492753623188406,
+        "aWins": 2,
+        "bWins": 5,
+        "ties": 13
+      },
+      {
+        "name": "probe-prompt replication",
+        "a": "candidate",
+        "b": "control",
+        "pairs": 20,
+        "deltaPp": -1.5625,
+        "lo": -5.982905982905983,
+        "hi": 2.564102564102564,
+        "aWins": 2,
+        "bWins": 3,
+        "ties": 15
+      },
+      {
+        "name": "instance findings only (14)",
+        "a": "rederive",
+        "b": "control",
+        "pairs": 20,
+        "deltaPp": -3.571428571428571,
+        "lo": -10,
+        "hi": 3.4482758620689653,
+        "aWins": 1,
+        "bWins": 3,
+        "ties": 16
+      },
+      {
+        "name": "every other finding (18)",
+        "a": "rederive",
+        "b": "control",
+        "pairs": 20,
+        "deltaPp": -5.555555555555555,
+        "lo": -11.538461538461538,
+        "hi": 0,
+        "aWins": 1,
+        "bWins": 5,
+        "ties": 14
+      }
+    ],
+    "pooled": [
+      {
+        "name": "pooled",
+        "a": "rederive",
+        "b": "control",
+        "pairs": 32,
+        "deltaPp": -4.032258064516129,
+        "lo": -9.191176470588236,
+        "hi": 0.7751937984496124,
+        "aWins": 4,
+        "bWins": 10,
+        "ties": 18
+      }
+    ]
+  },
+  "continuity": [
+    {
+      "arm": "candidate",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 12,
+      "n": 120,
+      "detected": 27,
+      "rate": 0.225,
+      "wilson": {
+        "lo": 0.15949154668383533,
+        "hi": 0.30756899484645167
+      },
+      "bootstrap": {
+        "lo": 0.1553398058252427,
+        "hi": 0.2751677852348993
+      },
+      "byHowFound": {
+        "write-probe": {
+          "n": 40,
+          "detected": 7
+        },
+        "inject-fault": {
+          "n": 36,
+          "detected": 8
+        },
+        "two-processes-barrier": {
+          "n": 16,
+          "detected": 7
+        },
+        "real-kernel-resource": {
+          "n": 12,
+          "detected": 2
+        },
+        "read-surrounding": {
+          "n": 4,
+          "detected": 0
+        },
+        "measure-timing": {
+          "n": 12,
+          "detected": 3
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 64,
+          "detected": 20
+        },
+        "P2": {
+          "n": 36,
+          "detected": 6
+        },
+        "unlabelled": {
+          "n": 16,
+          "detected": 1
+        },
+        "P3": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R7-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-3": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-7": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R7-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-1": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R8-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-3": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-4": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-5": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R8-6": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-7": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-8": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-12": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-14": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-5": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-7": {
+          "n": 4,
+          "detected": 1
+        }
+      },
+      "costUsd": 19.223660799999998,
+      "failedRuns": 0
+    },
+    {
+      "arm": "candidate (first eval)",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 6,
+      "n": 60,
+      "detected": 14,
+      "rate": 0.23333333333333334,
+      "wilson": {
+        "lo": 0.14439561736642834,
+        "hi": 0.35436270377601964
+      },
+      "bootstrap": {
+        "lo": 0.1,
+        "hi": 0.34285714285714286
+      },
+      "byHowFound": {
+        "write-probe": {
+          "n": 20,
+          "detected": 4
+        },
+        "inject-fault": {
+          "n": 18,
+          "detected": 5
+        },
+        "two-processes-barrier": {
+          "n": 8,
+          "detected": 3
+        },
+        "real-kernel-resource": {
+          "n": 6,
+          "detected": 0
+        },
+        "read-surrounding": {
+          "n": 2,
+          "detected": 0
+        },
+        "measure-timing": {
+          "n": 6,
+          "detected": 2
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 32,
+          "detected": 10
+        },
+        "P2": {
+          "n": 18,
+          "detected": 2
+        },
+        "unlabelled": {
+          "n": 8,
+          "detected": 2
+        },
+        "P3": {
+          "n": 2,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R7-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-3": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-7": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-8": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-9": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-1": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-3": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-4": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-5": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-6": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-7": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-8": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-9": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-12": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-14": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 2,
+          "detected": 1
+        },
+        "17399-R3-3": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-5": {
+          "n": 2,
+          "detected": 1
+        },
+        "17399-R3-6": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-7": {
+          "n": 2,
+          "detected": 1
+        }
+      },
+      "costUsd": 9.4530126,
+      "failedRuns": 0
+    },
+    {
+      "arm": "control",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 12,
+      "n": 120,
+      "detected": 28,
+      "rate": 0.23333333333333334,
+      "wilson": {
+        "lo": 0.16665575133182917,
+        "hi": 0.31655447075814613
+      },
+      "bootstrap": {
+        "lo": 0.16981132075471697,
+        "hi": 0.2857142857142857
+      },
+      "byHowFound": {
+        "write-probe": {
+          "n": 40,
+          "detected": 10
+        },
+        "inject-fault": {
+          "n": 36,
+          "detected": 9
+        },
+        "two-processes-barrier": {
+          "n": 16,
+          "detected": 7
+        },
+        "real-kernel-resource": {
+          "n": 12,
+          "detected": 0
+        },
+        "read-surrounding": {
+          "n": 4,
+          "detected": 0
+        },
+        "measure-timing": {
+          "n": 12,
+          "detected": 2
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 64,
+          "detected": 15
+        },
+        "P2": {
+          "n": 36,
+          "detected": 8
+        },
+        "unlabelled": {
+          "n": 16,
+          "detected": 5
+        },
+        "P3": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R7-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-3": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R7-7": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R7-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-9": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R8-1": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-3": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-4": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-7": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-8": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R8-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R8-12": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-14": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-5": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-6": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-7": {
+          "n": 4,
+          "detected": 1
+        }
+      },
+      "costUsd": 19.7778492,
+      "failedRuns": 0
+    },
+    {
+      "arm": "control (first eval)",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 6,
+      "n": 60,
+      "detected": 16,
+      "rate": 0.26666666666666666,
+      "wilson": {
+        "lo": 0.1713264000328055,
+        "hi": 0.39008713096683645
+      },
+      "bootstrap": {
+        "lo": 0.21428571428571427,
+        "hi": 0.3125
+      },
+      "byHowFound": {
+        "write-probe": {
+          "n": 20,
+          "detected": 3
+        },
+        "inject-fault": {
+          "n": 18,
+          "detected": 7
+        },
+        "two-processes-barrier": {
+          "n": 8,
+          "detected": 3
+        },
+        "real-kernel-resource": {
+          "n": 6,
+          "detected": 0
+        },
+        "read-surrounding": {
+          "n": 2,
+          "detected": 1
+        },
+        "measure-timing": {
+          "n": 6,
+          "detected": 2
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 32,
+          "detected": 8
+        },
+        "P2": {
+          "n": 18,
+          "detected": 6
+        },
+        "unlabelled": {
+          "n": 8,
+          "detected": 2
+        },
+        "P3": {
+          "n": 2,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R7-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-3": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R7-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-7": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R7-8": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-9": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-3": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-4": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-5": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-6": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-7": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-8": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-9": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-12": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-14": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-3": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-5": {
+          "n": 2,
+          "detected": 1
+        },
+        "17399-R3-6": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-7": {
+          "n": 2,
+          "detected": 1
+        }
+      },
+      "costUsd": 9.7269888,
+      "failedRuns": 0
+    },
+    {
+      "arm": "rederive",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 12,
+      "n": 120,
+      "detected": 24,
+      "rate": 0.2,
+      "wilson": {
+        "lo": 0.13824476478840259,
+        "hi": 0.2803667350628196
+      },
+      "bootstrap": {
+        "lo": 0.11428571428571428,
+        "hi": 0.2740740740740741
+      },
+      "byHowFound": {
+        "write-probe": {
+          "n": 40,
+          "detected": 12
+        },
+        "inject-fault": {
+          "n": 36,
+          "detected": 3
+        },
+        "two-processes-barrier": {
+          "n": 16,
+          "detected": 7
+        },
+        "real-kernel-resource": {
+          "n": 12,
+          "detected": 1
+        },
+        "read-surrounding": {
+          "n": 4,
+          "detected": 0
+        },
+        "measure-timing": {
+          "n": 12,
+          "detected": 1
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 64,
+          "detected": 21
+        },
+        "P2": {
+          "n": 36,
+          "detected": 2
+        },
+        "unlabelled": {
+          "n": 16,
+          "detected": 1
+        },
+        "P3": {
+          "n": 4,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R7-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-7": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R7-8": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R7-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-1": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R8-2": {
+          "n": 4,
+          "detected": 1
+        },
+        "17394-R8-3": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-4": {
+          "n": 4,
+          "detected": 4
+        },
+        "17394-R8-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-6": {
+          "n": 4,
+          "detected": 2
+        },
+        "17394-R8-7": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-8": {
+          "n": 4,
+          "detected": 3
+        },
+        "17394-R8-9": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-12": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 4,
+          "detected": 0
+        },
+        "17394-R8-14": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 4,
+          "detected": 4
+        },
+        "17399-R3-3": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-5": {
+          "n": 4,
+          "detected": 0
+        },
+        "17399-R3-6": {
+          "n": 4,
+          "detected": 1
+        },
+        "17399-R3-7": {
+          "n": 4,
+          "detected": 1
+        }
+      },
+      "costUsd": 17.2451466,
+      "failedRuns": 0
+    }
+  ]
+}

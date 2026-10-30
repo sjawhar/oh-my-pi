@@ -1,0 +1,11 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "slot-probe-"));
+const script = path.join(import.meta.dir, "slot-proc.ts");
+const a = Bun.spawn(["bun", script, root, "paused"], { stdout: "inherit", stderr: "inherit" });
+await Bun.sleep(2000);
+const b = Bun.spawn(["bun", script, root, "free"], { stdout: "inherit", stderr: "inherit" });
+const code = await b.exited;
+console.log(`free process exit=${code}`);
+a.kill("SIGKILL");
