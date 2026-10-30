@@ -1,0 +1,742 @@
+{
+  "cases": "/home/sami/src/oh-my-pi-worktrees/infra-724-reviewer-gap-evals/scripts/reviewer-gap/cases.json",
+  "frozen_at": "2026-10-30T06:05:00Z",
+  "results": [
+    {
+      "arm": "candidate",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 6,
+      "n": 60,
+      "detected": 14,
+      "rate": 0.23333333333333334,
+      "wilson": {
+        "lo": 0.14439561736642834,
+        "hi": 0.35436270377601964
+      },
+      "bootstrap": {
+        "lo": 0.1,
+        "hi": 0.34285714285714286
+      },
+      "byHowFound": {
+        "two-processes-barrier": {
+          "n": 8,
+          "detected": 3
+        },
+        "real-kernel-resource": {
+          "n": 6,
+          "detected": 0
+        },
+        "write-probe": {
+          "n": 20,
+          "detected": 4
+        },
+        "inject-fault": {
+          "n": 18,
+          "detected": 5
+        },
+        "read-surrounding": {
+          "n": 2,
+          "detected": 0
+        },
+        "measure-timing": {
+          "n": 6,
+          "detected": 2
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 32,
+          "detected": 10
+        },
+        "P2": {
+          "n": 18,
+          "detected": 2
+        },
+        "P3": {
+          "n": 2,
+          "detected": 0
+        },
+        "unlabelled": {
+          "n": 8,
+          "detected": 2
+        }
+      },
+      "perFinding": {
+        "17394-R8-1": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-3": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-4": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-5": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-6": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-7": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-8": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-9": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-12": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-14": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-3": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-7": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-8": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-9": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 2,
+          "detected": 1
+        },
+        "17399-R3-3": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-5": {
+          "n": 2,
+          "detected": 1
+        },
+        "17399-R3-6": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-7": {
+          "n": 2,
+          "detected": 1
+        }
+      },
+      "costUsd": 9.4530126,
+      "failedRuns": 0
+    },
+    {
+      "arm": "control",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 6,
+      "n": 60,
+      "detected": 16,
+      "rate": 0.26666666666666666,
+      "wilson": {
+        "lo": 0.1713264000328055,
+        "hi": 0.39008713096683645
+      },
+      "bootstrap": {
+        "lo": 0.21428571428571427,
+        "hi": 0.3125
+      },
+      "byHowFound": {
+        "write-probe": {
+          "n": 20,
+          "detected": 3
+        },
+        "inject-fault": {
+          "n": 18,
+          "detected": 7
+        },
+        "two-processes-barrier": {
+          "n": 8,
+          "detected": 3
+        },
+        "real-kernel-resource": {
+          "n": 6,
+          "detected": 0
+        },
+        "read-surrounding": {
+          "n": 2,
+          "detected": 1
+        },
+        "measure-timing": {
+          "n": 6,
+          "detected": 2
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 32,
+          "detected": 8
+        },
+        "P2": {
+          "n": 18,
+          "detected": 6
+        },
+        "unlabelled": {
+          "n": 8,
+          "detected": 2
+        },
+        "P3": {
+          "n": 2,
+          "detected": 0
+        }
+      },
+      "perFinding": {
+        "17394-R7-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-3": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R7-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-7": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R7-8": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-9": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-3": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-5": {
+          "n": 2,
+          "detected": 1
+        },
+        "17399-R3-6": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-7": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-3": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-4": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-5": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-6": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-7": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-8": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-9": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-12": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-14": {
+          "n": 2,
+          "detected": 0
+        }
+      },
+      "costUsd": 9.726988799999999,
+      "failedRuns": 0
+    },
+    {
+      "arm": "crossfamily",
+      "model": "openai/gpt-6-astra",
+      "runs": 6,
+      "n": 60,
+      "detected": 23,
+      "rate": 0.38333333333333336,
+      "wilson": {
+        "lo": 0.27088272374082023,
+        "hi": 0.5098240417590009
+      },
+      "bootstrap": {
+        "lo": 0.21739130434782608,
+        "hi": 0.5
+      },
+      "byHowFound": {
+        "two-processes-barrier": {
+          "n": 8,
+          "detected": 4
+        },
+        "real-kernel-resource": {
+          "n": 6,
+          "detected": 3
+        },
+        "write-probe": {
+          "n": 20,
+          "detected": 5
+        },
+        "inject-fault": {
+          "n": 18,
+          "detected": 8
+        },
+        "read-surrounding": {
+          "n": 2,
+          "detected": 0
+        },
+        "measure-timing": {
+          "n": 6,
+          "detected": 3
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 32,
+          "detected": 17
+        },
+        "P2": {
+          "n": 18,
+          "detected": 5
+        },
+        "P3": {
+          "n": 2,
+          "detected": 0
+        },
+        "unlabelled": {
+          "n": 8,
+          "detected": 1
+        }
+      },
+      "perFinding": {
+        "17394-R8-1": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-2": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-3": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-4": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-5": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-6": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-7": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-8": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-9": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-10": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-12": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-14": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-3": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-6": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-7": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-8": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-9": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 2,
+          "detected": 1
+        },
+        "17399-R3-3": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-5": {
+          "n": 2,
+          "detected": 2
+        },
+        "17399-R3-6": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-7": {
+          "n": 2,
+          "detected": 1
+        }
+      },
+      "costUsd": 30.5166204,
+      "failedRuns": 0
+    },
+    {
+      "arm": "current",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 6,
+      "n": 60,
+      "detected": 13,
+      "rate": 0.21666666666666667,
+      "wilson": {
+        "lo": 0.13123044048190305,
+        "hi": 0.33620027573194783
+      },
+      "bootstrap": {
+        "lo": 0.17391304347826086,
+        "hi": 0.2537313432835821
+      },
+      "byHowFound": {
+        "two-processes-barrier": {
+          "n": 8,
+          "detected": 3
+        },
+        "real-kernel-resource": {
+          "n": 6,
+          "detected": 0
+        },
+        "write-probe": {
+          "n": 20,
+          "detected": 5
+        },
+        "inject-fault": {
+          "n": 18,
+          "detected": 2
+        },
+        "measure-timing": {
+          "n": 6,
+          "detected": 1
+        },
+        "read-surrounding": {
+          "n": 2,
+          "detected": 2
+        }
+      },
+      "bySeverity": {
+        "P1": {
+          "n": 32,
+          "detected": 8
+        },
+        "P2": {
+          "n": 18,
+          "detected": 4
+        },
+        "P3": {
+          "n": 2,
+          "detected": 0
+        },
+        "unlabelled": {
+          "n": 8,
+          "detected": 1
+        }
+      },
+      "perFinding": {
+        "17394-R8-1": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-3": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R8-4": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-5": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-6": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-7": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-8": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R8-9": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-10": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-11": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-12": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-13": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R8-14": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-2": {
+          "n": 2,
+          "detected": 1
+        },
+        "17399-R3-3": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-5": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-6": {
+          "n": 2,
+          "detected": 0
+        },
+        "17399-R3-7": {
+          "n": 2,
+          "detected": 1
+        },
+        "17394-R7-1": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-2": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-3": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-4": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-5": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-6": {
+          "n": 2,
+          "detected": 0
+        },
+        "17394-R7-7": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R7-8": {
+          "n": 2,
+          "detected": 2
+        },
+        "17394-R7-9": {
+          "n": 2,
+          "detected": 0
+        }
+      },
+      "costUsd": 10.981737,
+      "failedRuns": 0
+    }
+  ]
+}

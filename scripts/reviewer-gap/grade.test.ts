@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { type CaseFile, type Finding, type RunRecord, clusterBootstrap, detects, gradeRuns, wilson } from "./grade.ts";
+import {
+	type CaseFile,
+	type Finding,
+	type RunRecord,
+	clusterBootstrap,
+	detects,
+	gradeRuns,
+	satisfiedGroups,
+	wilson,
+} from "./grade.ts";
 
 const finding: Finding = {
 	id: "T-1",
@@ -38,6 +47,30 @@ describe("detects", () => {
 	test("a zero-width-capable pattern terminates", () => {
 		const f: Finding = { ...finding, mechanism: [["a*"]], trigger: [["b"]] };
 		expect(detects("aaab", f, 100)).toBe(true);
+	});
+});
+
+describe("satisfiedGroups", () => {
+	test("counts mechanism and trigger groups independently of the window", () => {
+		const filler = "x".repeat(4000);
+		const report = `symlink ${filler} clear delete ${filler} under lock`;
+		expect(detects(report, finding, 200)).toBe(false);
+		expect(satisfiedGroups(report, finding)).toEqual({
+			mechanism: 3,
+			mechanismTotal: 3,
+			trigger: 1,
+			triggerTotal: 1,
+		});
+	});
+
+	test("separates a named mechanism from a missing trigger", () => {
+		const report = "clear can delete a sandbox reached through a symlink";
+		expect(satisfiedGroups(report, finding)).toEqual({
+			mechanism: 3,
+			mechanismTotal: 3,
+			trigger: 0,
+			triggerTotal: 1,
+		});
 	});
 });
 
@@ -132,7 +165,10 @@ describe("gradeRuns", () => {
 	});
 
 	test("an errored run is excluded from n, not scored as zero", () => {
-		const [result] = gradeRuns(cases, [run("candidate", "symlink swap under lock: clear will delete it"), run("candidate", "", "provider error")]);
+		const [result] = gradeRuns(cases, [
+			run("candidate", "symlink swap under lock: clear will delete it"),
+			run("candidate", "", "provider error"),
+		]);
 		expect(result?.runs).toBe(1);
 		expect(result?.n).toBe(2);
 		expect(result?.failedRuns).toBe(1);
@@ -150,12 +186,12 @@ describe("cases.json", () => {
 	const file = JSON.parse(fs.readFileSync(path.join(import.meta.dir, "cases.json"), "utf8")) as CaseFile;
 
 	test("every finding names a declared head", () => {
-		const ids = new Set(file.heads.map((h) => h.id));
+		const ids = new Set(file.heads.map(h => h.id));
 		for (const f of file.findings) expect(ids.has(f.head)).toBe(true);
 	});
 
 	test("finding ids are unique", () => {
-		expect(new Set(file.findings.map((f) => f.id)).size).toBe(file.findings.length);
+		expect(new Set(file.findings.map(f => f.id)).size).toBe(file.findings.length);
 	});
 
 	test("every pattern compiles and no group is empty", () => {
@@ -174,8 +210,8 @@ describe("cases.json", () => {
 		const filler = "\u0000".repeat(5000);
 		for (const f of file.findings) {
 			const distractors = file.findings
-				.filter((o) => o.head === f.head && o.id !== f.id)
-				.map((o) => o.title)
+				.filter(o => o.head === f.head && o.id !== f.id)
+				.map(o => o.title)
 				.join(filler);
 			if (!detects(distractors, f, file.window_chars)) continue;
 			throw new Error(`spec for ${f.id} fires on a sibling finding's title`);

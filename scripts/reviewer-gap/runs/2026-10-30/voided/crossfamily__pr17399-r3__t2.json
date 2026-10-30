@@ -1,0 +1,11 @@
+{
+  "runId": "crossfamily__pr17399-r3__t2",
+  "arm": "crossfamily",
+  "head": "pr17399-r3",
+  "trial": 2,
+  "model": "openai/gpt-6-astra",
+  "report": "I’ll read the dispatch changes and callers, then probe pause, cancellation, and request-boundary behavior outside the snapshot.",
+  "costUsd": 3.0584899999999995,
+  "elapsedMs": 124246,
+  "exitCode": 3
+}

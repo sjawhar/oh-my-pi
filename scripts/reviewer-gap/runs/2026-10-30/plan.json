@@ -1,0 +1,19 @@
+{
+  "started": "2026-10-30T06:19:08.994Z",
+  "cases": "/home/sami/src/oh-my-pi-worktrees/infra-724-reviewer-gap-evals/scripts/reviewer-gap/cases.json",
+  "frozen_at": "2026-10-30T06:05:00Z",
+  "armNames": [
+    "crossfamily"
+  ],
+  "trials": 2,
+  "maxTime": "20m",
+  "maxCost": "12",
+  "jobs": [
+    "crossfamily__pr17394-r7__t1",
+    "crossfamily__pr17394-r7__t2",
+    "crossfamily__pr17394-r8__t1",
+    "crossfamily__pr17394-r8__t2",
+    "crossfamily__pr17399-r3__t1",
+    "crossfamily__pr17399-r3__t2"
+  ]
+}

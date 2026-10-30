@@ -95,7 +95,7 @@ export function detects(report: string, finding: Finding, windowChars: number): 
 		const hi = anchor + windowChars / 2;
 		let all = true;
 		for (const hits of offsets) {
-			if (!hits.some((h) => h >= lo && h <= hi)) {
+			if (!hits.some(h => h >= lo && h <= hi)) {
 				all = false;
 				break;
 			}
@@ -103,6 +103,27 @@ export function detects(report: string, finding: Finding, windowChars: number): 
 		if (all) return true;
 	}
 	return false;
+}
+
+/**
+ * Diagnostic only, never a score: how many groups the report satisfies anywhere
+ * in its text, ignoring the window. A finding whose mechanism groups all match
+ * but whose trigger groups do not is a reviewer that named the code and not the
+ * way to reproduce it; a count of those says whether the window or the trigger
+ * requirement is what the frozen rule rejects.
+ */
+export function satisfiedGroups(
+	report: string,
+	finding: Finding,
+): { mechanism: number; mechanismTotal: number; trigger: number; triggerTotal: number } {
+	const count = (groups: string[][]): number =>
+		groups.filter(group => group.some(pattern => new RegExp(pattern, "i").test(report))).length;
+	return {
+		mechanism: count(finding.mechanism),
+		mechanismTotal: finding.mechanism.length,
+		trigger: count(finding.trigger),
+		triggerTotal: finding.trigger.length,
+	};
 }
 
 export interface Interval {
@@ -158,7 +179,8 @@ export function clusterBootstrap(
 	}
 	if (means.length === 0) return { lo: 0, hi: 1 };
 	means.sort((a, b) => a - b);
-	const at = (q: number): number => means[Math.min(means.length - 1, Math.max(0, Math.round(q * (means.length - 1))))] ?? 0;
+	const at = (q: number): number =>
+		means[Math.min(means.length - 1, Math.max(0, Math.round(q * (means.length - 1))))] ?? 0;
 	return { lo: at(0.025), hi: at(0.975) };
 }
 
@@ -194,7 +216,7 @@ export function gradeRuns(cases: CaseFile, runs: RunRecord[]): ArmResult[] {
 	const out: ArmResult[] = [];
 	for (const [arm, armRuns] of arms) {
 		// A run that errored is not a score: it is excluded and counted separately.
-		const usable = armRuns.filter((r) => r.error === undefined && r.report.trim().length > 0);
+		const usable = armRuns.filter(r => r.error === undefined && r.report.trim().length > 0);
 		const clusters: { successes: number; n: number }[] = [];
 		const byHowFound: Record<string, { n: number; detected: number }> = {};
 		const bySeverity: Record<string, { n: number; detected: number }> = {};
@@ -272,10 +294,18 @@ function main(): void {
 	const runs = loadRuns(runsDir);
 	const results = gradeRuns(cases, runs);
 	const jsonOut = get("--json");
-	if (jsonOut !== undefined) fs.writeFileSync(jsonOut, `${JSON.stringify({ cases: casesPath, frozen_at: cases.frozen_at, results }, null, 2)}\n`);
+	if (jsonOut !== undefined)
+		fs.writeFileSync(
+			jsonOut,
+			`${JSON.stringify({ cases: casesPath, frozen_at: cases.frozen_at, results }, null, 2)}\n`,
+		);
 
-	console.log(`cases frozen at ${cases.frozen_at}; ${cases.findings.length} findings over ${cases.heads.length} heads\n`);
-	console.log("| arm | model | runs | n | detected | rate | 95% Wilson | 95% cluster bootstrap | cost USD | errored runs |");
+	console.log(
+		`cases frozen at ${cases.frozen_at}; ${cases.findings.length} findings over ${cases.heads.length} heads\n`,
+	);
+	console.log(
+		"| arm | model | runs | n | detected | rate | 95% Wilson | 95% cluster bootstrap | cost USD | errored runs |",
+	);
 	console.log("|---|---|---|---|---|---|---|---|---|---|");
 	for (const r of results) {
 		console.log(

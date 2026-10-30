@@ -75,15 +75,15 @@ function readJsonl<T>(file: string): T[] {
 export function loadFindings(dir = path.join(import.meta.dir, "corpus", "findings")): CorpusFinding[] {
 	return fs
 		.readdirSync(dir)
-		.filter((f) => f.endsWith(".jsonl"))
-		.flatMap((f) => readJsonl<CorpusFinding>(path.join(dir, f)));
+		.filter(f => f.endsWith(".jsonl"))
+		.flatMap(f => readJsonl<CorpusFinding>(path.join(dir, f)));
 }
 
 export function loadFalseBeliefs(dir = path.join(import.meta.dir, "corpus", "false-beliefs")): FalseBelief[] {
 	return fs
 		.readdirSync(dir)
-		.filter((f) => f.endsWith(".jsonl"))
-		.flatMap((f) => readJsonl<FalseBelief>(path.join(dir, f)));
+		.filter(f => f.endsWith(".jsonl"))
+		.flatMap(f => readJsonl<FalseBelief>(path.join(dir, f)));
 }
 
 export function countBy<T>(items: T[], key: (item: T) => string): Record<string, number> {
@@ -99,8 +99,10 @@ function main(): void {
 		console.log(JSON.stringify({ findings, beliefs }, null, 2));
 		return;
 	}
-	const byHow = countBy(findings, (f) => f.how_found_primary);
-	console.log(`${findings.length} findings over ${new Set(findings.map((f) => f.pr)).size} pull requests; ${beliefs.length} falsified lane beliefs\n`);
+	const byHow = countBy(findings, f => f.how_found_primary);
+	console.log(
+		`${findings.length} findings over ${new Set(findings.map(f => f.pr)).size} pull requests; ${beliefs.length} falsified lane beliefs\n`,
+	);
 	console.log("| how_found_primary | findings | share |");
 	console.log("|---|---:|---:|");
 	for (const label of HOW_FOUND) {
@@ -108,23 +110,28 @@ function main(): void {
 		if (n === 0) continue;
 		console.log(`| ${label} | ${n} | ${((100 * n) / findings.length).toFixed(1)}% |`);
 	}
-	const readOnly = findings.filter((f) => f.how_found_primary === "read-diff" || f.how_found_primary === "read-surrounding").length;
-	console.log(`\nfound without running anything: ${readOnly} / ${findings.length} (${((100 * readOnly) / findings.length).toFixed(1)}%)`);
+	const readOnly = findings.filter(
+		f => f.how_found_primary === "read-diff" || f.how_found_primary === "read-surrounding",
+	).length;
+	console.log(
+		`\nfound without running anything: ${readOnly} / ${findings.length} (${((100 * readOnly) / findings.length).toFixed(1)}%)`,
+	);
 	console.log("\n| severity | findings |");
 	console.log("|---|---:|");
 	for (const label of SEVERITIES) {
-		const n = countBy(findings, (f) => f.severity)[label] ?? 0;
+		const n = countBy(findings, f => f.severity)[label] ?? 0;
 		if (n > 0) console.log(`| ${label} | ${n} |`);
 	}
 	console.log("\n| pull request | findings | closed by a later head |");
 	console.log("|---|---:|---:|");
-	for (const [pr, n] of Object.entries(countBy(findings, (f) => String(f.pr))).sort()) {
-		const closed = findings.filter((f) => String(f.pr) === pr && f.closed).length;
+	for (const [pr, n] of Object.entries(countBy(findings, f => String(f.pr))).sort()) {
+		const closed = findings.filter(f => String(f.pr) === pr && f.closed).length;
 		console.log(`| #${pr} | ${n} | ${closed} |`);
 	}
 	console.log("\n| falsified belief kind | count |");
 	console.log("|---|---:|");
-	for (const [kind, n] of Object.entries(countBy(beliefs, (b) => b.claim_kind)).sort()) console.log(`| ${kind} | ${n} |`);
+	for (const [kind, n] of Object.entries(countBy(beliefs, b => b.claim_kind)).sort())
+		console.log(`| ${kind} | ${n} |`);
 }
 
 if (import.meta.main) main();

@@ -1,0 +1,11 @@
+{
+  "runId": "crossfamily__pr17394-r8__t2",
+  "arm": "crossfamily",
+  "head": "pr17394-r8",
+  "trial": 2,
+  "model": "openai/gpt-6-astra",
+  "report": "I’ll trace the ownership and lease changes through their callers, then probe failure paths and process races against the production code.\n\nThe lease code adds no lock around acquisition, treats every directory-read failure as an empty lease set, and stores deferred teardown only in process-local memory. I’m testing whether those paths delete a live descendant’s workspace or strand its final capture.",
+  "costUsd": 3.0337785000000004,
+  "elapsedMs": 180248,
+  "exitCode": 3
+}

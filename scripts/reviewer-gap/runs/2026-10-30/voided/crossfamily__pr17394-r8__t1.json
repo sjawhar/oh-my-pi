@@ -1,0 +1,11 @@
+{
+  "runId": "crossfamily__pr17394-r8__t1",
+  "arm": "crossfamily",
+  "head": "pr17394-r8",
+  "trial": 1,
+  "model": "openai/gpt-6-astra",
+  "report": "I’ll trace the lease lifecycle and its callers, then probe failure and cross-process paths against the production code. All probes will stay outside the snapshot.\n\nThe lease implementation has three unproven assumptions: lease discovery never fails, acquisition cannot race teardown, and the final releaser can reach the owner’s deferred callback. I’m testing each with real sandboxes and a separate holder process.",
+  "costUsd": 3.0171579999999993,
+  "elapsedMs": 299415,
+  "exitCode": 3
+}

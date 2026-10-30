@@ -1,0 +1,11 @@
+{
+  "runId": "crossfamily__pr17399-r3__t1",
+  "arm": "crossfamily",
+  "head": "pr17399-r3",
+  "trial": 1,
+  "model": "openai/gpt-6-astra",
+  "report": "I’ll map the dispatch gate and its callers, then probe pause, cancellation, and retry boundaries against the production functions.",
+  "costUsd": 3.067992,
+  "elapsedMs": 125634,
+  "exitCode": 3
+}

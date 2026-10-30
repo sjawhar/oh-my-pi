@@ -7,7 +7,7 @@ const beliefs = loadFalseBeliefs();
 describe("corpus findings", () => {
 	test("the corpus is not empty and ids are unique", () => {
 		expect(findings.length).toBeGreaterThan(100);
-		expect(new Set(findings.map((f) => f.id)).size).toBe(findings.length);
+		expect(new Set(findings.map(f => f.id)).size).toBe(findings.length);
 	});
 
 	test("every record carries the frozen fields with usable values", () => {
@@ -55,8 +55,8 @@ describe("corpus findings", () => {
 	test("the measurement is kept, not summarised away", () => {
 		// `measured` is what makes a record gradable. A record without it would
 		// let a reviewer score by agreeing with a title.
-		const empty = findings.filter((f) => f.measured.trim().length === 0);
-		expect(empty.map((f) => f.id)).toEqual([]);
+		const empty = findings.filter(f => f.measured.trim().length === 0);
+		expect(empty.map(f => f.id)).toEqual([]);
 	});
 
 	test("finding ids are prefixed by their pull request", () => {
@@ -76,13 +76,13 @@ describe("corpus false beliefs", () => {
 	});
 
 	test("belief ids are unique", () => {
-		expect(new Set(beliefs.map((b) => b.id)).size).toBe(beliefs.length);
+		expect(new Set(beliefs.map(b => b.id)).size).toBe(beliefs.length);
 	});
 });
 
 describe("the distribution the eval rests on", () => {
 	test("almost nothing was found by reading alone", () => {
-		const byHow = countBy(findings, (f) => f.how_found_primary);
+		const byHow = countBy(findings, f => f.how_found_primary);
 		const readOnly = (byHow["read-diff"] ?? 0) + (byHow["read-surrounding"] ?? 0);
 		expect(readOnly / findings.length).toBeLessThan(0.1);
 	});

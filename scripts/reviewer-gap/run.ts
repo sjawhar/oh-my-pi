@@ -88,7 +88,11 @@ async function runOmp(args: string[], prompt: string, cwd: string, env: NodeJS.P
 			}
 			const e = event as {
 				type?: string;
-				message?: { role?: string; content?: { type?: string; text?: string }[]; usage?: { cost?: { total?: number } } };
+				message?: {
+					role?: string;
+					content?: { type?: string; text?: string }[];
+					usage?: { cost?: { total?: number } };
+				};
 			};
 			if (e.type !== "message_end" || e.message?.role !== "assistant") continue;
 			costUsd += e.message.usage?.cost?.total ?? 0;
@@ -101,7 +105,7 @@ async function runOmp(args: string[], prompt: string, cwd: string, env: NodeJS.P
 	child.stderr.on("data", (chunk: string) => {
 		stderr += chunk;
 	});
-	child.on("close", (code) => {
+	child.on("close", code => {
 		resolve({ report: texts.join("\n\n"), costUsd, exitCode: code ?? -1, stderr: stderr.slice(-4000) });
 	});
 	return await promise;
@@ -115,12 +119,14 @@ async function main(): Promise<void> {
 	};
 	const outDir = get("--out");
 	if (outDir === undefined) {
-		console.error("usage: run.ts --out <dir> [--arms ...] [--trials N] [--heads ...] [--concurrency N] [--max-time 25m] [--max-cost 3] [--dry-run]");
+		console.error(
+			"usage: run.ts --out <dir> [--arms ...] [--trials N] [--heads ...] [--concurrency N] [--max-time 25m] [--max-cost 3] [--dry-run]",
+		);
 		process.exit(2);
 	}
 	const casesPath = get("--cases") ?? path.join(import.meta.dir, "cases.json");
 	const cases = JSON.parse(fs.readFileSync(casesPath, "utf8")) as CaseFile;
-	const armNames = (get("--arms") ?? "control,current,candidate").split(",").filter((s) => s.length > 0);
+	const armNames = (get("--arms") ?? "control,current,candidate").split(",").filter(s => s.length > 0);
 	const trials = Number(get("--trials") ?? "2");
 	const headFilter = get("--heads")?.split(",");
 	const concurrency = Number(get("--concurrency") ?? "6");
@@ -130,7 +136,7 @@ async function main(): Promise<void> {
 	const minutes = Number.parseInt(maxTime, 10);
 
 	fs.mkdirSync(outDir, { recursive: true });
-	const heads = cases.heads.filter((h) => headFilter === undefined || headFilter.includes(h.id));
+	const heads = cases.heads.filter(h => headFilter === undefined || headFilter.includes(h.id));
 
 	interface Job {
 		runId: string;
@@ -150,7 +156,7 @@ async function main(): Promise<void> {
 	}
 	fs.writeFileSync(
 		path.join(outDir, "plan.json"),
-		`${JSON.stringify({ started: new Date().toISOString(), cases: casesPath, frozen_at: cases.frozen_at, armNames, trials, maxTime, maxCost, jobs: jobs.map((j) => j.runId) }, null, 2)}\n`,
+		`${JSON.stringify({ started: new Date().toISOString(), cases: casesPath, frozen_at: cases.frozen_at, armNames, trials, maxTime, maxCost, jobs: jobs.map(j => j.runId) }, null, 2)}\n`,
 	);
 	console.log(`${jobs.length} runs: ${armNames.join(", ")} x ${heads.length} heads x ${trials} trials`);
 	if (dryRun) {
@@ -195,8 +201,20 @@ async function main(): Promise<void> {
 			if (job.arm.prompt !== null) args.push("--append-system-prompt", path.join(import.meta.dir, job.arm.prompt));
 			const started = Date.now();
 			console.log(`start ${job.runId}`);
-			const env: NodeJS.ProcessEnv = { ...process.env, TMPDIR: scratch, BUN_INSTALL_CACHE_DIR: path.join(scratch, "bun-cache") };
+			const env: NodeJS.ProcessEnv = {
+				...process.env,
+				TMPDIR: scratch,
+				BUN_INSTALL_CACHE_DIR: path.join(scratch, "bun-cache"),
+			};
 			const result = await runOmp(args, userPrompt(job.head, scratch, minutes), scratch, env);
+			// `omp -p` exits 3 when --max-cost stops it. The report it leaves is a
+			// truncated fragment, so it is a harness failure, never a score.
+			const failure =
+				result.exitCode === 3
+					? `spend cap reached at $${result.costUsd.toFixed(2)}; exit 3; report truncated to ${result.report.length} chars`
+					: result.report.trim().length === 0
+						? `empty report; exit ${result.exitCode}; stderr: ${result.stderr}`
+						: undefined;
 			const record: RunRecord = {
 				runId: job.runId,
 				arm: job.arm.name,
@@ -207,10 +225,12 @@ async function main(): Promise<void> {
 				costUsd: result.costUsd,
 				elapsedMs: Date.now() - started,
 				exitCode: result.exitCode,
-				...(result.report.trim().length === 0 ? { error: `empty report; exit ${result.exitCode}; stderr: ${result.stderr}` } : {}),
+				...(failure === undefined ? {} : { error: failure }),
 			};
 			fs.writeFileSync(outPath, `${JSON.stringify(record, null, 2)}\n`);
-			console.log(`done  ${job.runId} exit=${result.exitCode} cost=$${result.costUsd.toFixed(2)} chars=${result.report.length} ${Math.round((Date.now() - started) / 1000)}s`);
+			console.log(
+				`done  ${job.runId} exit=${result.exitCode} cost=$${result.costUsd.toFixed(2)} chars=${result.report.length} ${Math.round((Date.now() - started) / 1000)}s`,
+			);
 		}
 	};
 	await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, worker));
