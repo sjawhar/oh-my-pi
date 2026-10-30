@@ -30,3 +30,28 @@ The snapshots `cases.json` names are read-only trees under `/mnt/nvme`. Runs
 share them; each run writes only into its own scratch directory. A run that
 errors is excluded from `n` and reported as `failedRuns`: a zero would penalise
 the wrong arm.
+
+## The rounds lane
+
+The first lane answered "does the prompt close the gap" with no. This one asks
+whether the review *loop* does: the night's reviews ran 3 to 11 rounds, and
+every arm of the first lane was one cold round.
+
+- `rounds-freeze.json` — arms, round prompt templates, scoring scopes, the
+  symlink-class definition, the cost cap and the dropped arms with their
+  reasons. Frozen and committed before the first model call of this lane.
+- `run-rounds.ts` — one *sequence* per (arm, head, trial), its rounds run
+  serially in fresh sessions. Round 1 is the one-round arm, so it doubles as a
+  provider-drift check. It refuses to start another round once the cumulative
+  spend reaches `--budget`.
+- `rounds.ts` — sequence-level scoring. Detection is `detects` from `grade.ts`,
+  unchanged; this file only composes it over rounds (`union`, `final`, `first`)
+  and adds the paired bootstrap and Fisher's exact test. `rounds.test.ts`
+  reproduces the first lane's published numbers from its committed runs, which
+  is what proves the grading was not redefined.
+
+```bash
+bun scripts/reviewer-gap/run-rounds.ts --out <dir> --arms retry-blind,rounds-carry --dry-run
+bun scripts/reviewer-gap/run-rounds.ts --out <dir> --arms retry-blind,rounds-carry --concurrency 6 --budget 85
+bun scripts/reviewer-gap/rounds.ts --runs <dir>,scripts/reviewer-gap/runs/2026-10-30 --json <dir>/rounds-results.json
+```

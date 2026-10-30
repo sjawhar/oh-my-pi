@@ -263,9 +263,14 @@ export function gradeRuns(cases: CaseFile, runs: RunRecord[]): ArmResult[] {
 	return out;
 }
 
+/**
+ * Records in run-id order. The cluster bootstrap resamples cluster indices from
+ * a seeded PRNG, so the order clusters are built in decides the interval: a
+ * readdir order would make a published interval depend on the filesystem.
+ */
 export function loadRuns(dir: string): RunRecord[] {
 	const out: RunRecord[] = [];
-	for (const entry of fs.readdirSync(dir)) {
+	for (const entry of fs.readdirSync(dir).sort((a, b) => a.localeCompare(b))) {
 		if (!entry.endsWith(".json")) continue;
 		if (entry === "results.json" || entry === "plan.json") continue;
 		const raw = fs.readFileSync(path.join(dir, entry), "utf8");

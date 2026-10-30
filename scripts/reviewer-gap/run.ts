@@ -33,7 +33,7 @@ const ARMS: Record<string, Arm> = {
 	"crossfamily-current": { name: "crossfamily-current", prompt: "prompts/current.md", model: "openai/gpt-6-astra" },
 };
 
-function userPrompt(head: HeadCase, scratch: string, minutes: number): string {
+export function userPrompt(head: HeadCase, scratch: string, minutes: number): string {
 	return [
 		`Review this change for defects its author must fix before merge.`,
 		``,
@@ -57,14 +57,19 @@ function userPrompt(head: HeadCase, scratch: string, minutes: number): string {
 	].join("\n");
 }
 
-interface SpawnResult {
+export interface SpawnResult {
 	report: string;
 	costUsd: number;
 	exitCode: number;
 	stderr: string;
 }
 
-async function runOmp(args: string[], prompt: string, cwd: string, env: NodeJS.ProcessEnv): Promise<SpawnResult> {
+export async function runOmp(
+	args: string[],
+	prompt: string,
+	cwd: string,
+	env: NodeJS.ProcessEnv,
+): Promise<SpawnResult> {
 	const { promise, resolve } = Promise.withResolvers<SpawnResult>();
 	const child = spawn("omp", [...args, prompt], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
 	let buffer = "";
