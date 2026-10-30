@@ -96,13 +96,16 @@ async function main(): Promise<void> {
 		const i = argv.indexOf(flag);
 		return i >= 0 ? argv[i + 1] : undefined;
 	};
-	const outDir = get("--out");
-	if (outDir === undefined) {
+	// Absolute, always, for the reason given in `run.ts`: the scratch derived from
+	// this path is the child's cwd and is quoted to it in the prompt.
+	const outArg = get("--out");
+	if (outArg === undefined) {
 		console.error(
 			"usage: run-rounds.ts --out <dir> [--arms ...] [--trials N] [--heads ...] [--concurrency N] [--budget USD] [--dry-run]",
 		);
 		process.exit(2);
 	}
+	const outDir = path.resolve(outArg);
 	const freeze = JSON.parse(
 		fs.readFileSync(get("--freeze") ?? path.join(import.meta.dir, "rounds-freeze.json"), "utf8"),
 	) as Freeze;
@@ -241,11 +244,17 @@ async function main(): Promise<void> {
 				];
 				const started = Date.now();
 				console.log(`start ${runId} (prompt ${prompt.length} chars)`);
-				const result = await runOmp(args, prompt, roundScratch, {
+				// `GIT_CEILING_DIRECTORIES` for the reason given in `run.ts`: a snapshot
+				// carries no `.git`, so `git log` inside one climbs to whatever
+				// repository encloses it and reads the wrong history.
+				const env: NodeJS.ProcessEnv = {
 					...process.env,
 					TMPDIR: roundScratch,
 					BUN_INSTALL_CACHE_DIR: path.join(seqScratch, "bun-cache"),
-				});
+					GIT_CEILING_DIRECTORIES: [seq.head.checkout, roundScratch].join(":"),
+				};
+				delete env.GIT_DIR;
+				const result = await runOmp(args, prompt, roundScratch, env);
 				spent += result.costUsd;
 				const failure =
 					result.exitCode === 3

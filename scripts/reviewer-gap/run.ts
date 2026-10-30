@@ -130,13 +130,19 @@ async function main(): Promise<void> {
 		const i = argv.indexOf(flag);
 		return i >= 0 ? argv[i + 1] : undefined;
 	};
-	const outDir = get("--out");
-	if (outDir === undefined) {
+	// Absolute, always: the scratch path derived from this one is both the child's
+	// cwd and a path quoted to it in the prompt. Left relative, the child resolves
+	// it against itself and reads `<scratch>/<scratch>`, which exists nowhere. An
+	// arm that cannot reach its own probes reports no findings and reads as a weak
+	// reviewer rather than a broken harness.
+	const outArg = get("--out");
+	if (outArg === undefined) {
 		console.error(
 			"usage: run.ts --out <dir> [--arms ...] [--trials N] [--heads ...] [--concurrency N] [--max-time 25m] [--max-cost 3] [--cases cases.json] [--no-repo-gate] [--dry-run]",
 		);
 		process.exit(2);
 	}
+	const outDir = path.resolve(outArg);
 	const casesPath = get("--cases") ?? path.join(import.meta.dir, "cases.json");
 	const cases = JSON.parse(fs.readFileSync(casesPath, "utf8")) as CaseFile;
 	const armNames = (get("--arms") ?? "control,current,candidate").split(",").filter(s => s.length > 0);
@@ -229,11 +235,19 @@ async function main(): Promise<void> {
 			if (job.arm.prompt !== null) args.push("--append-system-prompt", path.join(import.meta.dir, job.arm.prompt));
 			const started = Date.now();
 			console.log(`start ${job.runId}`);
+			// A snapshot is a `git archive` extraction, so it carries no `.git`. A
+			// reviewer that runs `git log` inside one would otherwise climb to the
+			// nearest enclosing repository and read a history that is not the change
+			// under review. The ceiling stops the walk at the snapshot and at the
+			// scratch; an inherited `GIT_DIR` is dropped rather than blanked, since
+			// an empty one makes git fail instead of searching.
 			const env: NodeJS.ProcessEnv = {
 				...process.env,
 				TMPDIR: scratch,
 				BUN_INSTALL_CACHE_DIR: path.join(scratch, "bun-cache"),
+				GIT_CEILING_DIRECTORIES: [job.head.checkout, scratch].join(":"),
 			};
+			delete env.GIT_DIR;
 			const result = await runOmp(args, userPrompt(job.head, scratch, minutes, repoGate), scratch, env);
 			// `omp -p` exits 3 when --max-cost stops it. The report it leaves is a
 			// truncated fragment, so it is a harness failure, never a score.
