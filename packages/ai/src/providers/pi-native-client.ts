@@ -30,6 +30,7 @@ import type {
 	SimpleStreamOptions,
 } from "../types";
 import { createAbortSourceTracker } from "../utils/abort";
+import { holdBeforeDispatch } from "../utils/dispatch-hold";
 import { AssistantMessageEventStream } from "../utils/event-stream";
 import {
 	armPreResponseTimeout,
@@ -187,10 +188,7 @@ export function streamPiNative<TApi extends Api>(
 		try {
 			const url = resolveStreamUrl(model as Model<Api>);
 			const fetchImpl = options?.fetch ?? globalThis.fetch;
-			const headers = buildHeaders(
-				model as Model<Api>,
-				typeof options?.apiKey === "string" ? options.apiKey : undefined,
-			);
+
 			// A caller's hold is the whole reason to own the retry: without one,
 			// the gateway's own rotation is a round trip cheaper and behaves
 			// identically. Gateways that predate the field ignore it and keep
@@ -226,11 +224,13 @@ export function streamPiNative<TApi extends Api>(
 			 */
 			const runAttempt = async (allowRetry: boolean): Promise<"retry" | "done"> => {
 				// This client owns its retries, so it owns their dispatch boundary:
-				// the hold is awaited here, before the deadline below starts, so a
+				// the hold is answered here, before the deadline below starts, so a
 				// pause spends none of the response budget and a resume still
 				// completes the turn. A caller that supplied a hold but not the
 				// transport that carries it is covered by this and nothing else.
-				await options?.beforeDispatch?.();
+				// The transport reads the hold's probe again in the step that
+				// sends; this is the wait, not the barrier.
+				await holdBeforeDispatch(options?.beforeDispatch, abortTracker.requestSignal);
 				abortTracker.requestSignal.throwIfAborted();
 				// Bun's native fetch ceiling (~300 s of silence) is disabled so the
 				// configurable first-event watchdog governs slow-prefill turns: a gateway
@@ -239,6 +239,13 @@ export function streamPiNative<TApi extends Api>(
 				// armed across the error-body read. Headers do not renew the budget: the
 				// event iterator below waits on what the guard left of it. Each attempt
 				// this loop makes is its own request, so it gets its own budget.
+				// Read the bearer per attempt rather than once per call: this loop
+				// makes more than one request, and the gateway bearer is whatever
+				// the options carry when the attempt leaves.
+				const headers = buildHeaders(
+					model as Model<Api>,
+					typeof options?.apiKey === "string" ? options.apiKey : undefined,
+				);
 				const watchdog = armPreResponseTimeout(abortTracker.requestSignal, firstEventTimeoutMs);
 				// `timeout` is a Bun fetch extension absent from the DOM `RequestInit`.
 				const init: RequestInit & { timeout: false } = {
