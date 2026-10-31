@@ -1,0 +1,52 @@
+{
+	"frozen_at": "2026-10-31T20:10:00Z",
+	"question": "The shipped reviewer prompt claims 1.4% of the real defects at the claims lane's heads. The batch's reviewers, who found those defects, ran under per-round briefs. Does a generic prompt built from the elements those briefs share find more real defects, does an instruction to run the code rather than read it do that on its own, and does either raise false claims?",
+	"inherits": {
+		"freeze": "claims-freeze.json, revision 2: cases, scoring, run settings and snapshots unchanged",
+		"cases_sha256": "7ccd5d59694bd7fffb03cd4fbf9e841c8cecdfeb3a034d97cf8086f7445111f1",
+		"scorer_sha256": "ba20299d4fd361aae1d9c54a6ddce13145d185430bbe2ba19a97b2bb258a6ef9",
+		"baseline": "runs/claims-2026-10-31/current/: the `current` arm, run 2026-10-31 14:00Z-18:10Z. Reused, not run again: one declared difference, that the new arms run hours later, so provider drift and box load fall on them alone.",
+		"runner_change": "run.ts gains the `brief` and `run` entries in its arm table and nothing else since revision 2."
+	},
+	"arms": [
+		{
+			"name": "brief",
+			"prompt": "prompts/brief.md",
+			"sha256": "b9f5034b67273f6aad8396d63f9c9b074037d3cfc3f0af2d8e9a120ffa6f9208",
+			"chars": 2297,
+			"model": "anthropic/claude-opus-5-5",
+			"elements": {
+				"question": "one question, stated first, in the change's own terms",
+				"earlier-round": "check the earlier round's findings closed by replay, then attack the new code; the fix is where the defect usually is",
+				"attack-list": "a named list of what to attack, drawn from the patch, including the change's claims about itself",
+				"evidence": "run the code, do not read it; a defect needs a probe, a command, an exit code and a raw output file",
+				"base": "show a failure depends on the change before calling it a defect",
+				"not-defects": "an obsolete assertion is not a regression; a probe that cannot reach the product is the probe's fault; a timeout under load is not a hang"
+			},
+			"written_from": "The elements every per-round brief of the batch shares, as the coordinator listed them on 2026-10-31. Generalised: it names no repository identifier, file, function or defect. One example of a probe fault that matched a decoy record was removed before the freeze. No case pattern fires on it (claims.test.ts)."
+		},
+		{
+			"name": "run",
+			"prompt": "prompts/run.md",
+			"sha256": "9ae4cb60d44b04f734cdf69979d5cc3ba401d8dff5ab37078768dab32a7382d9",
+			"chars": 285,
+			"model": "anthropic/claude-opus-5-5",
+			"role": "the run-not-read instruction alone, with no evidence format, budget or attack list, to tell whether running the code moves the rate by itself. The baseline's reviewers used a median of 6 of 20 minutes, and 52 of 75 left a probe file."
+		}
+	],
+	"held_fixed": {
+		"trials_per_head": 2,
+		"trials_note": "2 first, on all 23 heads; widened to 3 with the same runner if the box allows. A comparison uses the (head, trial) pairs present in both arms it compares.",
+		"concurrency": "one runner per arm at concurrency 1, started together, so the two arms share every time window; 2 runs at a time in all, under the box's cap of two parallel suites",
+		"everything_else": "as claims-freeze.json held_fixed: 20 minutes, thinking high, the same tools and flags, no repository gate, Bun 1.4.4, the earlier-round copy, the claims report format"
+	},
+	"comparisons": {
+		"primary": [
+			{ "test": "brief - current", "reads": "found real defects (higher is better) and asserted decoys (lower is better), paired over (head, trial), claims.ts --compare" },
+			{ "test": "run - current", "reads": "the same, for the run instruction alone" }
+		],
+		"secondary": [{ "test": "brief - run", "reads": "what the other five elements add to the run instruction" }],
+		"decoy_side": "Informative only when the arm's runs mention decoys; `mentioned` is reported beside every decoy rate.",
+		"next": "Which elements to isolate next is chosen after these results. Each isolation arm is brief.md with one tagged block removed, cut mechanically, so no arm's wording is tuned on the cases."
+	}
+}

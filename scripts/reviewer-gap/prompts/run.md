@@ -1,0 +1,1 @@
+Find defects by running the changed code, not by reading it. Reading tells you where to look; only a run tells you what happens. Write probes in your scratch directory that drive the changed production code in the shapes its author did not try, run them, and report what they printed.
