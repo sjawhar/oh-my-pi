@@ -17,6 +17,7 @@
 - `PI_INTENT_PROMPT` replaces the system-prompt guidance for the `i` intent field; `PI_INTENT_DESC` replaces its tool-schema description
 - Eval shows printed JSON text (`print(json.dumps(…))`, `console.log(JSON.stringify(…))`) as a collapsible JSON tree, like printed dicts and objects
 - The warning that a saved Codex or Claude rate-limit reset is about to expire now shows once per reset across all conversations and omp windows, and only in its final 6 hours instead of from 24 hours out; the status line keeps counting it down meanwhile
+- `async.maxJobs` now sets the cap on background jobs running at once in a session and its subagents without the fixed 100 ceiling, and `0` means no limit; the default stays 100
 
 ### Changed
 
