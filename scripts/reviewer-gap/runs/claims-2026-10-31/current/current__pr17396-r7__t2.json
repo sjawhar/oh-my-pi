@@ -1,0 +1,11 @@
+{
+  "runId": "current__pr17396-r7__t2",
+  "arm": "current",
+  "head": "pr17396-r7",
+  "trial": 2,
+  "model": "anthropic/claude-opus-5-5",
+  "report": "Waiting for the focused coding-agent test run (bg_1) to finish before I write the report.",
+  "costUsd": 1.5881586000000003,
+  "elapsedMs": 463088,
+  "exitCode": 0
+}

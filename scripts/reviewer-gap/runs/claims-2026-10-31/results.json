@@ -1,0 +1,1887 @@
+{
+  "cases": "/home/sami/src/oh-my-pi-worktrees/infra-724-reviewer-gap-evals/scripts/reviewer-gap/cases-c.json",
+  "frozen_at": "2026-10-31T18:02:10Z",
+  "results": [
+    {
+      "arm": "current",
+      "model": "anthropic/claude-opus-5-5",
+      "runs": 68,
+      "erroredRuns": 0,
+      "unformattedRuns": 1,
+      "findings": {
+        "n": 364,
+        "hits": 5,
+        "rate": 0.013736263736263736,
+        "wilson": {
+          "lo": 0.005881202134290504,
+          "hi": 0.03174766891540051
+        },
+        "bootstrap": {
+          "lo": 0.0028089887640449437,
+          "hi": 0.026865671641791045
+        }
+      },
+      "decoys": {
+        "n": 63,
+        "hits": 0,
+        "rate": 0,
+        "wilson": {
+          "lo": 3.2700536737149548e-18,
+          "hi": 0.05747119958885172
+        },
+        "bootstrap": {
+          "lo": 0,
+          "hi": 0
+        }
+      },
+      "findingsAstraMissed": {
+        "n": 149,
+        "hits": 3,
+        "rate": 0.020134228187919462,
+        "wilson": {
+          "lo": 0.006870711186412477,
+          "hi": 0.0575192710646705
+        },
+        "bootstrap": {
+          "lo": 0,
+          "hi": 0.047619047619047616
+        }
+      },
+      "findingsClaudeMissed": {
+        "n": 150,
+        "hits": 2,
+        "rate": 0.013333333333333334,
+        "wilson": {
+          "lo": 0.0036641291512270508,
+          "hi": 0.047306908700367516
+        },
+        "bootstrap": {
+          "lo": 0,
+          "hi": 0.03424657534246575
+        }
+      },
+      "findingsNotInPrior": {
+        "n": 325,
+        "hits": 4,
+        "rate": 0.012307692307692308,
+        "wilson": {
+          "lo": 0.004796347375801586,
+          "hi": 0.031213281285865625
+        },
+        "bootstrap": {
+          "lo": 0.002857142857142857,
+          "hi": 0.025559105431309903
+        }
+      },
+      "decoysNotInPrior": {
+        "n": 57,
+        "hits": 0,
+        "rate": 0,
+        "wilson": {
+          "lo": 0,
+          "hi": 0.06313883485297894
+        },
+        "bootstrap": {
+          "lo": 0,
+          "hi": 0
+        }
+      },
+      "decoysOriginallyAsserted": {
+        "n": 9,
+        "hits": 0,
+        "rate": 0,
+        "wilson": {
+          "lo": 0,
+          "hi": 0.2991450484195441
+        },
+        "bootstrap": {
+          "lo": 0,
+          "hi": 0
+        }
+      },
+      "decoysOriginallyWithdrawn": {
+        "n": 54,
+        "hits": 0,
+        "rate": 0,
+        "wilson": {
+          "lo": 0,
+          "hi": 0.0664135880908964
+        },
+        "bootstrap": {
+          "lo": 0,
+          "hi": 0
+        }
+      },
+      "decoysByClass": {
+        "environment": {
+          "n": 18,
+          "hits": 0
+        },
+        "obsolete-assertion": {
+          "n": 6,
+          "hits": 0
+        },
+        "probe-defect": {
+          "n": 24,
+          "hits": 0
+        },
+        "other": {
+          "n": 9,
+          "hits": 0
+        },
+        "harness-invented": {
+          "n": 6,
+          "hits": 0
+        }
+      },
+      "claims": 53,
+      "unmatchedClaims": 48,
+      "mentionedFindings": {
+        "n": 364,
+        "hits": 12,
+        "rate": 0.03296703296703297,
+        "wilson": {
+          "lo": 0.018957306194195344,
+          "hi": 0.05673144001172258
+        },
+        "bootstrap": {
+          "lo": 0.017094017094017096,
+          "hi": 0.05070422535211268
+        }
+      },
+      "mentionedDecoys": {
+        "n": 63,
+        "hits": 0,
+        "rate": 0,
+        "wilson": {
+          "lo": 3.2700536737149548e-18,
+          "hi": 0.05747119958885172
+        },
+        "bootstrap": {
+          "lo": 0,
+          "hi": 0
+        }
+      },
+      "perCase": {
+        "D-rbudget-r2-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-rbudget-r2-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-rbudget-r3-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-rbudget-r3-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-rbudget-r3-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-rbudget-r3-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-quarantine-r3-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-quarantine-r3-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-quarantine-r3-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-quarantine-r3-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17394-r27-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17394-r27-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17394-r27-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17394-r27-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17394-r27-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17394-r27-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17394-r27-2": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r11-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r11-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r11-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r11-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r13-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r13-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r13-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r13-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17396-r13-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r5-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 2,
+          "mentioned": 2
+        },
+        "D-17396-r5-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r5-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r5-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r5-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17396-r5-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r7-1": {
+          "kind": "finding",
+          "n": 2,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r7-2": {
+          "kind": "finding",
+          "n": 2,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r7-3": {
+          "kind": "finding",
+          "n": 2,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r7-4": {
+          "kind": "finding",
+          "n": 2,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r7-5": {
+          "kind": "finding",
+          "n": 2,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r9-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r9-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17396-r9-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17396-r9-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17396-r9-2": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r41-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r41-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r41-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r41-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r41-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r41-6": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r41-7": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r41-8": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 1
+        },
+        "F-17402-r41-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17402-r41-2": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r43-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r43-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r43-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r43-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r43-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r43-6": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r43-7": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r47-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r47-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r47-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 2
+        },
+        "D-17402-r47-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r47-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r47-6": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r47-7": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r47-8": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r47-9": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17402-r47-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r49-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r49-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r49-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r49-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r49-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r49-6": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r49-7": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r49-8": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r49-9": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17402-r49-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r51-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 1,
+          "mentioned": 2
+        },
+        "D-17402-r51-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r51-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r51-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r51-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r51-6": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r51-7": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r51-8": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r53-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r53-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r53-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r53-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r53-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r53-6": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r53-7": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17402-r53-8": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 1
+        },
+        "D-17402-r53-9": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17402-r53-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17402-r53-2": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17421-r26-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17421-r26-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17421-r26-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17421-r26-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17421-r26-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r10-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r10-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r10-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r10-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r10-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r10-6": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r10-7": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r10-8": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r10-9": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r10-10": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17457-r10-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r12-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r12-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r12-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 1,
+          "mentioned": 1
+        },
+        "D-17457-r12-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r12-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17457-r12-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r14-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r14-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r14-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r14-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r14-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17457-r14-6": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r19-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r21-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r21-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r21-3": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r21-4": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r21-5": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r21-6": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r21-7": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r21-8": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17488-r21-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17488-r21-2": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r23-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r23-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17488-r23-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "F-17488-r23-2": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        },
+        "D-17488-r25-1": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 1
+        },
+        "D-17488-r25-2": {
+          "kind": "finding",
+          "n": 3,
+          "hits": 1,
+          "mentioned": 2
+        },
+        "F-17488-r25-1": {
+          "kind": "decoy",
+          "n": 3,
+          "hits": 0,
+          "mentioned": 0
+        }
+      },
+      "costUsd": 128.46682180000002,
+      "scores": [
+        {
+          "runId": "current__ai-replay-budget-r2__t1",
+          "arm": "current",
+          "head": "ai-replay-budget-r2",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__ai-replay-budget-r2__t2",
+          "arm": "current",
+          "head": "ai-replay-budget-r2",
+          "trial": 2,
+          "claims": 2,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 2,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__ai-replay-budget-r2__t3",
+          "arm": "current",
+          "head": "ai-replay-budget-r2",
+          "trial": 3,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__ai-replay-budget-r3__t1",
+          "arm": "current",
+          "head": "ai-replay-budget-r3",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__ai-replay-budget-r3__t2",
+          "arm": "current",
+          "head": "ai-replay-budget-r3",
+          "trial": 2,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__ai-replay-budget-r3__t3",
+          "arm": "current",
+          "head": "ai-replay-budget-r3",
+          "trial": 3,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__gc-quarantine-r3__t1",
+          "arm": "current",
+          "head": "gc-quarantine-r3",
+          "trial": 1,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__gc-quarantine-r3__t2",
+          "arm": "current",
+          "head": "gc-quarantine-r3",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__gc-quarantine-r3__t3",
+          "arm": "current",
+          "head": "gc-quarantine-r3",
+          "trial": 3,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17394-r27__t1",
+          "arm": "current",
+          "head": "pr17394-r27",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17394-r27__t2",
+          "arm": "current",
+          "head": "pr17394-r27",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17394-r27__t3",
+          "arm": "current",
+          "head": "pr17394-r27",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r11__t1",
+          "arm": "current",
+          "head": "pr17396-r11",
+          "trial": 1,
+          "claims": 2,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 2,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r11__t2",
+          "arm": "current",
+          "head": "pr17396-r11",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r11__t3",
+          "arm": "current",
+          "head": "pr17396-r11",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r13__t1",
+          "arm": "current",
+          "head": "pr17396-r13",
+          "trial": 1,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r13__t2",
+          "arm": "current",
+          "head": "pr17396-r13",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r13__t3",
+          "arm": "current",
+          "head": "pr17396-r13",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r5__t1",
+          "arm": "current",
+          "head": "pr17396-r5",
+          "trial": 1,
+          "claims": 1,
+          "found": [
+            "D-17396-r5-1"
+          ],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [
+            "D-17396-r5-1"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r5__t2",
+          "arm": "current",
+          "head": "pr17396-r5",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r5__t3",
+          "arm": "current",
+          "head": "pr17396-r5",
+          "trial": 3,
+          "claims": 1,
+          "found": [
+            "D-17396-r5-1"
+          ],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [
+            "D-17396-r5-1"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r7__t1",
+          "arm": "current",
+          "head": "pr17396-r7",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r7__t3",
+          "arm": "current",
+          "head": "pr17396-r7",
+          "trial": 3,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r9__t1",
+          "arm": "current",
+          "head": "pr17396-r9",
+          "trial": 1,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r9__t2",
+          "arm": "current",
+          "head": "pr17396-r9",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17396-r9__t3",
+          "arm": "current",
+          "head": "pr17396-r9",
+          "trial": 3,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r41__t1",
+          "arm": "current",
+          "head": "pr17402-r41",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [
+            "D-17402-r41-8"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r41__t2",
+          "arm": "current",
+          "head": "pr17402-r41",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r41__t3",
+          "arm": "current",
+          "head": "pr17402-r41",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r43__t1",
+          "arm": "current",
+          "head": "pr17402-r43",
+          "trial": 1,
+          "claims": 2,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 2,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r43__t2",
+          "arm": "current",
+          "head": "pr17402-r43",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r43__t3",
+          "arm": "current",
+          "head": "pr17402-r43",
+          "trial": 3,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r47__t1",
+          "arm": "current",
+          "head": "pr17402-r47",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [
+            "D-17402-r47-3"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r47__t2",
+          "arm": "current",
+          "head": "pr17402-r47",
+          "trial": 2,
+          "claims": 2,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 2,
+          "mentionedFindings": [
+            "D-17402-r47-3"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r47__t3",
+          "arm": "current",
+          "head": "pr17402-r47",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r49__t1",
+          "arm": "current",
+          "head": "pr17402-r49",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r49__t2",
+          "arm": "current",
+          "head": "pr17402-r49",
+          "trial": 2,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r49__t3",
+          "arm": "current",
+          "head": "pr17402-r49",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r51__t1",
+          "arm": "current",
+          "head": "pr17402-r51",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r51__t2",
+          "arm": "current",
+          "head": "pr17402-r51",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [
+            "D-17402-r51-1"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r51__t3",
+          "arm": "current",
+          "head": "pr17402-r51",
+          "trial": 3,
+          "claims": 2,
+          "found": [
+            "D-17402-r51-1"
+          ],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [
+            "D-17402-r51-1"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r53__t1",
+          "arm": "current",
+          "head": "pr17402-r53",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r53__t2",
+          "arm": "current",
+          "head": "pr17402-r53",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [
+            "D-17402-r53-8"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17402-r53__t3",
+          "arm": "current",
+          "head": "pr17402-r53",
+          "trial": 3,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17421-r26__t1",
+          "arm": "current",
+          "head": "pr17421-r26",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17421-r26__t2",
+          "arm": "current",
+          "head": "pr17421-r26",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17421-r26__t3",
+          "arm": "current",
+          "head": "pr17421-r26",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17457-r10__t1",
+          "arm": "current",
+          "head": "pr17457-r10",
+          "trial": 1,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17457-r10__t2",
+          "arm": "current",
+          "head": "pr17457-r10",
+          "trial": 2,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17457-r10__t3",
+          "arm": "current",
+          "head": "pr17457-r10",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17457-r12__t1",
+          "arm": "current",
+          "head": "pr17457-r12",
+          "trial": 1,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17457-r12__t2",
+          "arm": "current",
+          "head": "pr17457-r12",
+          "trial": 2,
+          "claims": 1,
+          "found": [
+            "D-17457-r12-3"
+          ],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [
+            "D-17457-r12-3"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17457-r12__t3",
+          "arm": "current",
+          "head": "pr17457-r12",
+          "trial": 3,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17457-r14__t1",
+          "arm": "current",
+          "head": "pr17457-r14",
+          "trial": 1,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17457-r14__t2",
+          "arm": "current",
+          "head": "pr17457-r14",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17457-r14__t3",
+          "arm": "current",
+          "head": "pr17457-r14",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r19__t1",
+          "arm": "current",
+          "head": "pr17488-r19",
+          "trial": 1,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r19__t2",
+          "arm": "current",
+          "head": "pr17488-r19",
+          "trial": 2,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r19__t3",
+          "arm": "current",
+          "head": "pr17488-r19",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r21__t1",
+          "arm": "current",
+          "head": "pr17488-r21",
+          "trial": 1,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r21__t2",
+          "arm": "current",
+          "head": "pr17488-r21",
+          "trial": 2,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r21__t3",
+          "arm": "current",
+          "head": "pr17488-r21",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r23__t1",
+          "arm": "current",
+          "head": "pr17488-r23",
+          "trial": 1,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r23__t2",
+          "arm": "current",
+          "head": "pr17488-r23",
+          "trial": 2,
+          "claims": 0,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 0,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r23__t3",
+          "arm": "current",
+          "head": "pr17488-r23",
+          "trial": 3,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r25__t1",
+          "arm": "current",
+          "head": "pr17488-r25",
+          "trial": 1,
+          "claims": 2,
+          "found": [
+            "D-17488-r25-2"
+          ],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [
+            "D-17488-r25-2"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r25__t2",
+          "arm": "current",
+          "head": "pr17488-r25",
+          "trial": 2,
+          "claims": 1,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 1,
+          "mentionedFindings": [
+            "D-17488-r25-1"
+          ],
+          "mentionedDecoys": []
+        },
+        {
+          "runId": "current__pr17488-r25__t3",
+          "arm": "current",
+          "head": "pr17488-r25",
+          "trial": 3,
+          "claims": 2,
+          "found": [],
+          "asserted": [],
+          "unmatchedClaims": 2,
+          "mentionedFindings": [
+            "D-17488-r25-2"
+          ],
+          "mentionedDecoys": []
+        }
+      ]
+    }
+  ],
+  "pairs": []
+}
