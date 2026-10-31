@@ -33,8 +33,10 @@ const BATCH = "/mnt/nvme/tmp-omp-batch";
 
 /**
  * One donor per (bun.lock blob, crates tree). A head is usable only when a
- * donor shares both: its dependencies, and a native addon built from the same
- * Rust, since no reviewer can build Rust here.
+ * donor's source tree shares both: the same dependencies, and the same Rust
+ * the native addon is meant to come from, since no reviewer can build Rust
+ * here. The batch's exports reused one addon binary across Rust trees, so the
+ * crates match narrows the risk; it does not prove the binary's origin.
  */
 export const DONORS = [
 	{ lock: "ad3b2401", crates: "8cd4b931", dir: `${ROOT}/donor-ad3b2401`, from: "17396 export at 85917d21" },
