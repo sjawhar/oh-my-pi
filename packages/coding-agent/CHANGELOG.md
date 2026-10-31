@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `async.maxJobs` now sets the cap on background jobs running at once in a session and its subagents without the fixed 100 ceiling, and `0` means no limit; the default stays 100
+
 ## [18.14.2] - 2026-10-31
 
 ### Added
