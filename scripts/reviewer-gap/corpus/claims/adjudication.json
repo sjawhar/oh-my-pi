@@ -1,0 +1,15 @@
+{
+	"why": "The extractors encoded 'the original reviewer withdrew this claim' in two structured places (refuted_by.kind self-withdrawn, asserted_as mentioned-and-discounted) and sometimes only in prose. A cross-family review of the frozen lane (openai/gpt-6-astra, 2026-10-31) found seven decoys whose own note or claim text says the reviewer withdrew them in the same report while neither structured field says so, and one decoy whose refutation is the author's stated reason for keeping the behaviour. Each entry below was checked against the record's note and claim text; the corpus records themselves are unchanged.",
+	"origin": {
+		"F-17394-r28-1": { "origin": "withdrawn", "because": "note: Claude put the 21 failures in its gate table and refuted them in the same report with a longer-timeout rerun" },
+		"F-17394-r30-1": { "origin": "withdrawn", "because": "note: Claude refuted it in the same section by rerunning it alone" },
+		"F-17396-r9-1": { "origin": "withdrawn", "because": "note: disclosed in the manifest's limitations, not asserted in the findings list" },
+		"F-17396-r9-2": { "origin": "withdrawn", "because": "note: never asserted in the findings list; the report heads the section 'both failures mine'" },
+		"F-17402-r41-2": { "origin": "withdrawn", "because": "claim text: 'Do not claim a deterministic failure', after an independent process copied all 20,000 links" },
+		"F-17402-r53-1": { "origin": "withdrawn", "because": "claim text: 'that half is my harness inventing a return — discount it'" },
+		"F-17457-r16-1": { "origin": "withdrawn", "because": "note: raised and refuted inside the same paragraph; never entered the findings list" }
+	},
+	"deliberate": {
+		"F-17457-r14-1": { "because": "the refutation is the site's comment stating why the flush runs outside the hold, and the fix lane kept it on purpose: the behaviour exists and is intended, which the selection rule calls a disagreement, not a decoy" }
+	}
+}

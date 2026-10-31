@@ -1,28 +1,14 @@
 {
-	"frozen_at": "2026-10-31T12:48:02Z",
+	"frozen_at": "2026-10-31T18:02:10Z",
 	"window_chars": 1200,
 	"report_format": "claims",
-	"selection": "A head is selected when any of these holds: (a) both arms (openai/gpt-6-astra and a Claude model) reviewed it and reported, and no defect at it labels either arm not-run; (b) a reviewer asserted a decoy at it, rather than raising and withdrawing it in the same report; (c) a defect at it was missed by every arm that reviewed it (found later and measured on this head). A selected head is kept only when a donor shares its bun.lock blob and its crates tree. A decoy refuted only by a deliberate change counts only as an obsolete assertion: a behaviour the author kept on purpose and a reviewer still calls a defect is a disagreement, not a decoy.",
+	"selection": "A head is selected when any of these holds: (a) both arms (openai/gpt-6-astra and a Claude model) reviewed it and reported, at least one defect is recorded at it, and no defect at it labels either arm not-run; (b) a reviewer asserted a decoy at it, rather than raising and withdrawing it in the same report; (c) a defect at it was missed by every arm that reviewed it (found later and measured on this head). A selected head is kept only when a donor shares its bun.lock blob and its crates tree. A decoy refuted only by a deliberate change counts only as an obsolete assertion: a behaviour the author kept on purpose and a reviewer still calls a defect is a disagreement, not a decoy.",
 	"selected": {
 		"selected": [
 			{
 				"id": "pr17394-r27",
 				"reasons": [
 					"a",
-					"b"
-				],
-				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
-			},
-			{
-				"id": "pr17394-r28",
-				"reasons": [
-					"b"
-				],
-				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
-			},
-			{
-				"id": "pr17394-r30",
-				"reasons": [
 					"b"
 				],
 				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
@@ -44,8 +30,7 @@
 			{
 				"id": "pr17396-r9",
 				"reasons": [
-					"a",
-					"b"
+					"a"
 				],
 				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
 			},
@@ -66,8 +51,7 @@
 			{
 				"id": "pr17402-r41",
 				"reasons": [
-					"a",
-					"b"
+					"a"
 				],
 				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
 			},
@@ -102,8 +86,7 @@
 			{
 				"id": "pr17402-r53",
 				"reasons": [
-					"a",
-					"b"
+					"a"
 				],
 				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
 			},
@@ -131,15 +114,7 @@
 			{
 				"id": "pr17457-r14",
 				"reasons": [
-					"a",
-					"b"
-				],
-				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
-			},
-			{
-				"id": "pr17457-r16",
-				"reasons": [
-					"b"
+					"a"
 				],
 				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
 			},
@@ -219,38 +194,6 @@
 			],
 			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17394-r27",
 			"prior_round": 26
-		},
-		{
-			"id": "pr17394-r28",
-			"pr": 17394,
-			"round": 28,
-			"head_sha": "ef1c506c5ac97538b11eb4c0006ee6e5582218fe",
-			"base_sha": "b30e5227db2b15ce8a919be87cf1fa3cf8fc9138",
-			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/ef1c506c5ac97538b11eb4c0006ee6e5582218fe",
-			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/ef1c506c5ac97538b11eb4c0006ee6e5582218fe.diff",
-			"subject": "fix(eval): end the Python runner and JavaScript worker a session leaves behind",
-			"packages": [
-				"packages/coding-agent",
-				"packages/utils"
-			],
-			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17394-r28",
-			"prior_round": 27
-		},
-		{
-			"id": "pr17394-r30",
-			"pr": 17394,
-			"round": 30,
-			"head_sha": "d9550d59fb310ae6ece93d15d0d75a59ad20f2d8",
-			"base_sha": "b30e5227db2b15ce8a919be87cf1fa3cf8fc9138",
-			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/d9550d59fb310ae6ece93d15d0d75a59ad20f2d8",
-			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/d9550d59fb310ae6ece93d15d0d75a59ad20f2d8.diff",
-			"subject": "fix(eval): end the Python runner and JavaScript worker a session leaves behind",
-			"packages": [
-				"packages/coding-agent",
-				"packages/utils"
-			],
-			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17394-r30",
-			"prior_round": 28
 		},
 		{
 			"id": "pr17396-r5",
@@ -522,30 +465,6 @@
 			],
 			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17457-r14",
 			"prior_round": 12
-		},
-		{
-			"id": "pr17457-r16",
-			"pr": 17457,
-			"round": 16,
-			"head_sha": "763fe5d391be7f1681745ea3a1de55a72b65b051",
-			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
-			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/763fe5d391be7f1681745ea3a1de55a72b65b051",
-			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/763fe5d391be7f1681745ea3a1de55a72b65b051.diff",
-			"subject": "fix(coding-agent): stop work scheduled before disposal from running inside it",
-			"packages": [
-				"packages/agent",
-				"packages/ai",
-				"packages/catalog",
-				"packages/coding-agent",
-				"packages/mnemopi",
-				"packages/natives",
-				"packages/omptype",
-				"packages/stats",
-				"packages/tui",
-				"packages/utils"
-			],
-			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17457-r16",
-			"prior_round": 14
 		},
 		{
 			"id": "pr17488-r19",
@@ -895,406 +814,6 @@
 			],
 			"found_by": {
 				"astra": "missed",
-				"claude": "found"
-			}
-		},
-		{
-			"id": "D-17394-r28-1",
-			"head": "pr17394-r28",
-			"severity": "P1",
-			"how_found_primary": "real-kernel-resource",
-			"title": "assertTreeListable guesses which directories git reads, and both of its skips lose a file",
-			"mechanism": [
-				[
-					"assertTreeListable",
-					"skip list",
-					"the walk",
-					"discoverNestedRepos"
-				],
-				[
-					"node_modules"
-				],
-				[
-					"\\.git",
-					"gitfile",
-					"dangling symlink",
-					"empty file",
-					"lstat"
-				],
-				[
-					"git (has no such rule|agrees with neither|descends|walks into)",
-					"disagree",
-					"git never",
-					"warns past"
-				]
-			],
-			"trigger": [
-				[
-					"removed",
-					"only copy",
-					"IRREPLACEABLE",
-					"no `only-copy`",
-					"reported success"
-				]
-			],
-			"found_by": {
-				"astra": "not-run",
-				"claude": "found"
-			}
-		},
-		{
-			"id": "D-17394-r28-2",
-			"head": "pr17394-r28",
-			"severity": "P1",
-			"how_found_primary": "real-kernel-resource",
-			"title": "the walk refuses a run git was never going to look at, and the work it would have carried is not handed back",
-			"mechanism": [
-				[
-					"gitignore",
-					"ignored",
-					"\\.gitignore"
-				],
-				[
-					"refus\\w*",
-					"raise[sd]?",
-					"ends? it",
-					"cannot start"
-				],
-				[
-					"never (looked|warned|going to look)",
-					"was never at risk",
-					"nothing was ever at risk",
-					"git reads it through"
-				],
-				[
-					"not handed back",
-					"unreturned",
-					"returns nothing",
-					"work.{0,20}(lost|unreturned)",
-					"worktree clear"
-				]
-			],
-			"trigger": [
-				[
-					"build/cache",
-					"target/",
-					"\\.venv",
-					"__pycache__",
-					"mode 0000",
-					"0000"
-				]
-			],
-			"found_by": {
-				"astra": "not-run",
-				"claude": "found"
-			}
-		},
-		{
-			"id": "D-17394-r28-3",
-			"head": "pr17394-r28",
-			"severity": "P2",
-			"how_found_primary": "two-processes-barrier",
-			"title": "the listability check is not atomic with the listing it protects",
-			"mechanism": [
-				[
-					"atomic",
-					"in between",
-					"window",
-					"pre-?check",
-					"check before a listing"
-				],
-				[
-					"silentlyShort",
-					"85 of 400",
-					"85",
-					"returned success with the file missing"
-				],
-				[
-					"lsFiles",
-					"the listing",
-					"repo\\.lsFiles"
-				]
-			],
-			"trigger": [
-				[
-					"400 captures",
-					"trials.{0,10}400",
-					"second process",
-					"flipping",
-					"0700",
-					"0000"
-				]
-			],
-			"found_by": {
-				"astra": "not-run",
-				"claude": "found"
-			}
-		},
-		{
-			"id": "D-17394-r28-4",
-			"head": "pr17394-r28",
-			"severity": "P2",
-			"how_found_primary": "measure-timing",
-			"title": "the walk costs a full cold metadata traversal of the working tree on every delta capture",
-			"mechanism": [
-				[
-					"cost",
-					"ms",
-					"traversal",
-					"12\\.8 ?s"
-				],
-				[
-					"walk"
-				],
-				[
-					"cold",
-					"warm",
-					"serial",
-					"every (delta )?capture",
-					"metadata"
-				],
-				[
-					"20 ?201",
-					"5 ?051",
-					"846",
-					"6 ?587",
-					"directories"
-				]
-			],
-			"trigger": [
-				[
-					"captureDeltaPatch",
-					"freshly materialised",
-					"lstat",
-					"gitignored",
-					"cache"
-				]
-			],
-			"found_by": {
-				"astra": "not-run",
-				"claude": "found"
-			}
-		},
-		{
-			"id": "D-17394-r28-5",
-			"head": "pr17394-r28",
-			"severity": "P2",
-			"how_found_primary": "write-probe",
-			"title": "the rebuilt import gate is still a text and name check: six more read surfaces pass it",
-			"mechanism": [
-				[
-					"FS_MODULES",
-					"\"bun\"",
-					"ALLOWED",
-					"ENTRY_POINTS",
-					"gate"
-				],
-				[
-					"bypass",
-					"escape",
-					"`0` \\*\\*bypass\\*\\*"
-				],
-				[
-					"ALLOWED\\.test\\(line\\)",
-					"whole line",
-					"sharing the line",
-					"split over lines",
-					"multiline",
-					"one relative file away",
-					"entriesOf",
-					"name filter"
-				]
-			],
-			"trigger": [
-				[
-					"mutation",
-					"gate-case",
-					"twelve cases",
-					"one mutation"
-				]
-			],
-			"found_by": {
-				"astra": "not-run",
-				"claude": "found"
-			}
-		},
-		{
-			"id": "D-17394-r30-1",
-			"head": "pr17394-r30",
-			"severity": "P1",
-			"how_found_primary": "inject-fault",
-			"title": "the new git subprocess inherits an environment the repository strips everywhere else, so the capture lists another tree",
-			"mechanism": [
-				[
-					"GIT_WORK_TREE",
-					"GIT_DIR",
-					"GIT_INDEX_FILE",
-					"environment"
-				],
-				[
-					"Bun\\.spawn",
-					"listUntracked",
-					"spawn",
-					"subprocess",
-					"hand-spawned"
-				],
-				[
-					"-C",
-					"does not beat",
-					"outrank",
-					"inherit"
-				],
-				[
-					"cli\\.rs",
-					"strips",
-					"apply_env",
-					"environment contract",
-					"stripped"
-				]
-			],
-			"trigger": [
-				[
-					"empty",
-					"patch length\\s+: 0",
-					"DATA LOST",
-					"only copy",
-					"removed"
-				]
-			],
-			"found_by": {
-				"astra": "not-run",
-				"claude": "found"
-			}
-		},
-		{
-			"id": "D-17394-r30-2",
-			"head": "pr17394-r30",
-			"severity": "P1",
-			"how_found_primary": "inject-fault",
-			"title": "every line on git's stderr is treated as a directory git did not read, so healthy captures are refused",
-			"mechanism": [
-				[
-					"stderr"
-				],
-				[
-					"could not open directory",
-					"fallback",
-					"line\\.trim",
-					"unreadable\\.push",
-					"any line"
-				],
-				[
-					"GIT_TRACE",
-					"unable to access",
-					"excludesFile",
-					"locale",
-					"tracing"
-				],
-				[
-					"refus\\w*",
-					"raises",
-					"nothing was at risk",
-					"not handed back"
-				]
-			],
-			"trigger": [
-				[
-					"LC_MESSAGES",
-					"translated",
-					"reworded",
-					"0400",
-					"\\.gitignore"
-				]
-			],
-			"found_by": {
-				"astra": "not-run",
-				"claude": "found"
-			}
-		},
-		{
-			"id": "D-17394-r30-3",
-			"head": "pr17394-r30",
-			"severity": "P2",
-			"how_found_primary": "real-kernel-resource",
-			"title": "the walk the commit message says it deleted still runs at baseline and still refuses the gitignored case",
-			"mechanism": [
-				[
-					"discoverNestedRepos",
-					"the walk",
-					"recursive walk"
-				],
-				[
-					"baseline",
-					"captureBaseline"
-				],
-				[
-					"still (runs|refuses|calls)",
-					"not gone",
-					"is the same",
-					"last place"
-				],
-				[
-					"gitignored",
-					"ignored",
-					"target/cache",
-					"\\.gitignore"
-				]
-			],
-			"trigger": [
-				[
-					"0000",
-					"mode 0000",
-					"cannot start",
-					"baseline raised",
-					"after the baseline",
-					"new test"
-				]
-			],
-			"found_by": {
-				"astra": "not-run",
-				"claude": "found"
-			}
-		},
-		{
-			"id": "D-17394-r30-4",
-			"head": "pr17394-r30",
-			"severity": "P2",
-			"how_found_primary": "write-probe",
-			"title": "the resolved-specifier gate pins a package rather than its symbols, and an existing export of that package is the collapse it forbids",
-			"mechanism": [
-				[
-					"ALLOWED_PACKAGES",
-					"NOT_THIS_SUBSYSTEM",
-					"pi-utils",
-					"pinned",
-					"package"
-				],
-				[
-					"directoryExists",
-					"existing export",
-					"real-export",
-					"already exports"
-				],
-				[
-					"bypass",
-					"reopened",
-					"new",
-					"exit.{0,12}`?0`?",
-					"hole"
-				]
-			],
-			"trigger": [
-				[
-					"parallel\\.ts",
-					"\\.js",
-					"computed",
-					"globalThis",
-					"Transpiler",
-					"resolve\\(\\)"
-				]
-			],
-			"found_by": {
-				"astra": "not-run",
 				"claude": "found"
 			}
 		},
@@ -5255,80 +4774,6 @@
 			]
 		},
 		{
-			"id": "F-17394-r28-1",
-			"head": "pr17394-r28",
-			"title": "21 CLI test failures reported as a head gate result, all of them a 30-second budget on a loaded, 96%-full box",
-			"decoy_class": "environment",
-			"refuted_by": "measurement",
-			"origin": "asserted",
-			"mechanism": [
-				[
-					"21 fail",
-					"21 failures",
-					"cli-headless",
-					"cli-completions-exit",
-					"cli-launch"
-				],
-				[
-					"timed out after 30000",
-					"30 ?s (budget|cap|deadline)",
-					"--timeout",
-					"exitCode 143",
-					"timeout"
-				],
-				[
-					"96% full",
-					"under other load",
-					"load",
-					"spawns? the built binary"
-				]
-			],
-			"trigger": [
-				[
-					"regression-subset",
-					"bun test test/cli",
-					"gate",
-					"exit.{0,12}`?1`?"
-				]
-			]
-		},
-		{
-			"id": "F-17394-r30-1",
-			"head": "pr17394-r30",
-			"title": "a task-subset failure in parked-subagent-session-release reported in the head's gate table, which passes when rerun alone",
-			"decoy_class": "environment",
-			"refuted_by": "measurement",
-			"origin": "asserted",
-			"mechanism": [
-				[
-					"parked-subagent-session-release",
-					"settings overlay",
-					"parks without retaining"
-				],
-				[
-					"weak[- ]reference",
-					"COLLECT_DEADLINE_MS",
-					"collected\\(",
-					"collection deadline"
-				],
-				[
-					"rerun alone",
-					"exits? `?0`?",
-					"passes alone",
-					"serialis"
-				]
-			],
-			"trigger": [
-				[
-					"task subset",
-					"748 pass",
-					"749",
-					"unserialised",
-					"nine other lanes"
-				]
-			]
-		},
-		{
 			"id": "F-17396-r5-1",
 			"head": "pr17396-r5",
 			"title": "a connection hold can be charged against the two-hold budget without being taken",
@@ -5372,7 +4817,7 @@
 			"title": "the credential-rotation probe's exit 1: `rotate()` was expected to return a wait duration",
 			"decoy_class": "harness-invented",
 			"refuted_by": "code-fact",
-			"origin": "asserted",
+			"origin": "withdrawn",
 			"mechanism": [
 				[
 					"hint-auth",
@@ -5409,7 +4854,7 @@
 			"title": "a credential-rotation race hangs the cancellation path (`rotation-race` times out at 120 s)",
 			"decoy_class": "probe-defect",
 			"refuted_by": "measurement",
-			"origin": "asserted",
+			"origin": "withdrawn",
 			"mechanism": [
 				[
 					"rotation-race",
@@ -5479,7 +4924,7 @@
 			"title": "An autocomplete provider's disposer is handed back to the extension and runs at the host after the session has gone",
 			"decoy_class": "harness-invented",
 			"refuted_by": "code-fact",
-			"origin": "asserted",
+			"origin": "withdrawn",
 			"mechanism": [
 				[
 					"autocomplete|addAutocompleteProvider"
@@ -5527,7 +4972,7 @@
 			"title": "Copying a 20,000-link graph overflows the stack at this head",
 			"decoy_class": "environment",
 			"refuted_by": "measurement",
-			"origin": "asserted",
+			"origin": "withdrawn",
 			"mechanism": [
 				[
 					"20,000|deep chain|link chain|recursive copy"
@@ -5618,30 +5063,6 @@
 			]
 		},
 		{
-			"id": "F-17457-r16-1",
-			"head": "pr17457-r16",
-			"title": "an authenticated HTTP/2 stream with Bearer headers appears at the server after the hold began, during the TLS settings exchange",
-			"decoy_class": "probe-defect",
-			"refuted_by": "measurement",
-			"origin": "asserted",
-			"mechanism": [
-				[
-					"settings exchange|announces an HTTP/?2 session|stream event"
-				],
-				[
-					"after the hold|post-?hold send|while held"
-				],
-				[
-					"Bearer|authenticated (request|send)"
-				]
-			],
-			"trigger": [
-				[
-					"hold|held|beginDispose"
-				]
-			]
-		},
-		{
 			"id": "F-17457-r10-1",
 			"head": "pr17457-r10",
 			"title": "the raw `stream` and `complete` APIs lose their hold when a resolver-valued key resolution crosses disposal (two credential-crossing timeouts)",
@@ -5686,30 +5107,6 @@
 			"trigger": [
 				[
 					"Cursor|disposal"
-				]
-			]
-		},
-		{
-			"id": "F-17457-r14-1",
-			"head": "pr17457-r14",
-			"title": "the auth broker's observed-usage flush is the one runOutsideRequestHold entrance with no admitSharedStart, so a held job can start that broker POST",
-			"decoy_class": "other",
-			"refuted_by": "code-fact",
-			"origin": "asserted",
-			"mechanism": [
-				[
-					"remote-store\\.ts:16|observed[- ]usage|usage flush|recordObservedUsage"
-				],
-				[
-					"runOutsideRequestHold|admitSharedStart"
-				],
-				[
-					"only .{0,24}site without|no admission check|has no admission|without `?admitSharedStart`?"
-				]
-			],
-			"trigger": [
-				[
-					"held (job|caller)|while held|from a held"
 				]
 			]
 		},

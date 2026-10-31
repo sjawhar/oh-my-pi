@@ -28,36 +28,52 @@
 	},
 	"cases": {
 		"file": "cases-c.json",
-		"sha256": "ebe505b9a256a0c3672bf88ea49425ac635cc2b934d4ce0e0301d1bda3caa7a2",
+		"sha256": "7ccd5d59694bd7fffb03cd4fbf9e841c8cecdfeb3a034d97cf8086f7445111f1",
 		"built_by": "bun scripts/reviewer-gap/claims-build.ts cases, then setup (setup adds prior_overlap)",
-		"selection": "A head is selected when (a) both arms reviewed it and reported, and no defect at it labels either arm not-run; (b) a reviewer asserted a decoy at it rather than raising and withdrawing it in the same report; or (c) a defect at it was missed by every arm that reviewed it. It is kept only when a donor shares its bun.lock blob and its crates tree. A decoy refuted only by a deliberate change counts only as an obsolete assertion.",
-		"heads": 26,
-		"findings": 132,
-		"decoys": 25,
-		"selected_by_rule": { "a": 18, "b": 10, "c": 3, "note": "a head can meet more than one rule; 26 heads in all" },
+		"selection": "A head is selected when (a) both arms reviewed it and reported, at least one defect is recorded at it, and no defect at it labels either arm not-run; (b) a reviewer asserted a decoy at it rather than raising and withdrawing it in the same report; or (c) a defect at it was missed by every arm that reviewed it. It is kept only when a donor shares its bun.lock blob and its crates tree. A decoy refuted only by a deliberate change, or by the author's stated reason for keeping the behaviour, counts only as an obsolete assertion.",
+		"heads": 23,
+		"findings": 123,
+		"decoys": 21,
+		"selected_by_rule": { "a": 18, "b": 3, "c": 3, "note": "a head can meet more than one rule; 23 heads in all" },
 		"excluded": [{ "head": "pr17421-r18", "rule": "b", "why": "no donor shares bun.lock ad3b2401 and crates e7b015bb; its native addon cannot be built here" }],
 		"findings_by_original_arm": {
 			"both found": 12,
 			"astra found, Claude missed": 50,
 			"Claude found, astra missed": 47,
 			"astra found, Claude not run": 11,
-			"Claude found, astra not run": 9,
 			"astra missed, Claude not run": 3
 		},
 		"decoys_by_origin": {
-			"asserted": 11,
-			"withdrawn": 14,
-			"note": "Most of the batch's false claims were caught by the reviewer that raised them: 14 of the 25 were raised and withdrawn in the same report, and no reviewer in rounds 21-27 of #17488 or in #17396 put an obsolete assertion in its findings as a regression. A decoy still counts when a fresh reviewer under another prompt asserts it."
+			"asserted": 3,
+			"withdrawn": 18,
+			"asserted_ids": ["F-17394-r27-1", "F-rbudget-r2-1", "F-rbudget-r3-1"],
+			"note": "The batch's reviewers caught most of their own false claims: 18 of the 21 were raised and withdrawn in the same report. A decoy still counts when a fresh reviewer under another prompt asserts it."
 		},
-		"decoys_by_class": { "environment": 8, "probe-defect": 9, "harness-invented": 2, "obsolete-assertion": 2, "other": 4 },
-		"prior_overlap": "15 case ids whose patterns already fire on a file of the earlier round the run is pointed at (13 findings, 2 decoys). A reviewer can claim those by repeating the earlier report, so every rate is also reported without them."
+		"decoys_by_class": { "environment": 6, "probe-defect": 8, "harness-invented": 2, "obsolete-assertion": 2, "other": 3 },
+		"prior_overlap": "15 case ids whose patterns already fire on a file of the earlier round the run is pointed at (13 findings, 2 decoys). A reviewer can claim those by repeating the earlier report, so every rate is also reported without them.",
+		"adjudication": "corpus/claims/adjudication.json, sha256 3b473cd5068e402d0877761caa273ea27da53d7637dc994681934355496d63c9"
+	},
+	"revision_2": {
+		"at": "2026-10-31T18:02Z, after the baseline runs started and before they were scored; the only earlier look was a format check on the first 4 runs, every count of which was zero",
+		"why": "A cross-family review of revision 1 (openai/gpt-6-astra) reproduced defects in the frozen classification and scorer. Each was checked before it was applied.",
+		"changes": [
+			"Seven decoys whose own note or claim text says the original reviewer withdrew them were classed as asserted (adjudication.json lists each with its reason). With them withdrawn, pr17394-r28, pr17394-r30 and pr17457-r16 no longer meet any rule and leave the cases: 26 heads, 132 findings, 25 decoys become 23, 123, 21. The 6 runs already recorded on pr17394-r28 and pr17394-r30 stay on disk and are not scored; the 3 on pr17457-r16 were never started.",
+			"F-17457-r14-1's refutation is the author's stated reason for keeping the behaviour, which the selection rule calls a disagreement: excluded.",
+			"Fenced blocks close only on a fence of the same character at least as long as the opening one; before, a short fence inside a long one closed it and a quoted `## DEFECT:` became a claim.",
+			"A setext heading (a line underlined with === or ---) is a heading; a `NOT A DEFECT` heading at any level ends a defect section.",
+			"`NO DEFECTS` counts only on a line of its own outside quoted output and block quotes.",
+			"The paired comparison leaves out of an interval a bootstrap draw with no case of that kind, instead of reading it as zero, and refuses two runs of one arm on one head and trial.",
+			"Runs on heads outside the case file are not scored, and the count left out is printed.",
+			"Rule (a)'s text now says what the code always required: at least one defect at the head."
+		]
 	},
 	"report_format": {
 		"name": "claims",
-		"rule": "The run prompt asks for one `## DEFECT:` section per asserted defect and one `## NOT A DEFECT` section for everything examined and cleared, or the line `NO DEFECTS`. A claimed section runs from a heading whose text starts with `DEFECT` and a separator to the next heading of the same or a higher level; a heading inside a fenced block is output, not structure.",
-		"scored": "A finding is found, and a decoy is asserted, when its patterns fire inside one claimed section. A run whose report neither claims anything nor says NO DEFECTS is unformatted: excluded from n and counted, like an errored run. The whole-report rule of the earlier lanes is reported as `mentioned`, a diagnostic: a decoy no run mentions measured nothing.",
+		"rule": "The run prompt asks for one `## DEFECT:` section per asserted defect and one `## NOT A DEFECT` section for everything examined and cleared, or the line `NO DEFECTS`. A claimed section runs from a heading whose text starts with `DEFECT` and a separator to the next heading of the same or a higher level, or to a `NOT A DEFECT` heading at any level. Headings are ATX or setext; a heading inside a fenced block is output, not structure.",
+		"scored": "A finding is found, and a decoy is asserted, when its patterns fire inside one claimed section. A run whose report neither claims anything nor says NO DEFECTS on a line of its own is unformatted: excluded from n and counted, like an errored run. The whole-report rule of the earlier lanes is reported as `mentioned`, a diagnostic: a decoy no run mentions measured nothing.",
 		"scorer": "claims.ts",
-		"scorer_sha256": "bfb16de9a35345b875ec5086421641b94f6da3c9dc31d20d59e02e8727835516"
+		"scorer_sha256": "ba20299d4fd361aae1d9c54a6ddce13145d185430bbe2ba19a97b2bb258a6ef9",
+		"builder_sha256": "2416bbafd4b083a87eea7a58645a41d7b38c27b1d16cc9891ed51c3a14d94f21"
 	},
 	"held_fixed": {
 		"arm": "current only. This run is the baseline the brief asked for; control and candidate arms run later against the same frozen cases.",

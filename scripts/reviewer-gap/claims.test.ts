@@ -238,6 +238,80 @@ describe("compareClaims", () => {
 	});
 });
 
+describe("review findings on the frozen scorer", () => {
+	const decoyText = "The addAutocompleteProvider disposer runs after the session.";
+
+	test("a short fence inside a longer one does not close it, so a quoted DEFECT heading is no claim", () => {
+		const report = ["````markdown", "```ts", "## DEFECT: quoted", decoyText, "```", "````", "NO DEFECTS"].join("\n");
+		expect(claimedSections(report)).toEqual([]);
+		expect(scoreRun(cases, run(report)).asserted).toEqual([]);
+	});
+
+	test("a setext NOT A DEFECT heading ends the defect section before it", () => {
+		const report = [
+			"## DEFECT: fifo",
+			"A FIFO at the name hangs inside the gc lock.",
+			"",
+			"NOT A DEFECT",
+			"------------",
+			decoyText,
+		].join("\n");
+		const s = scoreRun(cases, run(report));
+		expect(s.found).toEqual(["D-2"]);
+		expect(s.asserted).toEqual([]);
+	});
+
+	test("a NOT A DEFECT heading deeper than the defect heading still ends it", () => {
+		const report = [
+			"## DEFECT: fifo",
+			"A FIFO at the name hangs inside the gc lock.",
+			"### NOT A DEFECT",
+			decoyText,
+		].join("\n");
+		expect(scoreRun(cases, run(report)).asserted).toEqual([]);
+	});
+
+	test("NO DEFECTS inside quoted output or a block quote is not the reviewer's verdict", () => {
+		expect(isFormatted("```text\nNO DEFECTS\n```")).toBe(false);
+		expect(isFormatted("> NO DEFECTS")).toBe(false);
+		expect(isFormatted("**NO DEFECTS**")).toBe(true);
+	});
+
+	test("a bootstrap draw with no decoy is left out of the decoy interval, not read as zero", () => {
+		const sparse: ClaimsCaseFile = {
+			...cases,
+			heads: [head, { ...head, id: "h2" }],
+			findings: [
+				...cases.findings,
+				{ ...(cases.findings[0] as ClaimsCaseFile["findings"][0]), id: "D-3", head: "h2" },
+			],
+		};
+		const claim = `## DEFECT: disposer\n${decoyText}`;
+		const runs = [
+			run(claim, { runId: "a1", arm: "a" }),
+			run("NO DEFECTS", { runId: "b1", arm: "b" }),
+			run("NO DEFECTS", { runId: "a2", arm: "a", head: "h2" }),
+			run("NO DEFECTS", { runId: "b2", arm: "b", head: "h2" }),
+		];
+		const p = compareClaims(sparse, gradeClaims(sparse, runs), "a", "b");
+		expect(p.decoys).toEqual({ deltaPp: 100, lo: 100, hi: 100 });
+	});
+
+	test("two runs of one arm on the same head and trial stop the comparison", () => {
+		const runs = [
+			run("NO DEFECTS", { runId: "a1", arm: "a" }),
+			run("NO DEFECTS", { runId: "a1b", arm: "a" }),
+			run("NO DEFECTS", { runId: "b1", arm: "b" }),
+		];
+		expect(() => compareClaims(cases, gradeClaims(cases, runs), "a", "b")).toThrow("two runs on h1__t1");
+	});
+
+	test("a run on a head outside the case file is not scored", () => {
+		const [r] = gradeClaims(cases, [run("NO DEFECTS"), run("NO DEFECTS", { runId: "x", head: "elsewhere" })]);
+		expect(r?.runs).toBe(1);
+	});
+});
+
 describe("promptSatisfies", () => {
 	test("a prompt that states a case's mechanism and trigger satisfies it", () => {
 		expect(promptSatisfies("Check whether a FIFO hangs inside the gc lock.", cases)).toEqual(["D-2"]);
@@ -353,7 +427,7 @@ describe.if(fs.existsSync(casesPath))("cases-c.json", () => {
 		const ids = new Set(cases.heads.map(h => h.id));
 		const want = [
 			...corpus.defects.filter(d => ids.has(headId(d))).map(d => d.id),
-			...corpus.decoys.filter(d => ids.has(headId(d)) && decoyEligible(d)).map(d => d.id),
+			...corpus.decoys.filter(d => ids.has(headId(d)) && decoyEligible(d, corpus.adjudication)).map(d => d.id),
 		].sort();
 		expect([...cases.findings.map(f => f.id), ...cases.decoys.map(d => d.id)].sort()).toEqual(want);
 		for (const f of cases.findings) expect(ids.has(f.head)).toBe(true);

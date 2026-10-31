@@ -100,48 +100,102 @@ export function asPatterns(d: Decoy): Finding {
 	};
 }
 
-const HEADING = /^(#{1,6})[ \t]+(.*)$/;
-const FENCE = /^\s*(```|~~~)/;
+const ATX = /^ {0,3}(#{1,6})[ \t]+(.*)$/;
+const SETEXT_UNDERLINE = /^ {0,3}(=+|-+)[ \t]*$/;
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 /** `DEFECT:`, `DEFECT 2:`, `**Defect** -`; never `DEFECTS`, `Defect status` or `NOT A DEFECT`. */
 const DEFECT_HEADING = /^[\W_]*defect\b[\W_]*\d*[\W_]*?\s*[:.\-–—]/i;
-const NO_DEFECTS = /^[\W_]*no defects[\W_]*$/im;
+const CLEARED_HEADING = /^[\W_]*(not\s+(a\s+)?defects?|non-?defects?)\b/i;
+const NO_DEFECTS = /^[ \t]*[*_`]*[ \t]*no defects( found)?[ \t]*[*_`.!]*[ \t]*$/i;
 
 export function isDefectHeading(text: string): boolean {
 	return DEFECT_HEADING.test(text) && !/^[\W_]*defects\b/i.test(text);
 }
 
+interface MarkdownLine {
+	text: string;
+	/** Inside a fenced block, or one of its fence lines: quoted output, never structure. */
+	fenced: boolean;
+	heading?: { level: number; text: string };
+}
+
+/**
+ * The lines of a report with the structure CommonMark gives them: fenced
+ * blocks close only on a fence of the same character at least as long as the
+ * opening one, and a setext underline (`===` or `---` under a text line) makes
+ * the line above it a heading of level 1 or 2.
+ */
+export function markdownLines(report: string): MarkdownLine[] {
+	const raw = report.split("\n");
+	const out: MarkdownLine[] = [];
+	let fence: { char: string; length: number } | null = null;
+	for (let i = 0; i < raw.length; i++) {
+		const text = raw[i] as string;
+		if (fence !== null) {
+			const close = FENCE_CLOSE.exec(text)?.[1];
+			if (close !== undefined && close[0] === fence.char && close.length >= fence.length) fence = null;
+			out.push({ text, fenced: true });
+			continue;
+		}
+		const open = FENCE_OPEN.exec(text)?.[1];
+		// A backtick fence's info string cannot hold a backtick; such a line is inline code.
+		if (open !== undefined && !(open[0] === "`" && text.trimStart().slice(open.length).includes("`"))) {
+			fence = { char: open[0] as string, length: open.length };
+			out.push({ text, fenced: true });
+			continue;
+		}
+		const atx = ATX.exec(text);
+		if (atx !== null) {
+			out.push({ text, fenced: false, heading: { level: (atx[1] as string).length, text: atx[2] as string } });
+			continue;
+		}
+		const next = raw[i + 1];
+		if (next !== undefined && text.trim() !== "" && !/^ {0,3}>/.test(text) && SETEXT_UNDERLINE.test(next)) {
+			out.push({ text, fenced: false, heading: { level: next.trim().startsWith("=") ? 1 : 2, text: text.trim() } });
+			out.push({ text: next, fenced: false });
+			i++;
+			continue;
+		}
+		out.push({ text, fenced: false });
+	}
+	return out;
+}
+
 /**
  * The claimed sections of a report: each runs from a `DEFECT` heading to the
- * next heading of the same or a higher level. A heading inside a fenced block
- * is quoted output, not structure.
+ * next heading of the same or a higher level, or to a `NOT A DEFECT` heading
+ * at any level, since what follows that heading is what the reviewer cleared.
  */
 export function claimedSections(report: string): string[] {
 	const out: string[] = [];
 	let current: { level: number; lines: string[] } | null = null;
-	let inFence = false;
-	for (const line of report.split("\n")) {
-		if (FENCE.test(line)) inFence = !inFence;
-		const m = inFence ? null : HEADING.exec(line);
-		if (m !== null) {
-			const level = (m[1] as string).length;
-			if (current !== null && level <= current.level) {
+	for (const line of markdownLines(report)) {
+		const h = line.heading;
+		if (h !== undefined) {
+			if (current !== null && (h.level <= current.level || CLEARED_HEADING.test(h.text))) {
 				out.push(current.lines.join("\n"));
 				current = null;
 			}
-			if (current === null && isDefectHeading(m[2] as string)) {
-				current = { level, lines: [line] };
+			if (current === null && isDefectHeading(h.text)) {
+				current = { level: h.level, lines: [line.text] };
 				continue;
 			}
 		}
-		if (current !== null) current.lines.push(line);
+		if (current !== null) current.lines.push(line.text);
 	}
 	if (current !== null) out.push(current.lines.join("\n"));
 	return out;
 }
 
-/** A report follows the claims format when it claims something or says it claims nothing. */
+/**
+ * A report follows the claims format when it claims something, or says on a
+ * line of its own, outside quoted output and block quotes, that it claims
+ * nothing.
+ */
 export function isFormatted(report: string): boolean {
-	return claimedSections(report).length > 0 || NO_DEFECTS.test(report);
+	if (claimedSections(report).length > 0) return true;
+	return markdownLines(report).some(l => !l.fenced && !/^ {0,3}>/.test(l.text) && NO_DEFECTS.test(l.text));
 }
 
 export interface RunScore {
@@ -236,7 +290,10 @@ export function gradeClaims(cases: ClaimsCaseFile, runs: RunRecord[]): ClaimsArm
 	const findingsAt = byHead(cases.findings);
 	const decoysAt = byHead(cases.decoys);
 	const arms = new Map<string, RunRecord[]>();
-	for (const r of runs) arms.set(r.arm, [...(arms.get(r.arm) ?? []), r]);
+	// A run on a head the case file does not hold has nothing to be scored against; the
+	// caller can see how many were left out from the runs it passed.
+	const heads = new Set(cases.heads.map(h => h.id));
+	for (const r of runs) if (heads.has(r.head)) arms.set(r.arm, [...(arms.get(r.arm) ?? []), r]);
 	const out: ClaimsArmResult[] = [];
 	for (const [arm, armRuns] of arms) {
 		// A run that errored is not a score, as in grade.ts: excluded and counted.
@@ -375,7 +432,10 @@ export interface ClaimsPaired {
  * Paired cluster bootstrap over (head, trial) pairs, as rounds.ts does for
  * findings: both arms saw the same head at the same trial index, so the pair
  * is the resampling unit. Findings and decoys are resampled together, so the
- * two intervals come from the same draws.
+ * two intervals come from the same draws; a draw whose pairs hold no decoy (or
+ * no finding) has no rate for that metric and is left out of its interval, as
+ * `clusterBootstrap` leaves out an empty draw. Two runs of one arm on the same
+ * head and trial cannot be paired and stop the comparison.
  */
 export function compareClaims(
 	cases: ClaimsCaseFile,
@@ -389,9 +449,17 @@ export function compareClaims(
 	const nd = new Map<string, number>();
 	for (const f of cases.findings) nf.set(f.head, (nf.get(f.head) ?? 0) + 1);
 	for (const d of cases.decoys) nd.set(d.head, (nd.get(d.head) ?? 0) + 1);
-	const key = (s: RunScore): string => `${s.head}__t${s.trial}`;
-	const a = new Map((results.find(r => r.arm === armA)?.scores ?? []).map(s => [key(s), s]));
-	const b = new Map((results.find(r => r.arm === armB)?.scores ?? []).map(s => [key(s), s]));
+	const byPair = (arm: string): Map<string, RunScore> => {
+		const m = new Map<string, RunScore>();
+		for (const s of results.find(r => r.arm === arm)?.scores ?? []) {
+			const k = `${s.head}__t${s.trial}`;
+			if (m.has(k)) throw new Error(`arm ${arm} has two runs on ${k}; pass one run directory per arm`);
+			m.set(k, s);
+		}
+		return m;
+	};
+	const a = byPair(armA);
+	const b = byPair(armB);
 	const pairs: { fa: number; fb: number; nf: number; da: number; db: number; nd: number }[] = [];
 	for (const [k, sa] of [...a].sort(([x], [y]) => x.localeCompare(y))) {
 		const sb = b.get(k);
@@ -405,11 +473,15 @@ export function compareClaims(
 			nd: nd.get(sa.head) ?? 0,
 		});
 	}
-	const delta = (sel: typeof pairs): [number, number] => {
+	/** a − b over the selected pairs, or undefined when they hold no case of that kind. */
+	const delta = (sel: typeof pairs): [number | undefined, number | undefined] => {
 		const sum = (f: (p: (typeof pairs)[0]) => number): number => sel.reduce((x, p) => x + f(p), 0);
-		const f = sum(p => p.nf) === 0 ? 0 : (sum(p => p.fa) - sum(p => p.fb)) / sum(p => p.nf);
-		const d = sum(p => p.nd) === 0 ? 0 : (sum(p => p.da) - sum(p => p.db)) / sum(p => p.nd);
-		return [f, d];
+		const n1 = sum(p => p.nf);
+		const n2 = sum(p => p.nd);
+		return [
+			n1 === 0 ? undefined : (sum(p => p.fa) - sum(p => p.fb)) / n1,
+			n2 === 0 ? undefined : (sum(p => p.da) - sum(p => p.db)) / n2,
+		];
 	};
 	const [pf, pd] = delta(pairs);
 	const rnd = mulberry32(seed);
@@ -421,8 +493,8 @@ export function compareClaims(
 			() => pairs[Math.floor(rnd() * pairs.length)] as (typeof pairs)[0],
 		);
 		const [f, d] = delta(sel);
-		df.push(f);
-		dd.push(d);
+		if (f !== undefined) df.push(f);
+		if (d !== undefined) dd.push(d);
 	}
 	const q = (xs: number[], p: number): number => {
 		const s = [...xs].sort((x, y) => x - y);
@@ -432,8 +504,8 @@ export function compareClaims(
 		a: armA,
 		b: armB,
 		pairs: pairs.length,
-		findings: { deltaPp: 100 * pf, lo: 100 * q(df, 0.025), hi: 100 * q(df, 0.975) },
-		decoys: { deltaPp: 100 * pd, lo: 100 * q(dd, 0.025), hi: 100 * q(dd, 0.975) },
+		findings: { deltaPp: pf === undefined ? Number.NaN : 100 * pf, lo: 100 * q(df, 0.025), hi: 100 * q(df, 0.975) },
+		decoys: { deltaPp: pd === undefined ? Number.NaN : 100 * pd, lo: 100 * q(dd, 0.025), hi: 100 * q(dd, 0.975) },
 	};
 }
 
@@ -491,7 +563,7 @@ function main(): void {
 		);
 
 	console.log(
-		`cases frozen at ${cases.frozen_at}; ${cases.findings.length} findings and ${cases.decoys.length} decoys over ${cases.heads.length} heads\n`,
+		`cases frozen at ${cases.frozen_at}; ${cases.findings.length} findings and ${cases.decoys.length} decoys over ${cases.heads.length} heads; ${runs.filter(r => !cases.heads.some(h => h.id === r.head)).length} of ${runs.length} runs are on heads outside the case file and are not scored\n`,
 	);
 	for (const r of results) {
 		console.log(`## ${r.arm} (${r.model})`);

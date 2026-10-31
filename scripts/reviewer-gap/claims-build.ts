@@ -62,7 +62,7 @@ export const SUBJECTS: Record<string, string> = {
 
 export const SELECTION = [
 	"A head is selected when any of these holds:",
-	"(a) both arms (openai/gpt-6-astra and a Claude model) reviewed it and reported, and no defect at it labels either arm not-run;",
+	"(a) both arms (openai/gpt-6-astra and a Claude model) reviewed it and reported, at least one defect is recorded at it, and no defect at it labels either arm not-run;",
 	"(b) a reviewer asserted a decoy at it, rather than raising and withdrawing it in the same report;",
 	"(c) a defect at it was missed by every arm that reviewed it (found later and measured on this head).",
 	"A selected head is kept only when a donor shares its bun.lock blob and its crates tree.",
@@ -119,10 +119,20 @@ export interface CorpusDecoy {
 
 export type CorpusRecord = CorpusRound | CorpusDefect | CorpusDecoy;
 
+/**
+ * Overrides a review of the corpus made, each with its reason, in
+ * `corpus/claims/adjudication.json`; the extracted records stay as written.
+ */
+export interface Adjudication {
+	origin: Record<string, { origin: "asserted" | "withdrawn"; because: string }>;
+	deliberate: Record<string, { because: string }>;
+}
+
 export interface ClaimsCorpus {
 	rounds: CorpusRound[];
 	defects: CorpusDefect[];
 	decoys: CorpusDecoy[];
+	adjudication: Adjudication;
 }
 
 export function loadClaimsCorpus(dir: string): ClaimsCorpus {
@@ -131,10 +141,15 @@ export function loadClaimsCorpus(dir: string): ClaimsCorpus {
 		.filter(f => f.endsWith(".jsonl"))
 		.sort()
 		.flatMap(f => readJsonl<CorpusRecord>(path.join(dir, f)));
+	const adjPath = path.join(dir, "adjudication.json");
+	const adjudication = fs.existsSync(adjPath)
+		? (JSON.parse(fs.readFileSync(adjPath, "utf8")) as Adjudication)
+		: { origin: {}, deliberate: {} };
 	return {
 		rounds: all.filter((r): r is CorpusRound => r.kind === "round"),
 		defects: all.filter((r): r is CorpusDefect => r.kind === "defect"),
 		decoys: all.filter((r): r is CorpusDecoy => r.kind === "decoy"),
+		adjudication,
 	};
 }
 
@@ -144,14 +159,18 @@ export function headId(r: { pr: number | null; lane?: string; round: number }): 
 }
 
 /** Whether the original reviewer put the decoy forward as a defect, or raised it and withdrew it. */
-export function decoyOrigin(d: CorpusDecoy): "asserted" | "withdrawn" {
+export function decoyOrigin(d: CorpusDecoy, adj: Adjudication): "asserted" | "withdrawn" {
+	const override = adj.origin[d.id];
+	if (override !== undefined) return override.origin;
 	return d.refuted_by.kind === "self-withdrawn" || d.asserted_as === "mentioned-and-discounted"
 		? "withdrawn"
 		: "asserted";
 }
 
-export function decoyEligible(d: CorpusDecoy): boolean {
-	return d.refuted_by.kind !== "deliberate-change" || d.decoy_class === "obsolete-assertion";
+/** A decoy refuted only by the author's deliberate choice is a disagreement, unless it is an obsolete assertion. */
+export function decoyEligible(d: CorpusDecoy, adj: Adjudication): boolean {
+	const deliberate = d.refuted_by.kind === "deliberate-change" || adj.deliberate[d.id] !== undefined;
+	return !deliberate || d.decoy_class === "obsolete-assertion";
 }
 
 type Groups = Pick<Finding, "mechanism" | "trigger">;
@@ -164,7 +183,8 @@ type Groups = Pick<Finding, "mechanism" | "trigger">;
  * centred on a first-group hit". This moves to the front the first group that
  * anchors a window on every source text of the record (mechanism groups, then
  * trigger groups), and otherwise keeps the record's order. Groups are never
- * added, dropped or edited, so what a report must say is unchanged.
+ * added, dropped or edited, so a report must still contain the same phrases;
+ * only the hit the 1200-character window is centred on moves.
  */
 export function anchored(r: Groups, sources: string[]): Groups {
 	const fires = (g: Groups): boolean =>
@@ -200,12 +220,12 @@ export function selectHeads(corpus: ClaimsCorpus, tree: (sha: string) => { lock:
 	for (const r of corpus.rounds) {
 		const id = headId(r);
 		const defects = corpus.defects.filter(d => headId(d) === id);
-		const decoys = corpus.decoys.filter(d => headId(d) === id && decoyEligible(d));
+		const decoys = corpus.decoys.filter(d => headId(d) === id && decoyEligible(d, corpus.adjudication));
 		const reasons: string[] = [];
 		const bothArms = ["astra", "claude"].every(a => r.arms.some(x => x.arm === a));
 		const noNotRun = defects.every(d => d.found_by.astra !== "not-run" && d.found_by.claude !== "not-run");
 		if (bothArms && noNotRun && defects.length > 0) reasons.push("a");
-		if (decoys.some(d => decoyOrigin(d) === "asserted")) reasons.push("b");
+		if (decoys.some(d => decoyOrigin(d, corpus.adjudication) === "asserted")) reasons.push("b");
 		if (defects.some(d => d.found_by.astra !== "found" && d.found_by.claude !== "found")) reasons.push("c");
 		if (reasons.length === 0) continue;
 		const t = tree(r.head_sha);
@@ -283,14 +303,14 @@ function buildCases(corpusDir: string): BuiltCases {
 			found_by: d.found_by,
 		}));
 	const decoys: (Decoy & { origin: "asserted" | "withdrawn" })[] = corpus.decoys
-		.filter(d => ids.has(headId(d)) && decoyEligible(d))
+		.filter(d => ids.has(headId(d)) && decoyEligible(d, corpus.adjudication))
 		.map(d => ({
 			id: d.id,
 			head: headId(d),
 			title: d.claim_title,
 			decoy_class: d.decoy_class,
 			refuted_by: d.refuted_by.kind,
-			origin: decoyOrigin(d),
+			origin: decoyOrigin(d, corpus.adjudication),
 			...anchored(
 				d,
 				d.claimed_by.map(s => s.text),
