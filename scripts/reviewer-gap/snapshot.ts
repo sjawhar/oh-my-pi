@@ -32,11 +32,14 @@ function sh(cmd: string, args: string[], opts: { cwd?: string; stdout?: number }
 /**
  * Copy a donor's `node_modules` as hard links and its native addons as files,
  * so a later clean-up of the source tree cannot leave a snapshot dangling.
+ * A hard link cannot cross a filesystem, so a source on another device is
+ * copied in full instead.
  */
 export function makeDonor(source: string, donor: string): void {
 	fs.mkdirSync(path.join(donor, "natives"), { recursive: true });
+	const sameDevice = fs.statSync(source).dev === fs.statSync(donor).dev;
 	if (!fs.existsSync(path.join(donor, "node_modules")))
-		sh("cp", ["-al", path.join(source, "node_modules"), path.join(donor, "node_modules")]);
+		sh("cp", [sameDevice ? "-al" : "-a", path.join(source, "node_modules"), path.join(donor, "node_modules")]);
 	for (const name of fs.readdirSync(path.join(source, NATIVE_DIR))) {
 		if (!name.endsWith(".node")) continue;
 		const to = path.join(donor, "natives", name);

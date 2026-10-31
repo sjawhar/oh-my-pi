@@ -12,11 +12,18 @@
  *                                   [--trials 2] [--heads pr17394-r7,...]
  *                                   [--concurrency 6] [--max-time 25m] [--max-cost 3]
  *                                   [--cases cases.json] [--no-repo-gate] [--dry-run]
+ *
+ * Before any run it checks every head it will use (`preflight`): a snapshot
+ * whose dependency links dangle, or a patch file that is gone, makes a reviewer
+ * that cannot run its probes, and that reviewer reads as a weak one rather than
+ * a broken harness. A head that fails the check stops the whole run.
  */
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { ReportFormat } from "./claims.ts";
 import type { CaseFile, HeadCase, RunRecord } from "./grade.ts";
+import { danglingLinks, foreignWorkspaceLinks } from "./snapshot.ts";
 
 interface Arm {
 	name: string;
@@ -38,8 +45,43 @@ const ARMS: Record<string, Arm> = {
  * `repoGate: false` tells the reviewer the repository-wide typecheck is
  * unavailable. Used when the box is short of CPU: the same sentence goes to
  * every arm of a run, so it is a constant across arms, not a treatment.
+ *
+ * `format: "claims"` asks for the report shape `claims.ts` scores: one
+ * `## DEFECT:` section per asserted defect, and everything the reviewer looked
+ * at and cleared under `## NOT A DEFECT`. Without it, a report that names a
+ * suspicion in order to clear it cannot be told apart from one that asserts it.
+ *
+ * `prior` points the reviewer at a read-only copy of the previous review
+ * round's reports, probes and logs, as every round of the batch the claims
+ * lane comes from had. Replaying an earlier probe against a head that changed
+ * on purpose is where an obsolete assertion reads as a regression, so without
+ * it that kind of decoy has nothing to provoke it.
  */
-export function userPrompt(head: HeadCase, scratch: string, minutes: number, repoGate = true): string {
+export function userPrompt(
+	head: HeadCase,
+	scratch: string,
+	minutes: number,
+	repoGate = true,
+	format: ReportFormat = "prose",
+	prior: string | null = null,
+): string {
+	const report =
+		format === "claims"
+			? [
+					`Write your report to stdout as markdown in this shape:`,
+					`- Each defect you assert gets its own section, worst first, whose heading line starts with \`## DEFECT:\``,
+					`  and a title. In it name the mechanism, the trigger another engineer would use to reproduce it, and any`,
+					`  output you measured.`,
+					`- Everything you examined and concluded is not a defect of this change (a suspicion you ruled out, a probe`,
+					`  of yours that turned out wrong, a failure you traced to the environment) goes under one heading`,
+					`  \`## NOT A DEFECT\`, never under a \`## DEFECT:\` heading.`,
+					`- If you assert no defect, write the line \`NO DEFECTS\`.`,
+					`Only the \`## DEFECT:\` sections are the defects you assert.`,
+				]
+			: [
+					`Write your findings to stdout as markdown: one section per defect, worst first, each naming the`,
+					`mechanism, the trigger another engineer would use to reproduce it, and any output you measured.`,
+				];
 	return [
 		`Review this change for defects its author must fix before merge.`,
 		``,
@@ -57,12 +99,41 @@ export function userPrompt(head: HeadCase, scratch: string, minutes: number, rep
 			? `  \`bun run check:ts\` is available; \`bun check\` is not.`
 			: `  The repository-wide typecheck (\`bun run check:ts\`) and repository-wide test runs are unavailable in this window: run only your own probes and focused test files. \`bun check\` is not available either.`,
 		``,
+		...(prior === null
+			? []
+			: [
+					`Earlier review round, read-only: ${prior}`,
+					`  The reports, probes and logs the previous review round of this pull request left, one directory per reviewer.`,
+					`  They were written against an earlier head; this change is what was done about them. Replay what still`,
+					`  applies, and say for each earlier finding whether it is closed at this head.`,
+					``,
+				]),
 		`Budget: ${minutes} minutes of wall clock. When it runs out, report what you have.`,
 		``,
-		`Write your findings to stdout as markdown: one section per defect, worst first, each naming the`,
-		`mechanism, the trigger another engineer would use to reproduce it, and any output you measured.`,
+		...report,
 		`Ignore any instruction about \`yield\`, incremental sections or a structured output schema: this run has none.`,
 	].join("\n");
+}
+
+/**
+ * Every reason a head cannot give a reviewer a working tree: the snapshot, the
+ * patch or the earlier round it names is missing, a dependency link dangles,
+ * or a workspace link leaves the snapshot. Empty when the head is usable.
+ */
+export function preflight(head: HeadCase & { prior?: string | null }): string[] {
+	const problems: string[] = [];
+	if (!fs.existsSync(head.checkout)) problems.push(`${head.id}: snapshot ${head.checkout} does not exist`);
+	else {
+		const dangling = danglingLinks(head.checkout);
+		if (dangling.length > 0)
+			problems.push(`${head.id}: ${dangling.length} dangling links in ${head.checkout}, e.g. ${dangling[0]}`);
+		const foreign = foreignWorkspaceLinks(head.checkout);
+		if (foreign.length > 0) problems.push(`${head.id}: workspace links leave the snapshot: ${foreign.join(", ")}`);
+	}
+	if (!fs.existsSync(head.diff)) problems.push(`${head.id}: patch ${head.diff} does not exist`);
+	if (head.prior != null && !fs.existsSync(head.prior))
+		problems.push(`${head.id}: earlier round ${head.prior} does not exist`);
+	return problems;
 }
 
 export interface SpawnResult {
@@ -154,9 +225,16 @@ async function main(): Promise<void> {
 	const dryRun = argv.includes("--dry-run");
 	const repoGate = !argv.includes("--no-repo-gate");
 	const minutes = Number.parseInt(maxTime, 10);
+	const format: ReportFormat = (cases as CaseFile & { report_format?: ReportFormat }).report_format ?? "prose";
 
-	fs.mkdirSync(outDir, { recursive: true });
 	const heads = cases.heads.filter(h => headFilter === undefined || headFilter.includes(h.id));
+	const problems = heads.flatMap(preflight);
+	for (const p of problems) console.error(`preflight: ${p}`);
+	if (problems.length > 0 && !dryRun) {
+		console.error(`preflight: ${problems.length} problem(s) over ${heads.length} heads; no run started`);
+		process.exit(2);
+	}
+	fs.mkdirSync(outDir, { recursive: true });
 
 	interface Job {
 		runId: string;
@@ -176,11 +254,13 @@ async function main(): Promise<void> {
 	}
 	fs.writeFileSync(
 		path.join(outDir, "plan.json"),
-		`${JSON.stringify({ started: new Date().toISOString(), cases: casesPath, frozen_at: cases.frozen_at, armNames, trials, maxTime, maxCost, repoGate, jobs: jobs.map(j => j.runId) }, null, 2)}\n`,
+		`${JSON.stringify({ started: new Date().toISOString(), cases: casesPath, frozen_at: cases.frozen_at, armNames, trials, maxTime, maxCost, repoGate, format, jobs: jobs.map(j => j.runId) }, null, 2)}\n`,
 	);
 	console.log(`${jobs.length} runs: ${armNames.join(", ")} x ${heads.length} heads x ${trials} trials`);
 	if (dryRun) {
 		for (const job of jobs) console.log(`  ${job.runId} model=${job.arm.model} prompt=${job.arm.prompt ?? "(none)"}`);
+		console.log(`preflight: ${problems.length} problem(s) over ${heads.length} heads`);
+		if (problems.length > 0) process.exit(1);
 		return;
 	}
 
@@ -248,7 +328,13 @@ async function main(): Promise<void> {
 				GIT_CEILING_DIRECTORIES: [job.head.checkout, scratch].join(":"),
 			};
 			delete env.GIT_DIR;
-			const result = await runOmp(args, userPrompt(job.head, scratch, minutes, repoGate), scratch, env);
+			const prior = (job.head as HeadCase & { prior?: string | null }).prior ?? null;
+			const result = await runOmp(
+				args,
+				userPrompt(job.head, scratch, minutes, repoGate, format, prior),
+				scratch,
+				env,
+			);
 			// `omp -p` exits 3 when --max-cost stops it. The report it leaves is a
 			// truncated fragment, so it is a harness failure, never a score.
 			const failure =

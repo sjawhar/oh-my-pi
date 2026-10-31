@@ -1,0 +1,5959 @@
+{
+	"frozen_at": "2026-10-31T12:48:02Z",
+	"window_chars": 1200,
+	"report_format": "claims",
+	"selection": "A head is selected when any of these holds: (a) both arms (openai/gpt-6-astra and a Claude model) reviewed it and reported, and no defect at it labels either arm not-run; (b) a reviewer asserted a decoy at it, rather than raising and withdrawing it in the same report; (c) a defect at it was missed by every arm that reviewed it (found later and measured on this head). A selected head is kept only when a donor shares its bun.lock blob and its crates tree. A decoy refuted only by a deliberate change counts only as an obsolete assertion: a behaviour the author kept on purpose and a reviewer still calls a defect is a disagreement, not a decoy.",
+	"selected": {
+		"selected": [
+			{
+				"id": "pr17394-r27",
+				"reasons": [
+					"a",
+					"b"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17394-r28",
+				"reasons": [
+					"b"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17394-r30",
+				"reasons": [
+					"b"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17396-r5",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17396-r7",
+				"reasons": [
+					"c"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17396-r9",
+				"reasons": [
+					"a",
+					"b"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17396-r11",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17396-r13",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17402-r41",
+				"reasons": [
+					"a",
+					"b"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17402-r43",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17402-r47",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "pr17402-r49",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "pr17402-r51",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "pr17402-r53",
+				"reasons": [
+					"a",
+					"b"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "pr17421-r26",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17457-r10",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "pr17457-r12",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "pr17457-r14",
+				"reasons": [
+					"a",
+					"b"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "pr17457-r16",
+				"reasons": [
+					"b"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "pr17488-r19",
+				"reasons": [
+					"c"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "pr17488-r21",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "pr17488-r23",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "pr17488-r25",
+				"reasons": [
+					"a"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "gc-quarantine-r3",
+				"reasons": [
+					"c"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-42c163d3"
+			},
+			{
+				"id": "ai-replay-budget-r2",
+				"reasons": [
+					"b"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			},
+			{
+				"id": "ai-replay-budget-r3",
+				"reasons": [
+					"b"
+				],
+				"donor": "/mnt/nvme/sami/reviewer-gap-evals/donor-ad3b2401"
+			}
+		],
+		"excluded": [
+			{
+				"id": "pr17421-r18",
+				"reasons": [
+					"b"
+				],
+				"why": "no donor shares bun.lock ad3b2401 and crates e7b015bb"
+			}
+		]
+	},
+	"heads": [
+		{
+			"id": "pr17394-r27",
+			"pr": 17394,
+			"round": 27,
+			"head_sha": "97d0439ac57c7e02430d102eafacb87643634f7e",
+			"base_sha": "b30e5227db2b15ce8a919be87cf1fa3cf8fc9138",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/97d0439ac57c7e02430d102eafacb87643634f7e",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/97d0439ac57c7e02430d102eafacb87643634f7e.diff",
+			"subject": "fix(eval): end the Python runner and JavaScript worker a session leaves behind",
+			"packages": [
+				"packages/coding-agent",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17394-r27",
+			"prior_round": 26
+		},
+		{
+			"id": "pr17394-r28",
+			"pr": 17394,
+			"round": 28,
+			"head_sha": "ef1c506c5ac97538b11eb4c0006ee6e5582218fe",
+			"base_sha": "b30e5227db2b15ce8a919be87cf1fa3cf8fc9138",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/ef1c506c5ac97538b11eb4c0006ee6e5582218fe",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/ef1c506c5ac97538b11eb4c0006ee6e5582218fe.diff",
+			"subject": "fix(eval): end the Python runner and JavaScript worker a session leaves behind",
+			"packages": [
+				"packages/coding-agent",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17394-r28",
+			"prior_round": 27
+		},
+		{
+			"id": "pr17394-r30",
+			"pr": 17394,
+			"round": 30,
+			"head_sha": "d9550d59fb310ae6ece93d15d0d75a59ad20f2d8",
+			"base_sha": "b30e5227db2b15ce8a919be87cf1fa3cf8fc9138",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/d9550d59fb310ae6ece93d15d0d75a59ad20f2d8",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/d9550d59fb310ae6ece93d15d0d75a59ad20f2d8.diff",
+			"subject": "fix(eval): end the Python runner and JavaScript worker a session leaves behind",
+			"packages": [
+				"packages/coding-agent",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17394-r30",
+			"prior_round": 28
+		},
+		{
+			"id": "pr17396-r5",
+			"pr": 17396,
+			"round": 5,
+			"head_sha": "5e3f22a3e3b37530a7a8313abfa59522fbf6bcae",
+			"base_sha": "a1901b56ad1b8478a9591bd93537255d517ccda0",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/5e3f22a3e3b37530a7a8313abfa59522fbf6bcae",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/5e3f22a3e3b37530a7a8313abfa59522fbf6bcae.diff",
+			"subject": "fix(coding-agent): hold the fallback chain for a wire failure no retry layer has replayed",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17396-r5",
+			"prior_round": 3
+		},
+		{
+			"id": "pr17396-r7",
+			"pr": 17396,
+			"round": 7,
+			"head_sha": "5f8fe26694e7e820067358f74d54562801a4e9a1",
+			"base_sha": "a1901b56ad1b8478a9591bd93537255d517ccda0",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/5f8fe26694e7e820067358f74d54562801a4e9a1",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/5f8fe26694e7e820067358f74d54562801a4e9a1.diff",
+			"subject": "fix(coding-agent): hold the fallback chain for a wire failure no retry layer has replayed",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17396-r7",
+			"prior_round": 5
+		},
+		{
+			"id": "pr17396-r9",
+			"pr": 17396,
+			"round": 9,
+			"head_sha": "08773d3241a9290374aa3b150dd57ab158c866c2",
+			"base_sha": "a1901b56ad1b8478a9591bd93537255d517ccda0",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/08773d3241a9290374aa3b150dd57ab158c866c2",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/08773d3241a9290374aa3b150dd57ab158c866c2.diff",
+			"subject": "fix(coding-agent): hold the fallback chain for a wire failure no retry layer has replayed",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17396-r9",
+			"prior_round": 7
+		},
+		{
+			"id": "pr17396-r11",
+			"pr": 17396,
+			"round": 11,
+			"head_sha": "21106b0d3842a9069c1ecd9fad3325f9ccf5b2bb",
+			"base_sha": "a1901b56ad1b8478a9591bd93537255d517ccda0",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/21106b0d3842a9069c1ecd9fad3325f9ccf5b2bb",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/21106b0d3842a9069c1ecd9fad3325f9ccf5b2bb.diff",
+			"subject": "fix(coding-agent): hold the fallback chain for a wire failure no retry layer has replayed",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17396-r11",
+			"prior_round": 9
+		},
+		{
+			"id": "pr17396-r13",
+			"pr": 17396,
+			"round": 13,
+			"head_sha": "85917d2114fb1fee5f4acd6fcf155a35276cdc04",
+			"base_sha": "a1901b56ad1b8478a9591bd93537255d517ccda0",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/85917d2114fb1fee5f4acd6fcf155a35276cdc04",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/85917d2114fb1fee5f4acd6fcf155a35276cdc04.diff",
+			"subject": "fix(coding-agent): hold the fallback chain for a wire failure no retry layer has replayed",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17396-r13",
+			"prior_round": 11
+		},
+		{
+			"id": "pr17402-r41",
+			"pr": 17402,
+			"round": 41,
+			"head_sha": "8af5ac7ba9b4cf40e5e8df03a8707d974080760f",
+			"base_sha": "37b033b140b0d69d2b0b53ce7a8af0be202d6454",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/8af5ac7ba9b4cf40e5e8df03a8707d974080760f",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/8af5ac7ba9b4cf40e5e8df03a8707d974080760f.diff",
+			"subject": "fix(session): settle what an aside promises across a transition and a bailed prompt",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/tui"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17402-r41",
+			"prior_round": 39
+		},
+		{
+			"id": "pr17402-r43",
+			"pr": 17402,
+			"round": 43,
+			"head_sha": "2b3f409e082bc4d7a3e0a4a0c300225226395f40",
+			"base_sha": "a1901b56ad1b8478a9591bd93537255d517ccda0",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/2b3f409e082bc4d7a3e0a4a0c300225226395f40",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/2b3f409e082bc4d7a3e0a4a0c300225226395f40.diff",
+			"subject": "fix(session): settle what an aside promises across a transition and a bailed prompt",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/tui"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17402-r43",
+			"prior_round": 41
+		},
+		{
+			"id": "pr17402-r47",
+			"pr": 17402,
+			"round": 47,
+			"head_sha": "2e9c2ac37b2070cb1f25104979583eba467f0ede",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/2e9c2ac37b2070cb1f25104979583eba467f0ede",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/2e9c2ac37b2070cb1f25104979583eba467f0ede.diff",
+			"subject": "fix(session): settle what an aside promises across a transition and a bailed prompt",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/omptype",
+				"packages/tui"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17402-r47",
+			"prior_round": 45
+		},
+		{
+			"id": "pr17402-r49",
+			"pr": 17402,
+			"round": 49,
+			"head_sha": "2e1802bfb1f3fae1eeea76147d43ea5258230253",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/2e1802bfb1f3fae1eeea76147d43ea5258230253",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/2e1802bfb1f3fae1eeea76147d43ea5258230253.diff",
+			"subject": "fix(session): settle what an aside promises across a transition and a bailed prompt",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/omptype",
+				"packages/tui"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17402-r49",
+			"prior_round": 47
+		},
+		{
+			"id": "pr17402-r51",
+			"pr": 17402,
+			"round": 51,
+			"head_sha": "86f52f410ead7685e48a22eff3cc7de72e24cf1c",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/86f52f410ead7685e48a22eff3cc7de72e24cf1c",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/86f52f410ead7685e48a22eff3cc7de72e24cf1c.diff",
+			"subject": "fix(session): settle what an aside promises across a transition and a bailed prompt",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/omptype",
+				"packages/tui"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17402-r51",
+			"prior_round": 49
+		},
+		{
+			"id": "pr17402-r53",
+			"pr": 17402,
+			"round": 53,
+			"head_sha": "ca8db1363e400a100340e591c68eba3cdef7df15",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/ca8db1363e400a100340e591c68eba3cdef7df15",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/ca8db1363e400a100340e591c68eba3cdef7df15.diff",
+			"subject": "fix(session): settle what an aside promises across a transition and a bailed prompt",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/omptype",
+				"packages/tui"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17402-r53",
+			"prior_round": 51
+		},
+		{
+			"id": "pr17421-r26",
+			"pr": 17421,
+			"round": 26,
+			"head_sha": "e9e4bcd5b721733f77421b825da94d9c93f906ac",
+			"base_sha": "5d30c790b883ad0ae05dac2a4d2ccc8ecd103611",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/e9e4bcd5b721733f77421b825da94d9c93f906ac",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/e9e4bcd5b721733f77421b825da94d9c93f906ac.diff",
+			"subject": "fix(session): resume a session another live process owns as a fork",
+			"packages": [
+				"packages/coding-agent"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17421-r26",
+			"prior_round": 24
+		},
+		{
+			"id": "pr17457-r10",
+			"pr": 17457,
+			"round": 10,
+			"head_sha": "a0b32f7abad0163d9e8f416245788ef83d3b6917",
+			"base_sha": "a1901b56ad1b8478a9591bd93537255d517ccda0",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/a0b32f7abad0163d9e8f416245788ef83d3b6917",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/a0b32f7abad0163d9e8f416245788ef83d3b6917.diff",
+			"subject": "fix(coding-agent): stop work scheduled before disposal from running inside it",
+			"packages": [
+				"packages/agent",
+				"packages/ai",
+				"packages/catalog",
+				"packages/coding-agent",
+				"packages/mnemopi",
+				"packages/stats",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17457-r10",
+			"prior_round": 8
+		},
+		{
+			"id": "pr17457-r12",
+			"pr": 17457,
+			"round": 12,
+			"head_sha": "12927ccd0af6cbc887f37935bace156edc7e508f",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/12927ccd0af6cbc887f37935bace156edc7e508f",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/12927ccd0af6cbc887f37935bace156edc7e508f.diff",
+			"subject": "fix(coding-agent): stop work scheduled before disposal from running inside it",
+			"packages": [
+				"packages/agent",
+				"packages/ai",
+				"packages/catalog",
+				"packages/coding-agent",
+				"packages/mnemopi",
+				"packages/stats",
+				"packages/tui",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17457-r12",
+			"prior_round": 10
+		},
+		{
+			"id": "pr17457-r14",
+			"pr": 17457,
+			"round": 14,
+			"head_sha": "b339b94af6c9938d4e6bb4fc444c210f92207729",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/b339b94af6c9938d4e6bb4fc444c210f92207729",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/b339b94af6c9938d4e6bb4fc444c210f92207729.diff",
+			"subject": "fix(coding-agent): stop work scheduled before disposal from running inside it",
+			"packages": [
+				"packages/agent",
+				"packages/ai",
+				"packages/catalog",
+				"packages/coding-agent",
+				"packages/mnemopi",
+				"packages/natives",
+				"packages/omptype",
+				"packages/stats",
+				"packages/tui",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17457-r14",
+			"prior_round": 12
+		},
+		{
+			"id": "pr17457-r16",
+			"pr": 17457,
+			"round": 16,
+			"head_sha": "763fe5d391be7f1681745ea3a1de55a72b65b051",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/763fe5d391be7f1681745ea3a1de55a72b65b051",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/763fe5d391be7f1681745ea3a1de55a72b65b051.diff",
+			"subject": "fix(coding-agent): stop work scheduled before disposal from running inside it",
+			"packages": [
+				"packages/agent",
+				"packages/ai",
+				"packages/catalog",
+				"packages/coding-agent",
+				"packages/mnemopi",
+				"packages/natives",
+				"packages/omptype",
+				"packages/stats",
+				"packages/tui",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17457-r16",
+			"prior_round": 14
+		},
+		{
+			"id": "pr17488-r19",
+			"pr": 17488,
+			"round": 19,
+			"head_sha": "100c3b813ec01fe498841a113f9655ba4146ff09",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/100c3b813ec01fe498841a113f9655ba4146ff09",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/100c3b813ec01fe498841a113f9655ba4146ff09.diff",
+			"subject": "feat(gc): make an archived session readable again — gc --restore and gc --reclaim",
+			"packages": [
+				"packages/coding-agent"
+			],
+			"prior": null,
+			"prior_round": null
+		},
+		{
+			"id": "pr17488-r21",
+			"pr": 17488,
+			"round": 21,
+			"head_sha": "754e72714b77870db50224ee7da6f8eb847374e1",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/754e72714b77870db50224ee7da6f8eb847374e1",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/754e72714b77870db50224ee7da6f8eb847374e1.diff",
+			"subject": "feat(gc): make an archived session readable again — gc --restore and gc --reclaim",
+			"packages": [
+				"packages/coding-agent"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17488-r21",
+			"prior_round": 19
+		},
+		{
+			"id": "pr17488-r23",
+			"pr": 17488,
+			"round": 23,
+			"head_sha": "d330d34fd03421c84522507672c041cf2d63a74e",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/d330d34fd03421c84522507672c041cf2d63a74e",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/d330d34fd03421c84522507672c041cf2d63a74e.diff",
+			"subject": "feat(gc): make an archived session readable again — gc --restore and gc --reclaim",
+			"packages": [
+				"packages/coding-agent"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17488-r23",
+			"prior_round": 21
+		},
+		{
+			"id": "pr17488-r25",
+			"pr": 17488,
+			"round": 25,
+			"head_sha": "65312dfca9dd8ab7303359af2a50355e1925c33b",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/65312dfca9dd8ab7303359af2a50355e1925c33b",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/65312dfca9dd8ab7303359af2a50355e1925c33b.diff",
+			"subject": "feat(gc): make an archived session readable again — gc --restore and gc --reclaim",
+			"packages": [
+				"packages/coding-agent"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/pr17488-r25",
+			"prior_round": 23
+		},
+		{
+			"id": "gc-quarantine-r3",
+			"pr": 0,
+			"round": 3,
+			"head_sha": "b084dd8de29699add1db55eb6eb5f66ef35c83fe",
+			"base_sha": "c29f7c56f5530d805bb2887ade964aa55970d8e1",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/b084dd8de29699add1db55eb6eb5f66ef35c83fe",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/b084dd8de29699add1db55eb6eb5f66ef35c83fe.diff",
+			"subject": "fix(coding-agent): keep an archived session resumable and its rows intact; gc --quarantine for what a killed archive left staged",
+			"packages": [
+				"packages/coding-agent"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/gc-quarantine-r3",
+			"prior_round": 2
+		},
+		{
+			"id": "ai-replay-budget-r2",
+			"pr": 0,
+			"round": 2,
+			"head_sha": "c6fe0d7e8de554fe5bac8bf2431ec91bf8984a00",
+			"base_sha": "37b033b140b0d69d2b0b53ce7a8af0be202d6454",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/c6fe0d7e8de554fe5bac8bf2431ec91bf8984a00",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/c6fe0d7e8de554fe5bac8bf2431ec91bf8984a00.diff",
+			"subject": "feat(ai): let a caller bound the requests one streaming call spends retrying",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/ai-replay-budget-r2",
+			"prior_round": 1
+		},
+		{
+			"id": "ai-replay-budget-r3",
+			"pr": 0,
+			"round": 3,
+			"head_sha": "eef64a4f5dabdc7821661748f61a27b6de6a583a",
+			"base_sha": "37b033b140b0d69d2b0b53ce7a8af0be202d6454",
+			"checkout": "/mnt/nvme/sami/reviewer-gap-evals/heads/eef64a4f5dabdc7821661748f61a27b6de6a583a",
+			"diff": "/mnt/nvme/sami/reviewer-gap-evals/diffs/eef64a4f5dabdc7821661748f61a27b6de6a583a.diff",
+			"subject": "feat(ai): let a caller bound the requests one streaming call spends retrying",
+			"packages": [
+				"packages/ai",
+				"packages/coding-agent",
+				"packages/utils"
+			],
+			"prior": "/mnt/nvme/sami/reviewer-gap-evals/prior/ai-replay-budget-r3",
+			"prior_round": 2
+		}
+	],
+	"findings": [
+		{
+			"id": "D-17394-r27-1",
+			"head": "pr17394-r27",
+			"severity": "P1",
+			"how_found_primary": "inject-fault",
+			"title": "a claim of kind \"retiring\" falls through the generation check and retention renames a retiring successor",
+			"mechanism": [
+				[
+					"retiring"
+				],
+				[
+					"falls? through",
+					"bypass\\w*",
+					"not handled",
+					"lets .{0,20}reach",
+					"non-?authority"
+				],
+				[
+					"generation (check|comparison)",
+					"claimed generation",
+					"markIsolationRetiring",
+					"claim check"
+				],
+				[
+					"renam\\w*",
+					"retainUnderLock",
+					"moves? .{0,20}(successor|workspace)"
+				]
+			],
+			"trigger": [
+				[
+					"successor"
+				],
+				[
+					"EBUSY",
+					"backend[- ]stop",
+					"delayed stop",
+					"timeout boundary",
+					"retiring-successor"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17394-r27-2",
+			"head": "pr17394-r27",
+			"severity": "P1",
+			"how_found_primary": "inject-fault",
+			"title": "final-capture failure still disappears from the branch-mode and lifecycle-release result paths",
+			"mechanism": [
+				[
+					"branch mode",
+					"branch return",
+					"branch-mode"
+				],
+				[
+					"lifecycle[- ]release",
+					"release already run inside the child",
+					"releaseCaptureError",
+					"kept-alive"
+				],
+				[
+					"finalCaptureError",
+					"final[- ]capture (failure|outcome)",
+					"failed final capture",
+					"cleanup capture"
+				],
+				[
+					"exit 0",
+					"no error or retained path",
+					"no retained path",
+					"disappears",
+					"hide"
+				]
+			],
+			"trigger": [
+				[
+					"chmod[- ]?000",
+					"late file",
+					"fault case",
+					"real Git repositor"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17394-r27-3",
+			"head": "pr17394-r27",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the filesystem import gate still admits raw reads: node:fs wholesale, Bun global spellings, and a helper in an allowed workspace package",
+			"mechanism": [
+				[
+					"gate",
+					"isolation-lookup-surface"
+				],
+				[
+					"node:fs",
+					"FS_MODULES",
+					"fs/promises"
+				],
+				[
+					"bypass",
+					"escape",
+					"admits",
+					"accepts",
+					"passes? the gate",
+					"still accepts",
+					"pass the gate"
+				],
+				[
+					"`?Bun`?[^a-z]{0,3}(global|\\.file|\\.Glob)",
+					"alias",
+					"receiver",
+					"@oh-my-pi/pi-utils",
+					"bare specifier",
+					"workspace package"
+				]
+			],
+			"trigger": [
+				[
+					"mutation",
+					"case",
+					"exit (code|`?0`?|`?1`?)",
+					"scratch scenario"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r27-4",
+			"head": "pr17394-r27",
+			"severity": "P1",
+			"how_found_primary": "real-kernel-resource",
+			"title": "a directory the sandbox cannot list makes git's listing short, the capture report success with an empty patch, and the teardown delete the only copy",
+			"mechanism": [
+				[
+					"ls-?[Ff]iles",
+					"lsFiles",
+					"untracked set",
+					"listUntracked"
+				],
+				[
+					"could not open directory",
+					"cannot be listed",
+					"unlistable",
+					"skips a directory",
+					"short listing"
+				],
+				[
+					"exits? 0",
+					"no error channel",
+					"reported success",
+					"warns on stderr",
+					"silently"
+				],
+				[
+					"empty patch",
+					"patchLength=0",
+					"does not name",
+					"never listed",
+					"cannot name a file"
+				]
+			],
+			"trigger": [
+				[
+					"cleanupIsolation",
+					"teardown deletes the only copy",
+					"deletes the only copy",
+					"authorises a deletion"
+				],
+				[
+					"captureRepoDeltaPatch",
+					"captureUntrackedPatch",
+					"per-file",
+					"baseline"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r27-5",
+			"head": "pr17394-r27",
+			"severity": "P2",
+			"how_found_primary": "measure-timing",
+			"title": "round 26's second settle pass, documented as the handover protection, never fires for the waiter it was added for",
+			"mechanism": [
+				[
+					"settleIfIdle",
+					"second pass",
+					"two passes",
+					"takes the decision twice"
+				],
+				[
+					"releas\\w*.{0,30}in between",
+					"lock\\.release",
+					"drops? .{0,15}lock",
+					"released between"
+				],
+				[
+					"100 ?ms",
+					"retries every",
+					"acquireFileLock",
+					"poll",
+					"waiter"
+				],
+				[
+					"never fires",
+					"seenInPass2",
+					"0/30",
+					"nought out of thirty",
+					"does not fire"
+				]
+			],
+			"trigger": [
+				[
+					"paired cycles",
+					"30 (paired )?cycles",
+					"50 trials",
+					"windowMs",
+					"second process"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r28-1",
+			"head": "pr17394-r28",
+			"severity": "P1",
+			"how_found_primary": "real-kernel-resource",
+			"title": "assertTreeListable guesses which directories git reads, and both of its skips lose a file",
+			"mechanism": [
+				[
+					"assertTreeListable",
+					"skip list",
+					"the walk",
+					"discoverNestedRepos"
+				],
+				[
+					"node_modules"
+				],
+				[
+					"\\.git",
+					"gitfile",
+					"dangling symlink",
+					"empty file",
+					"lstat"
+				],
+				[
+					"git (has no such rule|agrees with neither|descends|walks into)",
+					"disagree",
+					"git never",
+					"warns past"
+				]
+			],
+			"trigger": [
+				[
+					"removed",
+					"only copy",
+					"IRREPLACEABLE",
+					"no `only-copy`",
+					"reported success"
+				]
+			],
+			"found_by": {
+				"astra": "not-run",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r28-2",
+			"head": "pr17394-r28",
+			"severity": "P1",
+			"how_found_primary": "real-kernel-resource",
+			"title": "the walk refuses a run git was never going to look at, and the work it would have carried is not handed back",
+			"mechanism": [
+				[
+					"gitignore",
+					"ignored",
+					"\\.gitignore"
+				],
+				[
+					"refus\\w*",
+					"raise[sd]?",
+					"ends? it",
+					"cannot start"
+				],
+				[
+					"never (looked|warned|going to look)",
+					"was never at risk",
+					"nothing was ever at risk",
+					"git reads it through"
+				],
+				[
+					"not handed back",
+					"unreturned",
+					"returns nothing",
+					"work.{0,20}(lost|unreturned)",
+					"worktree clear"
+				]
+			],
+			"trigger": [
+				[
+					"build/cache",
+					"target/",
+					"\\.venv",
+					"__pycache__",
+					"mode 0000",
+					"0000"
+				]
+			],
+			"found_by": {
+				"astra": "not-run",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r28-3",
+			"head": "pr17394-r28",
+			"severity": "P2",
+			"how_found_primary": "two-processes-barrier",
+			"title": "the listability check is not atomic with the listing it protects",
+			"mechanism": [
+				[
+					"atomic",
+					"in between",
+					"window",
+					"pre-?check",
+					"check before a listing"
+				],
+				[
+					"silentlyShort",
+					"85 of 400",
+					"85",
+					"returned success with the file missing"
+				],
+				[
+					"lsFiles",
+					"the listing",
+					"repo\\.lsFiles"
+				]
+			],
+			"trigger": [
+				[
+					"400 captures",
+					"trials.{0,10}400",
+					"second process",
+					"flipping",
+					"0700",
+					"0000"
+				]
+			],
+			"found_by": {
+				"astra": "not-run",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r28-4",
+			"head": "pr17394-r28",
+			"severity": "P2",
+			"how_found_primary": "measure-timing",
+			"title": "the walk costs a full cold metadata traversal of the working tree on every delta capture",
+			"mechanism": [
+				[
+					"cost",
+					"ms",
+					"traversal",
+					"12\\.8 ?s"
+				],
+				[
+					"walk"
+				],
+				[
+					"cold",
+					"warm",
+					"serial",
+					"every (delta )?capture",
+					"metadata"
+				],
+				[
+					"20 ?201",
+					"5 ?051",
+					"846",
+					"6 ?587",
+					"directories"
+				]
+			],
+			"trigger": [
+				[
+					"captureDeltaPatch",
+					"freshly materialised",
+					"lstat",
+					"gitignored",
+					"cache"
+				]
+			],
+			"found_by": {
+				"astra": "not-run",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r28-5",
+			"head": "pr17394-r28",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the rebuilt import gate is still a text and name check: six more read surfaces pass it",
+			"mechanism": [
+				[
+					"FS_MODULES",
+					"\"bun\"",
+					"ALLOWED",
+					"ENTRY_POINTS",
+					"gate"
+				],
+				[
+					"bypass",
+					"escape",
+					"`0` \\*\\*bypass\\*\\*"
+				],
+				[
+					"ALLOWED\\.test\\(line\\)",
+					"whole line",
+					"sharing the line",
+					"split over lines",
+					"multiline",
+					"one relative file away",
+					"entriesOf",
+					"name filter"
+				]
+			],
+			"trigger": [
+				[
+					"mutation",
+					"gate-case",
+					"twelve cases",
+					"one mutation"
+				]
+			],
+			"found_by": {
+				"astra": "not-run",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r30-1",
+			"head": "pr17394-r30",
+			"severity": "P1",
+			"how_found_primary": "inject-fault",
+			"title": "the new git subprocess inherits an environment the repository strips everywhere else, so the capture lists another tree",
+			"mechanism": [
+				[
+					"GIT_WORK_TREE",
+					"GIT_DIR",
+					"GIT_INDEX_FILE",
+					"environment"
+				],
+				[
+					"Bun\\.spawn",
+					"listUntracked",
+					"spawn",
+					"subprocess",
+					"hand-spawned"
+				],
+				[
+					"-C",
+					"does not beat",
+					"outrank",
+					"inherit"
+				],
+				[
+					"cli\\.rs",
+					"strips",
+					"apply_env",
+					"environment contract",
+					"stripped"
+				]
+			],
+			"trigger": [
+				[
+					"empty",
+					"patch length\\s+: 0",
+					"DATA LOST",
+					"only copy",
+					"removed"
+				]
+			],
+			"found_by": {
+				"astra": "not-run",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r30-2",
+			"head": "pr17394-r30",
+			"severity": "P1",
+			"how_found_primary": "inject-fault",
+			"title": "every line on git's stderr is treated as a directory git did not read, so healthy captures are refused",
+			"mechanism": [
+				[
+					"stderr"
+				],
+				[
+					"could not open directory",
+					"fallback",
+					"line\\.trim",
+					"unreadable\\.push",
+					"any line"
+				],
+				[
+					"GIT_TRACE",
+					"unable to access",
+					"excludesFile",
+					"locale",
+					"tracing"
+				],
+				[
+					"refus\\w*",
+					"raises",
+					"nothing was at risk",
+					"not handed back"
+				]
+			],
+			"trigger": [
+				[
+					"LC_MESSAGES",
+					"translated",
+					"reworded",
+					"0400",
+					"\\.gitignore"
+				]
+			],
+			"found_by": {
+				"astra": "not-run",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r30-3",
+			"head": "pr17394-r30",
+			"severity": "P2",
+			"how_found_primary": "real-kernel-resource",
+			"title": "the walk the commit message says it deleted still runs at baseline and still refuses the gitignored case",
+			"mechanism": [
+				[
+					"discoverNestedRepos",
+					"the walk",
+					"recursive walk"
+				],
+				[
+					"baseline",
+					"captureBaseline"
+				],
+				[
+					"still (runs|refuses|calls)",
+					"not gone",
+					"is the same",
+					"last place"
+				],
+				[
+					"gitignored",
+					"ignored",
+					"target/cache",
+					"\\.gitignore"
+				]
+			],
+			"trigger": [
+				[
+					"0000",
+					"mode 0000",
+					"cannot start",
+					"baseline raised",
+					"after the baseline",
+					"new test"
+				]
+			],
+			"found_by": {
+				"astra": "not-run",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17394-r30-4",
+			"head": "pr17394-r30",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the resolved-specifier gate pins a package rather than its symbols, and an existing export of that package is the collapse it forbids",
+			"mechanism": [
+				[
+					"ALLOWED_PACKAGES",
+					"NOT_THIS_SUBSYSTEM",
+					"pi-utils",
+					"pinned",
+					"package"
+				],
+				[
+					"directoryExists",
+					"existing export",
+					"real-export",
+					"already exports"
+				],
+				[
+					"bypass",
+					"reopened",
+					"new",
+					"exit.{0,12}`?0`?",
+					"hole"
+				]
+			],
+			"trigger": [
+				[
+					"parallel\\.ts",
+					"\\.js",
+					"computed",
+					"globalThis",
+					"Transpiler",
+					"resolve\\(\\)"
+				]
+			],
+			"found_by": {
+				"astra": "not-run",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17396-r5-1",
+			"head": "pr17396-r5",
+			"severity": "low-medium",
+			"how_found_primary": "write-probe",
+			"title": "the Vertex OAuth token request rides the request counter and is reported as a model replay",
+			"mechanism": [
+				[
+					"vertex"
+				],
+				[
+					"token (request|fetch|endpoint|path)",
+					"access token",
+					"getVertexAccessToken",
+					"metadata\\.google\\.internal"
+				],
+				[
+					"count",
+					"counted",
+					"increment",
+					"providerReplays",
+					"WireAttempts"
+				]
+			],
+			"trigger": [
+				[
+					"baseFetch",
+					"below the counter",
+					"fetch from \\*below\\*"
+				],
+				[
+					"streamRawPredict",
+					"providerReplays: 1",
+					"google-vertex"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17396-r5-2",
+			"head": "pr17396-r5",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "an authentication retry with a second key is dropped from the reported replay count, so a resent body reports zero",
+			"mechanism": [
+				[
+					"authentication (retr|wrapper|resend)",
+					"auth retr",
+					"another resolved key",
+					"streamSimpleRequest"
+				],
+				[
+					"report(s|ed|ing)? zero",
+					"providerReplays`?:? 0",
+					"false zero",
+					"undercount"
+				],
+				[
+					"discard",
+					"loses",
+					"lost",
+					"without including earlier",
+					"forwards the last call",
+					"aggregation"
+				]
+			],
+			"trigger": [
+				[
+					"401"
+				],
+				[
+					"read ECONNRESET",
+					"same SHA-?256 body hash",
+					"six primary",
+					"6"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r5-3",
+			"head": "pr17396-r5",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "`abortRetry()` called at the replay-report event clears the hold state and lets the same recovery hold a second model",
+			"mechanism": [
+				[
+					"abortRetry",
+					"abort_retry",
+					"public retry reset",
+					"public cancellation"
+				],
+				[
+					"reopen",
+					"re-?open",
+					"clears both hold fields",
+					"hold again",
+					"permits .{0,20}hold"
+				],
+				[
+					"replay report",
+					"replay-report",
+					"report\\w* ten replays",
+					"reporting ten"
+				]
+			],
+			"trigger": [
+				[
+					"Haiku",
+					"Sonnet",
+					"25 requests",
+					"12 requests"
+				],
+				[
+					"model-budget reset",
+					"budget reset"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r5-4",
+			"head": "pr17396-r5",
+			"severity": "P2",
+			"how_found_primary": "measure-timing",
+			"title": "the held-sleep bound compares with `<=`, so a hint exactly equal to the window is still taken and the promised strict bound is reached",
+			"mechanism": [
+				[
+					"<=",
+					"inclusive",
+					"equality",
+					"exactly equal"
+				],
+				[
+					"bound",
+					"window",
+					"sleep"
+				],
+				[
+					"strict",
+					"promised",
+					"documented window",
+					"acceptance criteria"
+				]
+			],
+			"trigger": [
+				[
+					"hint",
+					"try again in",
+					"8,?000 ms base"
+				],
+				[
+					"1,?500 ms",
+					"16,?000 ms",
+					"1\\.613",
+					"16\\.061"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r5-5",
+			"head": "pr17396-r5",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "numeric timing values such as `retry-after-ms=503` are read as HTTP statuses and strip the connection lane",
+			"mechanism": [
+				[
+					"retry-after-ms=",
+					"elapsed_ms",
+					"timing metadata",
+					"numeric metadata"
+				],
+				[
+					"classif"
+				],
+				[
+					"metadata \\*?\\*?value",
+					"still become",
+					"durations, not",
+					"status or capacity"
+				]
+			],
+			"trigger": [
+				[
+					"ECONNRESET",
+					"diagnostic suffix"
+				],
+				[
+					"429",
+					"503",
+					"529",
+					"401",
+					"403"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r7-1",
+			"head": "pr17396-r7",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "cancellation is forgotten at several moments of the recovery, so `abortRetry()` lets 14 more requests go out",
+			"mechanism": [
+				[
+					"abortRetry",
+					"cancellation",
+					"cancel"
+				],
+				[
+					"still",
+					"lost",
+					"allows",
+					"continues",
+					"recovery still sends"
+				],
+				[
+					"auto_retry_start",
+					"retry-start",
+					"credential rotation",
+					"second account",
+					"14 additional requests"
+				]
+			],
+			"trigger": [
+				[
+					"recovery-moments",
+					"rotation-cancel",
+					"first `?auto_retry_start"
+				],
+				[
+					"identical body",
+					"installed sleep",
+					"14 additional requests"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-17396-r7-2",
+			"head": "pr17396-r7",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "duration spellings other than `retry-after-ms=` still change the classification and skip same-model recovery",
+			"mechanism": [
+				[
+					"after 401 ns",
+					"after 403",
+					"elapsed_ms",
+					"duration metadata",
+					"duration spelling"
+				],
+				[
+					"classif",
+					"same-model recovery",
+					"skips",
+					"primary request"
+				],
+				[
+					"flags\\.ts",
+					"matrix",
+					"234"
+				]
+			],
+			"trigger": [
+				[
+					"duration-attacks",
+					"duration-wire",
+					"native session"
+				],
+				[
+					"1 primary request",
+					"3",
+					"three"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-17396-r7-3",
+			"head": "pr17396-r7",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "two logical calls that share one built `transportFetch` make each other's requests count as replays",
+			"mechanism": [
+				[
+					"transportFetch",
+					"transport-fetch",
+					"built transport",
+					"reusing a built transport"
+				],
+				[
+					"overcount",
+					"counts unrelated",
+					"\\[0,1\\]",
+					"not `?\\[0,0\\]"
+				],
+				[
+					"shar(e|es|ing)",
+					"two different prompts",
+					"unrelated calls"
+				]
+			],
+			"trigger": [
+				[
+					"wire-attempts",
+					"replay reports",
+					"body hashes"
+				],
+				[
+					"two different",
+					"one native request each",
+					"exported low-level composition"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-17396-r7-4",
+			"head": "pr17396-r7",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "a repeated retry hint is read at its first and shorter occurrence, so the longer wait never declines the hold",
+			"mechanism": [
+				[
+					"retry-after-ms=200 retry-after-ms=9000",
+					"repeated .{0,20}hint",
+					"longer repeated",
+					"parses as \\*?\\*?200"
+				],
+				[
+					"ignored",
+					"first",
+					"shorter",
+					"200"
+				],
+				[
+					"fetch-retry",
+					"retry hint",
+					"hint"
+				]
+			],
+			"trigger": [
+				[
+					"holds for 250 ms",
+					"resends",
+					"declin"
+				],
+				[
+					"9000",
+					"9,?000"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-17396-r9-1",
+			"head": "pr17396-r9",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the error formatter drops a longer response-header wait when the message text already carries `retry-after-ms=`",
+			"mechanism": [
+				[
+					"retry-after\\.ts",
+					"formatErrorMessageWithRetryAfter",
+					"formatter"
+				],
+				[
+					"discard",
+					"hid",
+					"hidden",
+					"suppress",
+					"loses",
+					"only \\*?\\*?200"
+				],
+				[
+					"header",
+					"Retry-After: ?9",
+					"response-header"
+				]
+			],
+			"trigger": [
+				[
+					"body hint",
+					"already contains",
+					"error already contains"
+				],
+				[
+					"200 ms",
+					"253 ms",
+					"9000",
+					"9,?000"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r9-2",
+			"head": "pr17396-r9",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the longest-hint reading reaches the durable credential blockers, so a number that is not a hint blocks a key for a day",
+			"mechanism": [
+				[
+					"longest",
+					"longestRetryHint",
+					"longestProviderRetryHint"
+				],
+				[
+					"durabl",
+					"credential",
+					"markReached",
+					"block"
+				],
+				[
+					"86,?400,?00[01]",
+					"1e\\+72",
+					"echo",
+					"reaches callers",
+					"72-digit"
+				]
+			],
+			"trigger": [
+				[
+					"hint-regression",
+					"credential-block",
+					"5 of 9",
+					"9 readings"
+				],
+				[
+					"retry-after-ms=",
+					"x-ratelimit-reset"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17396-r9-3",
+			"head": "pr17396-r9",
+			"severity": "P3",
+			"how_found_primary": "write-probe",
+			"title": "a decoration after the error text — a port, a duration, a URL — drops `Flag.Connection` and sends the failure down the chain",
+			"mechanism": [
+				[
+					"decorat"
+				],
+				[
+					"Flag\\.Connection",
+					"Connection:false",
+					"drop",
+					"lose"
+				],
+				[
+					"127\\.0\\.0\\.1:503",
+					"\\[::1\\]:503",
+					":503",
+					"after 401 ns",
+					"https://h/v1"
+				]
+			],
+			"trigger": [
+				[
+					"classifier-check",
+					"46/176",
+					"invariance",
+					"sibling matrix"
+				],
+				[
+					"ECONNRESET",
+					"terminated"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17396-r11-1",
+			"head": "pr17396-r11",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "a `retry-after-ms=<n>` token at the end of the message body is indistinguishable from the formatter's own token and becomes the durable wait",
+			"mechanism": [
+				[
+					"residual"
+				],
+				[
+					"final token",
+					"final-token",
+					"quote last",
+					"quoted upstream",
+					"body suffix",
+					"indistinguishable",
+					"formatter token"
+				],
+				[
+					"retry-after-ms=",
+					"retry-after\\.ts"
+				]
+			],
+			"trigger": [
+				[
+					"86,?400,?000",
+					"9,?000",
+					"MAX_VALUE",
+					"1e\\+72",
+					"0\\.2"
+				],
+				[
+					"block"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17396-r11-2",
+			"head": "pr17396-r11",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "no clamp bounds a hint-derived credential block, so one parsed number can take a key out of rotation effectively forever",
+			"mechanism": [
+				[
+					"clamp",
+					"upper bound",
+					"unbounded",
+					"no bound",
+					"Math\\.min",
+					"cap on"
+				],
+				[
+					"markReached",
+					"durable block",
+					"credential block",
+					"auth/rotation"
+				],
+				[
+					"1e\\+72",
+					"72 nines",
+					"any finite",
+					"86,?400,?000"
+				]
+			],
+			"trigger": [
+				[
+					"credential-block",
+					"baseline-compare",
+					"bodyRetryHint"
+				],
+				[
+					"switched:false",
+					"1\\.16e\\+64",
+					"blocked for",
+					"oneshot-retry"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17396-r11-3",
+			"head": "pr17396-r11",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "`terminated` followed by any reason is accepted as a cut stream, so a policy or SIGKILL failure becomes a retryable connection error",
+			"mechanism": [
+				[
+					"terminated"
+				],
+				[
+					"SIGKILL",
+					"content policy",
+					"permission denied",
+					"reason"
+				],
+				[
+					"decorat",
+					"accepts",
+					"without checking",
+					"retryable Connection"
+				]
+			],
+			"trigger": [
+				[
+					"flags\\.ts",
+					"UNDICI_TERMINATED",
+					"isUndiciTerminated",
+					"the expression"
+				],
+				[
+					"separator",
+					"classifier inputs",
+					"four explicit assertions",
+					"introduced by this round"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r11-4",
+			"head": "pr17396-r11",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the duration-decoration repair is still a list, not a class: 56 of 72 new decorated messages still change classification",
+			"mechanism": [
+				[
+					"decoration class",
+					"decorat"
+				],
+				[
+					"not closed",
+					"56/72",
+					"new set",
+					"still change"
+				],
+				[
+					"after 401 nsec",
+					"fe80::1",
+					"403分",
+					"0/176"
+				]
+			],
+			"trigger": [
+				[
+					"ECONNRESET",
+					"non-retryable",
+					"retryable"
+				],
+				[
+					"decoration-new-fixed",
+					"decoration-native",
+					"invariance",
+					"status-oracle",
+					"status oracle"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r13-1",
+			"head": "pr17396-r13",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "a streamed in-band failure never reaches `AIError.finalize` with the HTTP 200 response's headers, so the real header wait is lost",
+			"mechanism": [
+				[
+					"AIError\\.finalize",
+					"finalize\\.ts",
+					"finalize"
+				],
+				[
+					"stream(ed)? (failure|error)",
+					"in-band error",
+					"200 stream",
+					"HTTP 200 stream"
+				],
+				[
+					"header"
+				],
+				[
+					"absent",
+					"lose",
+					"loses",
+					"never",
+					"do not reach",
+					"no field"
+				]
+			],
+			"trigger": [
+				[
+					"Retry-After: ?9",
+					"9,?000 ms",
+					"200-ms body hint"
+				],
+				[
+					"credential block",
+					"one-shot",
+					"three primary requests",
+					"native-field"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r13-2",
+			"head": "pr17396-r13",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the public proxy transport rebuilds the AssistantMessage without `errorRetryAfterMs` and drops the header wait",
+			"mechanism": [
+				[
+					"proxy\\.ts",
+					"streamProxy",
+					"proxy transport"
+				],
+				[
+					"errorRetryAfterMs",
+					"the field"
+				],
+				[
+					"discard",
+					"drops?",
+					"without",
+					"reconstructs",
+					"rebuilds"
+				]
+			],
+			"trigger": [
+				[
+					"9,?000 ms",
+					"200 ms"
+				],
+				[
+					"two proxy requests",
+					"cutover regression",
+					"terminal frame",
+					"consumer read"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r13-3",
+			"head": "pr17396-r13",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the duration decoration rule is still an enumeration: 40 of 40 new unit spellings, including CJK and sub-millisecond SI units, change the classification",
+			"mechanism": [
+				[
+					"duration decoration",
+					"decoration class",
+					"decorat"
+				],
+				[
+					"納秒",
+					"ミリ秒",
+					"ナノ秒",
+					"picosecond",
+					"Traditional Chinese",
+					"Japanese"
+				],
+				[
+					"incomplete",
+					"40/40",
+					"remains",
+					"non-Connection"
+				]
+			],
+			"trigger": [
+				[
+					"ECONNRESET",
+					"after 401",
+					"after 403"
+				],
+				[
+					"duration-class",
+					"native-duration",
+					"flags\\.ts",
+					"matrix"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r13-4",
+			"head": "pr17396-r13",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "a numeric termination reason is blanked as metadata, so `terminated; signal=9` is still a cut stream, while an address-only tail is rejected",
+			"mechanism": [
+				[
+					"terminated"
+				],
+				[
+					"signal=9",
+					"exit_signal",
+					"reason=policy_v2",
+					"reason=content_policy",
+					"termination reason"
+				],
+				[
+					"metadata",
+					"removes fields containing digits",
+					"classified as Connection",
+					"pass as metadata"
+				]
+			],
+			"trigger": [
+				[
+					"\\[::1\\]",
+					"192\\.0\\.2\\.1",
+					"false positive",
+					"false negative"
+				],
+				[
+					"terminated-boundary",
+					"8 pass / 11 fail",
+					"flags\\.ts"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17396-r7-5",
+			"head": "pr17396-r7",
+			"severity": "P2",
+			"how_found_primary": "read-surrounding",
+			"title": "the error formatter already discarded a longer response-header wait at this head whenever the message text carried `retry-after-ms=`",
+			"mechanism": [
+				[
+					"retry-after\\.ts",
+					"formatErrorMessageWithRetryAfter",
+					"formatter"
+				],
+				[
+					"discard",
+					"hid",
+					"hidden",
+					"suppress",
+					"loses",
+					"only \\*?\\*?200"
+				],
+				[
+					"header",
+					"Retry-After: ?9",
+					"response-header"
+				]
+			],
+			"trigger": [
+				[
+					"body hint",
+					"already contains",
+					"error already contains"
+				],
+				[
+					"200 ms",
+					"253 ms",
+					"9000",
+					"9,?000"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-17402-r41-1",
+			"head": "pr17402-r41",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "A component the session focused and then showed as an overlay keeps rendering after dispose and issues a loopback provider request",
+			"mechanism": [
+				[
+					"showOverlay|overlay"
+				],
+				[
+					"hasInputScope|already has a scope|existing binding|first binds|same component|reused as an overlay"
+				],
+				[
+					"never (removed|comes down|registered)|stays up|still up|not removed|runs after|renders after|does not remove"
+				]
+			],
+			"trigger": [
+				[
+					"setFocus"
+				],
+				[
+					"after .{0,25}dispos|post-dispose|retired|session has gone"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r41-2",
+			"head": "pr17402-r41",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "A retirement sweep over nested overlays leaves focus on an already-retired outer overlay and the next keys are lost",
+			"mechanism": [
+				[
+					"nested overlay|two overlays|outer overlay|inner overlay|owned child|adopted child"
+				],
+				[
+					"retire|retirement sweep|dispos"
+				],
+				[
+					"focus (remains|stays|left)|leaves? focus|focus on (a|the) retired|focusOuter|no successor"
+				]
+			],
+			"trigger": [
+				[
+					"key|keystroke|host editor|hostText"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r41-3",
+			"head": "pr17402-r41",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "Focus predecessors are recorded only at first focus, so release-and-retake and setFocus(null) restore a stale or retired component",
+			"mechanism": [
+				[
+					"predecessor"
+				],
+				[
+					"only the first|first time|setFocus\\(null\\)|release|retake|focus history"
+				],
+				[
+					"stale|dead|retired|restores the \\*\\*first\\*\\*|incorrectly restores"
+				]
+			],
+			"trigger": [
+				[
+					"dispos|retire|release"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r41-4",
+			"head": "pr17402-r41",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "An SDK mcpTools CustomTool runs first with no Settings and then with the raw session Settings after refreshMCPTools",
+			"mechanism": [
+				[
+					"mcpTools|CustomTool|custom tool"
+				],
+				[
+					"Settings"
+				],
+				[
+					"refresh|refreshMCPTools|transition|changes from|then the"
+				]
+			],
+			"trigger": [
+				[
+					"createAgentSession|SDK|sdk\\.ts|session-tools\\.ts|getCustomToolContext"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r41-5",
+			"head": "pr17402-r41",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "A host callable inside copied tool-result data keeps its identity and still changes host private state after dispose",
+			"mechanism": [
+				[
+					"record|array|map|details|container"
+				],
+				[
+					"function|callable|bound arrow"
+				],
+				[
+					"identity|exact function|same function|unchanged|crosses|same\":true"
+				],
+				[
+					"private state|host.{0,15}state|changed after dispose|after the session is disposed|hostValue"
+				]
+			],
+			"trigger": [
+				[
+					"tool_result|hook|copyHostValue|copy"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r41-6",
+			"head": "pr17402-r41",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "One session focusing two of its own components loses the keyboard at dispose because the retire closure re-enters before the successor is set",
+			"mechanism": [
+				[
+					"two of its components|two components|focuses two|setFocus\\(first\\)|second component"
+				],
+				[
+					"successor|re-?enter|retireGoneInputScopes|one sweep|single sweep"
+				],
+				[
+					"null|keyboard|swallow|typed \"\"|focus is lost|focusedIsHost\": false"
+				]
+			],
+			"trigger": [
+				[
+					"retire|dispos"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r41-7",
+			"head": "pr17402-r41",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "hasInputScope never tests whether the existing scope is still alive, so a second session's focus lands on a permanently retired component",
+			"mechanism": [
+				[
+					"hasInputScope|existing scope|dead binding"
+				],
+				[
+					"never checks|still alive|is .{0,10}live|not live|liveness|retired scope|permanently retired"
+				],
+				[
+					"session B|second session|another session|two sessions"
+				]
+			],
+			"trigger": [
+				[
+					"focus"
+				],
+				[
+					"key|keystroke|vanish|swallow"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r41-8",
+			"head": "pr17402-r41",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "Model fields typed DATA are still copied by own-enumerable rules, so a class-held kindConfig, compat or requestMetadata arrives as {}",
+			"mechanism": [
+				[
+					"kindConfig|requestMetadata|compat|DATA|open field"
+				],
+				[
+					"class|getter"
+				],
+				[
+					"\\{\\}|empty|lost|arrives as|not copied|survives unchanged"
+				]
+			],
+			"trigger": [
+				[
+					"copyHostDeclared|copyHostData|handHostModel|model copy|ctx\\.model"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r43-1",
+			"head": "pr17402-r43",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "An overlay shown by session B keeps invoking session A's component after A disposes, with a credentialed loopback request",
+			"mechanism": [
+				[
+					"overlay"
+				],
+				[
+					"showing session|shower|session B|another session|foreign|whoever bound it|B shows"
+				],
+				[
+					"after .{0,20}dispos|retire|gone session|A disposes"
+				],
+				[
+					"request|fetch|canary|Bearer|renders|drawing|rendersAfterGone"
+				]
+			],
+			"trigger": [
+				[
+					"requestsAfterDispose|loopback|127\\.0\\.0\\.1|endpoint|canary|Bearer|real session|AgentSession"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r43-2",
+			"head": "pr17402-r43",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "Reusing the runtime before the next frame makes an old overlay live again and delivers the next session's key to it",
+			"mechanism": [
+				[
+					"reuse|reused|next AgentSession|replacement session|new generation"
+				],
+				[
+					"lease|renderer scope|cached scope|live getter|runtime"
+				],
+				[
+					"old overlay|still live|reports live again|revive|not retire"
+				]
+			],
+			"trigger": [
+				[
+					"key|frame|sweep"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r43-3",
+			"head": "pr17402-r43",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "The Error copy shares the host subclass's prototype, so a prototype getter still hands over a host callable",
+			"mechanism": [
+				[
+					"Error"
+				],
+				[
+					"prototype"
+				],
+				[
+					"callable|function|getter|method"
+				],
+				[
+					"cross|escape|same|identity|still hands|retained"
+				]
+			],
+			"trigger": [
+				[
+					"tool_result|hook|copy|boundary-data"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r43-4",
+			"head": "pr17402-r43",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "Own non-enumerable accessors on open model fields are dropped by the model copy, including a provider capability the host reads",
+			"mechanism": [
+				[
+					"own non-enumerable|non-enumerable|defineProperty|own accessor"
+				],
+				[
+					"getter|accessor"
+				],
+				[
+					"readableKeys|Object\\.keys|model copy|handHostModel|copyHost"
+				],
+				[
+					"lost|absent|skipped|missing|not copied|disappear"
+				]
+			],
+			"trigger": [
+				[
+					"supportsServerCompaction|compaction|provider reads|by property access|consumer"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r43-5",
+			"head": "pr17402-r43",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "A session that rebinds a component a gone session left focused loses focus to null, and the keyboard never recovers",
+			"mechanism": [
+				[
+					"rebind|session two focuses|second session focuses|a gone session left focused"
+				],
+				[
+					"predecessor|take\\(\\)|getFocused"
+				],
+				[
+					"null|keyboard dies|host typed \"\"|does not recover|settled: \"null\""
+				]
+			],
+			"trigger": [
+				[
+					"no key or frame in between|without a sweep|one sweep between|retire"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r43-6",
+			"head": "pr17402-r43",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "pi.getAllTools()[i].parameters is the host's own unfrozen schema object and an extension's write poisons the real tool's wire schema",
+			"mechanism": [
+				[
+					"getAllTools|ToolInfo|parameters|tool schema"
+				],
+				[
+					"host('s)? own object|isHostObject|host identity|the host's schema"
+				],
+				[
+					"frozen|unfrozen|Reflect\\.set|writable|accepted|poison"
+				]
+			],
+			"trigger": [
+				[
+					"bash|built-?in|real tool|registerTool|toJsonSchema"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r43-7",
+			"head": "pr17402-r43",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "The host-data copy is recursive with no depth bound, so an ordinary getter-produced chain overflows the stack",
+			"mechanism": [
+				[
+					"depth bound|no depth|unbounded|not depth-bounded|recursion"
+				],
+				[
+					"RangeError|Maximum call stack|stack overflow"
+				],
+				[
+					"fresh object|getter|cycle detection|identity"
+				]
+			],
+			"trigger": [
+				[
+					"copyHostData|copyHostRead|readableKeys|model|open field"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r47-1",
+			"head": "pr17402-r47",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "A late ctx.ui.custom dialog runs its option callbacks after the session disposed and the runner was reused",
+			"mechanism": [
+				[
+					"custom|dialog|factory"
+				],
+				[
+					"overlayOptions|onHandle|option callbacks|late"
+				],
+				[
+					"after .{0,25}dispos|retired|reuse|next session"
+				],
+				[
+					"callbacks? (run|execute)|calls:|requests?:|canary"
+				]
+			],
+			"trigger": [
+				[
+					"AgentSession|real controller|extension-ui-controller|loopback"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r47-2",
+			"head": "pr17402-r47",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "ctx.compact hands its callbacks the host's own CompactionResult and the host's Error",
+			"mechanism": [
+				[
+					"compact|compaction"
+				],
+				[
+					"onComplete|onError|callback arguments?|callbacks"
+				],
+				[
+					"same|identity|host('s)? (result|error|object)|not copied"
+				]
+			],
+			"trigger": [
+				[
+					"summary|manual_compaction_end|writer|changed"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r47-3",
+			"head": "pr17402-r47",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "An exception thrown by the error copier's own accessor escapes the schema boundary unchanged",
+			"mechanism": [
+				[
+					"cause|accessor|getter"
+				],
+				[
+					"throw|thrown|exception"
+				],
+				[
+					"copier|copy|fromHost|exception copy"
+				],
+				[
+					"same|identity|escapes? unchanged|writer"
+				]
+			],
+			"trigger": [
+				[
+					"call|assert|toJsonSchema|getAllTools|schema"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r47-4",
+			"head": "pr17402-r47",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "The new 512-level depth bound makes ctx.sessionManager.getTree() throw on any session past 255 entries and kills every provider request with deep history",
+			"mechanism": [
+				[
+					"getTree|session tree|SessionEntryIndex|emitContext|history"
+				],
+				[
+					"depth bound|512|RangeError|depth limit"
+				],
+				[
+					"fail|throw|refus|breaks|does not heal|dead"
+				]
+			],
+			"trigger": [
+				[
+					"entries|turns|256|255|provider request|every request"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r47-5",
+			"head": "pr17402-r47",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "Seven ctx.ui members take a string argument that never enters runOwned, so a disposed session writes the live host UI and the user's composer",
+			"mechanism": [
+				[
+					"ctx\\.ui|ui member|setEditorText|pasteToEditor|setStatus|setWorkingMessage"
+				],
+				[
+					"string|text\\(\\)|typeof value === \"string\"|argument"
+				],
+				[
+					"never (enters|calls)|not gated|ungated|reached the host|writes the live host"
+				]
+			],
+			"trigger": [
+				[
+					"after .{0,25}dispos|isRetired|disposed session|retired"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r47-6",
+			"head": "pr17402-r47",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "ui.custom's onHandle receives the host's own OverlayHandle and it still works after the session is disposed",
+			"mechanism": [
+				[
+					"onHandle|OverlayHandle|overlay handle"
+				],
+				[
+					"host('s)? own|by identity|live host|the host's"
+				],
+				[
+					"after .{0,25}dispos|still works|setHidden|hide"
+				]
+			],
+			"trigger": [
+				[
+					"ui\\.custom|custom\\(|dialog"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r47-7",
+			"head": "pr17402-r47",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "The declared AbortSignal.reason exception gives an extension write access to the abort text the session persists",
+			"mechanism": [
+				[
+					"AbortSignal|abort reason|reason"
+				],
+				[
+					"identity|the host's object|by identity|same"
+				],
+				[
+					"toolCallMessages|defaultToolCallMessage|assistant message|persist|write"
+				]
+			],
+			"trigger": [
+				[
+					"after .{0,25}dispos|retained|extension (wrote|rewrites)|EXTENSION-WROTE"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r47-8",
+			"head": "pr17402-r47",
+			"severity": "P2",
+			"how_found_primary": "read-surrounding",
+			"title": "setEditorComponent hands the raw EditorTheme, whose spinnerFrames array is a process-wide module constant",
+			"mechanism": [
+				[
+					"EditorTheme|setEditorComponent|editor factory"
+				],
+				[
+					"raw|not copied|skips the copy|passes `?theme`? raw|handedTheme"
+				],
+				[
+					"spinner|SPINNER_FRAMES|module-level|process-wide|shared array"
+				]
+			],
+			"trigger": [
+				[
+					"frozen|unfrozen|write|PWNED|mutat"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r47-9",
+			"head": "pr17402-r47",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "A timer scheduled after the shutdown sweep belongs to the runtime's current lease and fires for the next session",
+			"mechanism": [
+				[
+					"timer|setTimeout|ManagedTimers"
+				],
+				[
+					"shutdown sweep|swept once|finally|one-shot|after the sweep"
+				],
+				[
+					"next session|session B|current lease|still (runs|fires)|fired"
+				]
+			],
+			"trigger": [
+				[
+					"requests?|loopback|duringB|scheduled"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r49-1",
+			"head": "pr17402-r49",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "A retained RegisteredToolAdapter and an installed composer style keep running after their registration is withdrawn",
+			"mechanism": [
+				[
+					"retained|saved|host(-| )held|still holds"
+				],
+				[
+					"tool adapter|RegisteredToolAdapter|composer|bound fields|execute"
+				],
+				[
+					"withdraw|removed from|no longer lists|absent|retire"
+				],
+				[
+					"still (runs|invokes|calls)|new invocations|calls:"
+				]
+			],
+			"trigger": [
+				[
+					"session B|next session|same runtime|after A"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r49-2",
+			"head": "pr17402-r49",
+			"severity": "P1",
+			"how_found_primary": "inject-fault",
+			"title": "A failed abort-reason copy stops the admitted signal from aborting and the exception terminates the process",
+			"mechanism": [
+				[
+					"abort|cancellation"
+				],
+				[
+					"reason"
+				],
+				[
+					"copy (fail|failure)|failed copy|throwing getter|RangeError|object-limit"
+				],
+				[
+					"prevents|does not abort|extensionAborted: false|terminates|uncaught|exit 1"
+				]
+			],
+			"trigger": [
+				[
+					"provider gate|provider-gate|AdmittedSignal|listener"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r49-3",
+			"head": "pr17402-r49",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "A session-time provider replacement never restores the load-time model catalog for the next session",
+			"mechanism": [
+				[
+					"provider"
+				],
+				[
+					"load-time|load time|same name|replaced twice|two replacements"
+				],
+				[
+					"not restored|restored: false|still absent|never recreate|cleared"
+				]
+			],
+			"trigger": [
+				[
+					"session B|next session|after A ends|registry"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r49-4",
+			"head": "pr17402-r49",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "A continuation of a retired session can unregister the live session's provider, and its late registration returns instead of throwing",
+			"mechanism": [
+				[
+					"unregister|registerProvider|provider API"
+				],
+				[
+					"old|stale|retired|ended session|continuation"
+				],
+				[
+					"removes B|B's (live )?registration|reaches the registry|discarded|returns? instead of throwing"
+				]
+			],
+			"trigger": [
+				[
+					"loader\\.ts|model-registry|registrant|runtime"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r49-5",
+			"head": "pr17402-r49",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "A model getter's exception reaches the extension by identity, with its host callable, through runner.createContext(model).model",
+			"mechanism": [
+				[
+					"model"
+				],
+				[
+					"getter"
+				],
+				[
+					"throw|exception|Error"
+				],
+				[
+					"same: true|identity|exact Error|writer|callable|changed-after-dispose"
+				]
+			],
+			"trigger": [
+				[
+					"createContext|handHostModel|ctx\\.model|compat"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r49-6",
+			"head": "pr17402-r49",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "runScoped answers undefined once the owner retires, so a session ending mid-dispatch silently drops the remaining load-time handlers and their decisions",
+			"mechanism": [
+				[
+					"runScoped|dispatch|emit"
+				],
+				[
+					"retired|isRetired|release|session end(ing|s)? mid"
+				],
+				[
+					"remaining|load-time handlers|handlers? k|skipped|never ran|silently drop"
+				],
+				[
+					"decision|result|onError|reported nothing|undefined"
+				]
+			],
+			"trigger": [
+				[
+					"for \\(const handler|handler list|broadcast|session_start|session_stop"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r49-7",
+			"head": "pr17402-r49",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "setToolsExpanded and setTheme bypass the new string gate, so a disposed session redraws the live transcript and switches the process-wide theme",
+			"mechanism": [
+				[
+					"setToolsExpanded|setTheme"
+				],
+				[
+					"gate|string|never calls|bypass|not gated"
+				],
+				[
+					"reached the host|after .{0,20}dispos|disposed session|live host"
+				]
+			],
+			"trigger": [
+				[
+					"theme|transcript|watcher|tool block|arrivals"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r49-8",
+			"head": "pr17402-r49",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "A flag value installed by a session outlives the session whose declaration was withdrawn",
+			"mechanism": [
+				[
+					"flag"
+				],
+				[
+					"value"
+				],
+				[
+					"withdraw|declaration (is )?withdrawn|outlives|stays|survives"
+				]
+			],
+			"trigger": [
+				[
+					"next session|getFlagValues|setFor|loader\\.ts"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r49-9",
+			"head": "pr17402-r49",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "ctx.ui.getEditorComponent() returns the host's own editor component, ungated and uncopied",
+			"mechanism": [
+				[
+					"getEditorComponent|editor component"
+				],
+				[
+					"host('s)? own object|HOST OBJECT|by identity|no copy"
+				],
+				[
+					"no gate|ungated|after dispose|dead|retired"
+				]
+			],
+			"trigger": [
+				[
+					"census|ctx\\.ui|depth six|read member"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r51-1",
+			"head": "pr17402-r51",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "registerComposerShape iterates the live listener Set while the controller's listener adds a new subscription, so one change reinstalls without end",
+			"mechanism": [
+				[
+					"composer|registerComposerShape|composerShapeListeners"
+				],
+				[
+					"Set|listener|subscription|iterat"
+				],
+				[
+					"loop|again|repeatedly|no terminating|each invocation adds|count\":8|unbounded"
+				]
+			],
+			"trigger": [
+				[
+					"add|withdraw|dispose|sync|reinstall"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r51-2",
+			"head": "pr17402-r51",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "A tool transferred to another runtime keeps the registering session on its callback but not on its abort listener or returned component",
+			"mechanism": [
+				[
+					"transferred|cross-runtime|another runtime|A registers .{0,30}B('s)? runner"
+				],
+				[
+					"abort listener|cancellation|returned component|renderer scope"
+				],
+				[
+					"wrong (owner|session)|sameOwner\\\":false|enters? .{0,20}(B|C)|B's lifetime|lateRegistered"
+				]
+			],
+			"trigger": [
+				[
+					"adapter|RegisteredToolAdapter|SafeToolRendererComponent|execute"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r51-3",
+			"head": "pr17402-r51",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "Only failures raised inside the copier are detached: host getter and resolver failures still hand over the host Error and its callable",
+			"mechanism": [
+				[
+					"host (getter|call|resolver)|resolveHeaders|getLeafEntry|ctx\\.model"
+				],
+				[
+					"exception|throw|reject|failure"
+				],
+				[
+					"same=true|identity|exact host Error|writer=function|not copied"
+				]
+			],
+			"trigger": [
+				[
+					"after retirement|after .{0,20}dispos|retained|copy around the host call"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r51-4",
+			"head": "pr17402-r51",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "ctx.abort, ctx.shutdown, ctx.compact and every install-or-clear UI member are ungated, so a gone session drives the next session's host",
+			"mechanism": [
+				[
+					"ctx\\.abort|abort|shutdown|compact"
+				],
+				[
+					"ungated|no admission gate|before `?copiedIn|undefined (call|argument)|optionalText"
+				],
+				[
+					"gone session|retired|after the session|next session|new host"
+				]
+			],
+			"trigger": [
+				[
+					"footer|header|editor|workingMessage|terminal-input|getEditorText"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r51-5",
+			"head": "pr17402-r51",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "A timer scheduled through a retired context still fires, because managed timers are owned by the runtime rather than the scheduling session",
+			"mechanism": [
+				[
+					"timer|setTimeout|managedTimers"
+				],
+				[
+					"runtime('s)? ownCallback|runtime, not the|the context's session|owner"
+				],
+				[
+					"after .{0,20}dispos|gone session|still (fires|starts)|firedAfterDispose"
+				]
+			],
+			"trigger": [
+				[
+					"scheduled|next session|session B"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r51-6",
+			"head": "pr17402-r51",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "getEditorComponent reads back undefined because editor factories are keyed per facade, not per session",
+			"mechanism": [
+				[
+					"getEditorComponent|editorFactories|editor factory"
+				],
+				[
+					"per facade|facade|memoiz|keyed"
+				],
+				[
+					"undefined|loses|reads back|throughOtherFacade"
+				]
+			],
+			"trigger": [
+				[
+					"link_activate|dialog|same session|own factory"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r51-7",
+			"head": "pr17402-r51",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "The silent handler drop moved one level in: a nested dispatch loses its handlers and its decision with nothing on onError",
+			"mechanism": [
+				[
+					"nested dispatch|inner (dispatch|handler)|#runDispatched|dispatch\\.live"
+				],
+				[
+					"never ran|lost|dropped|silent"
+				],
+				[
+					"onError|reported \\[\\]|errors: \\[\\]|nothing"
+				]
+			],
+			"trigger": [
+				[
+					"decision|block|finishOwned|handler"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r51-8",
+			"head": "pr17402-r51",
+			"severity": "P3",
+			"how_found_primary": "measure-timing",
+			"title": "Pending work is tracked runtime-wide, so one session's dispatch holds an unrelated session's disposal",
+			"mechanism": [
+				[
+					"pending|hold|trackCallback"
+				],
+				[
+					"runtime(-| )wide|runtime's pending set|another session|session B"
+				],
+				[
+					"waited|held|ms|blocks|delay"
+				]
+			],
+			"trigger": [
+				[
+					"dispatch|disposal|handler|30 s|unbounded"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r53-1",
+			"head": "pr17402-r53",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "ctx.modelRegistry.resolver() returns the host's own credential resolver, ungated, and it answers the next session's key after its own session is gone",
+			"mechanism": [
+				[
+					"resolver|modelRegistry\\.resolver|credential resolver|api-?key-?resolver"
+				],
+				[
+					"returned|hands back|by identity|the host's own function|what a method returns"
+				],
+				[
+					"ungated|no (session )?(check|gate)|after .{0,25}(gone|dispos|retire)|late"
+				],
+				[
+					"credential|api key|canary|Bearer|sk-live|key"
+				]
+			],
+			"trigger": [
+				[
+					"kept|retained|saved|session_start|resolver\\("
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r53-2",
+			"head": "pr17402-r53",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "ctx.localProtocolOptions reads the host before any gate, and a host getter's exception crosses with its writer",
+			"mechanism": [
+				[
+					"localProtocolOptions|local protocol options|getSessionId|getArtifactsDir"
+				],
+				[
+					"read|member\\(\\)|property access|Reflect\\.get|getter"
+				],
+				[
+					"before (any )?gate|no gate|after retirement|still executes|not gated"
+				]
+			],
+			"trigger": [
+				[
+					"host (getter|Error|exception)|writer|Proxy|replaces an answer"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r53-3",
+			"head": "pr17402-r53",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "A theme kept from a live session is not session-bound and forwards host exceptions by identity after retirement",
+			"mechanism": [
+				[
+					"theme|getColorMode"
+				],
+				[
+					"retained|kept|returned|descendant|not session-bound"
+				],
+				[
+					"host (exception|failure|Error)|same\\\":true|identity|writer"
+				]
+			],
+			"trigger": [
+				[
+					"after .{0,25}(retire|dispos|A ends)|ui\\.theme|terminal UI facade"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r53-4",
+			"head": "pr17402-r53",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "The agent allow-list entry hands a caller-supplied identity object through unchanged, writable and with its prototype getter live",
+			"mechanism": [
+				[
+					"ctx\\.agent|agent identity|ExtensionAgentIdentity|allow-?list entry `?agent"
+				],
+				[
+					"not copied|unchanged|same\\\":true|by identity|passes .{0,20}object"
+				],
+				[
+					"writable|not frozen|frozen\\\":false|changed the host|prototype getter"
+				]
+			],
+			"trigger": [
+				[
+					"createContext|runner|host supplie|kind: \"sub\"|identity"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17402-r53-5",
+			"head": "pr17402-r53",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "handSessionFacade cannot gate three member shapes, and the shared noOpUIContext every runner starts with crosses raw and unfrozen",
+			"mechanism": [
+				[
+					"noOpUIContext|no-?UI object|handSessionFacade|CONTEXT_ANSWERS"
+				],
+				[
+					"data member|plain(Data)?|setter|non-?configurable|shared by every runner|module-level"
+				],
+				[
+					"by identity|unfrozen|not frozen|crosses raw|silently skipped|the write was accepted"
+				]
+			],
+			"trigger": [
+				[
+					"after (death|retirement|dispose)|another runner|tamper|descriptor"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r53-6",
+			"head": "pr17402-r53",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "ui.onTerminalInput hands back the host's own disposer, ungated, and it still disposes after the session has gone",
+			"mechanism": [
+				[
+					"onTerminalInput|disposer"
+				],
+				[
+					"host('s)? own|raw|ungated|returns the host"
+				],
+				[
+					"after the session|after .{0,20}(gone|dispos|retire)|RAN at the host|terminalDisposed"
+				]
+			],
+			"trigger": [
+				[
+					"types\\.ts|context-surfaces|returned|kept"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r53-7",
+			"head": "pr17402-r53",
+			"severity": "P3",
+			"how_found_primary": "run-existing-tests",
+			"title": "Every gated member loses its name and arity, and a census test that passed on the previous head now fails",
+			"mechanism": [
+				[
+					"name|arity|fn\\.length|length"
+				],
+				[
+					"gated member|wrapper|ctx\\.abort|setFooter|bound value|\"value\""
+				],
+				[
+					"loses|0|zero-?arity|inconsistent|changed"
+				]
+			],
+			"trigger": [
+				[
+					"census3|fn\\.length !== 0|called with no argument|clearTimer"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r53-8",
+			"head": "pr17402-r53",
+			"severity": "P3",
+			"how_found_primary": "write-probe",
+			"title": "UI state a session set on the host outlives the session, and the gone session can no longer clear it",
+			"mechanism": [
+				[
+					"footer|header|workingMessage|status|title"
+				],
+				[
+					"outlives|still holds|next session|not (taken back|withdrawn)|no withdrawal"
+				],
+				[
+					"cannot (clear|remove)|refuses|setWorkingMessage\\(undefined\\)|whenSessionEnds"
+				]
+			],
+			"trigger": [
+				[
+					"after the session ends|gone session|UI state|round 52"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17402-r53-9",
+			"head": "pr17402-r53",
+			"severity": "P4",
+			"how_found_primary": "write-probe",
+			"title": "ctx.mode and ctx.hasUI are ungated and answer the host rebound since, not the context's own session",
+			"mechanism": [
+				[
+					"ctx\\.mode|hasUI|`mode`"
+				],
+				[
+					"ungated|fixed facts|not fixed|reads live|answers? the (next|new)"
+				],
+				[
+					"after .{0,20}(initialize|rebound|rebinds)|retired context|gone context|next session"
+				]
+			],
+			"trigger": [
+				[
+					"interactive|rpc|print|host"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17421-r26-1",
+			"head": "pr17421-r26",
+			"severity": "P1",
+			"how_found_primary": "two-processes-barrier",
+			"title": "two first reads in a rootless cell bind different directories: the second consumes an answer issued against a replaced root",
+			"mechanism": [
+				[
+					"concurrent",
+					"at once",
+					"simultaneous",
+					"already.?issued",
+					"in flight",
+					"two reads"
+				],
+				[
+					"first read",
+					"first answer",
+					"binds the original",
+					"no token",
+					"rootless",
+					"before .{0,24}director"
+				],
+				[
+					"different (root|director)",
+					"second .{0,20}(wrong|foreign|replacement)",
+					"wrong foreign",
+					"another director"
+				]
+			],
+			"trigger": [
+				[
+					"replace",
+					"substitut",
+					"second request",
+					"second read",
+					"two cells|two threads|promise\\.all|threadpool"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17421-r26-2",
+			"head": "pr17421-r26",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "a session disposing while an ownerless answer is in flight is charged a pin after its disposal",
+			"mechanism": [
+				[
+					"dispos"
+				],
+				[
+					"in.?flight",
+					"pending answer",
+					"still answering",
+					"already opened its file",
+					"snapshot"
+				],
+				[
+					"charg",
+					"pin.{0,24}after",
+					"descriptor .{0,16}open after",
+					"leak"
+				]
+			],
+			"trigger": [
+				[
+					"releaseartifactpinsof",
+					"agentsession\\.dispose",
+					"mid.?dispose",
+					"after disposal"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17421-r26-3",
+			"head": "pr17421-r26",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the one-place wire checks only the answer's fields as strings; the request union's string constraint is vacuous",
+			"mechanism": [
+				[
+					"request",
+					"artifactrequest",
+					"take variant",
+					"request variant"
+				],
+				[
+					"union",
+					"keyof",
+					"intersection",
+					"shapeof",
+					"stringshape",
+					"collapses"
+				],
+				[
+					"string",
+					"non-string",
+					"number",
+					"vacuous",
+					"escape",
+					"compiles",
+					"not enforced"
+				]
+			],
+			"trigger": [
+				[
+					"mutat",
+					"tsgo",
+					"type.?check",
+					"compile",
+					"attempt"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17421-r26-4",
+			"head": "pr17421-r26",
+			"severity": "P3",
+			"how_found_primary": "write-probe",
+			"title": "take() never consults `lapsed`, so a take at the lease boundary succeeds on a pin capacity already counts as expired",
+			"mechanism": [
+				[
+					"take\\(\\)",
+					"`?take`?\\b",
+					"taking a pin"
+				],
+				[
+					"lapsed",
+					"expir"
+				],
+				[
+					"never consults",
+					"does not (consult|read|check)",
+					"only .{0,24}(settimeout|timer)",
+					"two readings",
+					"disagree",
+					"inconsisten"
+				]
+			],
+			"trigger": [
+				[
+					"lease (end|boundary)",
+					"exactly 2000",
+					"at the boundary",
+					"performance\\.now"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17421-r26-5",
+			"head": "pr17421-r26",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the fixed 32-pin ceiling refuses ordinary concurrent artifact reads in one cell, with a count that varies run to run",
+			"mechanism": [
+				[
+					"32",
+					"thirty.?two",
+					"ceiling",
+					"pinned_files_max"
+				],
+				[
+					"concurrent",
+					"at once",
+					"together",
+					"promise\\.all",
+					"in flight"
+				],
+				[
+					"refus",
+					"fail",
+					"throw",
+					"tool.?error",
+					"outstanding"
+				]
+			],
+			"trigger": [
+				[
+					"one (cell|session)",
+					"ordinary",
+					"100|hundred|40|33",
+					"read"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17457-r10-1",
+			"head": "pr17457-r10",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "the request hold is checked before the asynchronous setup, not at the send, so all five request APIs send across a same-tick beginDispose",
+			"mechanism": [
+				[
+					"auth-retry\\.ts:339|stream\\.ts:84[0-9]|admission is (checked|awaited)|awaits? (a successful )?admission|admit"
+				],
+				[
+					"microtask gap|too early|before .{0,40}(asynchronous|provider|header|send)|not at the send|does not protect the actual send"
+				],
+				[
+					"withAuth|completeSimple|streamSimple|all five (APIs|entry points)|five APIs"
+				]
+			],
+			"trigger": [
+				[
+					"same (tick|continuation)|in the same continuation|disposedAtFetch|beginDispose\\(\\) in the same"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r10-2",
+			"head": "pr17457-r10",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "a job whose body synchronously begins owner disposal is never bound to that disposal, and keeps sending with an un-aborted hold",
+			"mechanism": [
+				[
+					"job-manager\\.ts:4[89]|#jobs|before insert(ion|ing)|invokes the job body before|bindOwnerDisposal"
+				],
+				[
+					"reentrant|synchronous(ly)? (job )?(startup|start)|misses? disposal|cannot find it|no second (disposal )?check"
+				],
+				[
+					"eight (real )?.{0,24}requests|requestHold.{0,16}false|still un-?aborted|stays false"
+				]
+			],
+			"trigger": [
+				[
+					"beginDispose|owner disposal|first job action"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r10-3",
+			"head": "pr17457-r10",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "pi-ai's withOAuthAccess has no hold check at all, so a surviving child session's tool reaches OAuth provider adapters after the parent begins disposal",
+			"mechanism": [
+				[
+					"withOAuthAccess"
+				],
+				[
+					"no hold check|has no hold|never .{0,20}hold|outside the hold|bypass"
+				],
+				[
+					"auth-retry\\.ts:433|Codex and Gemini|three credentialed requests|3 \\| Bearer"
+				]
+			],
+			"trigger": [
+				[
+					"beginDispose|parent .{0,16}dispos|surviving (real )?subagent|child (Agent)?[Ss]ession"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r10-4",
+			"head": "pr17457-r10",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "/security cloud start resolves OAuth with no signal and posts a scan creation after dispose() has returned",
+			"mechanism": [
+				[
+					"/?security cloud|security/cloud\\.ts|helpers/security\\.ts"
+				],
+				[
+					"no cancellation|does not|passes? no|receives no signal|the tool does, but"
+				],
+				[
+					"scan(-| )?creation|scan request|scan allowance|authenticated .{0,16}POST"
+				]
+			],
+			"trigger": [
+				[
+					"dispose\\(\\) (has )?returned|after full disposal|beginDispose"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r10-5",
+			"head": "pr17457-r10",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "live-call signaling is sent after both controller.stop() and session.dispose() returned, because the pending credential lookup is never checked",
+			"mechanism": [
+				[
+					"live/transport\\.ts|live/controller\\.ts|LiveSessionController|live-?call startup"
+				],
+				[
+					"stop\\(\\)|controller (has )?stopped|supplies no signal|passes no signal|no new state check"
+				],
+				[
+					"signaling (request|POST)|gpt-live|authenticated POST"
+				]
+			],
+			"trigger": [
+				[
+					"dispose|disposal|credential (lookup|resolution)"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r10-6",
+			"head": "pr17457-r10",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "a nested held scope watches only one scope's end, so ending the owner leaves the inner request waiting",
+			"mechanism": [
+				[
+					"nested (held )?(hold|scope)|inner (held )?scope|outer (held )?scope"
+				],
+				[
+					"request-hold\\.ts:3[79]|picks one held scope|chooses one held scope|waits only on|watches only"
+				],
+				[
+					"pending|unsettled|still waiting|retain(ed|s)?|hides outer cancellation"
+				]
+			],
+			"trigger": [
+				[
+					"owner ends|ending the outer|end(ed)? signal|disposal"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r10-7",
+			"head": "pr17457-r10",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "the hold is checked once per stream() call, not per retry attempt, so a request parked in the provider's 429 backoff resumes and is sent after the hold engages",
+			"mechanism": [
+				[
+					"retry backoff|transient-?429 backoff|parked in .{0,24}backoff|retry-?after"
+				],
+				[
+					"once per `?stream|not per attempt|per attempt|withRequestHold|streaming driver does not"
+				],
+				[
+					"landed AFTER|after the hold (began|engages)|1 \\*\\*|resumes and goes out"
+				]
+			],
+			"trigger": [
+				[
+					"429|hold engages|beginDispose"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17457-r10-8",
+			"head": "pr17457-r10",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "pi-ai's per-provider entry points are outside both the hold and the checker's primitive list, and Perplexity sends three credentialed requests from a held job",
+			"mechanism": [
+				[
+					"perplexity|streamOpenAIResponses|streamOpenAICompletions|streamAnthropic|legacy-pi-ai-shim"
+				],
+				[
+					"TRANSPORT_PRIMITIVES|not .{0,16}sites|no `?model-request:?`? declaration|undeclared|all declared"
+				],
+				[
+					"bypass|outside both the hold|never runs|outside the hold"
+				]
+			],
+			"trigger": [
+				[
+					"beginDispose|held job|api\\.perplexity\\.ai"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17457-r10-9",
+			"head": "pr17457-r10",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "the checker accepts deletion of a real cancellation when the options object is a helper's return value",
+			"mechanism": [
+				[
+					"session-handoff|prepareSimpleStreamOptions|helper(.s)? return value|return value of a helper"
+				],
+				[
+					"signal trace gives up|indirection|accepted|checker \\*\\*passes\\*\\*|exit 0"
+				],
+				[
+					"signal: ?undefined|cancellation .{0,20}deleted|deleted with the checker green"
+				]
+			],
+			"trigger": [
+				[
+					"checker|mutation"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17457-r10-10",
+			"head": "pr17457-r10",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the ownership checker accepts a destructured global fetch (`const {fetch: f} = globalThis`) and raises no site for it",
+			"mechanism": [
+				[
+					"\\{\\s*fetch\\s*:\\s*(f|send)\\s*\\}|destructur(ed|ing) (global )?fetch|fetch[- ]alias"
+				],
+				[
+					"globalThis"
+				],
+				[
+					"checker|inventory|exit 0|accept(s|ed)|pass(es)?"
+				]
+			],
+			"trigger": [
+				[
+					"model request|provider(Url)?|request site|send\\(|f\\("
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17457-r12-1",
+			"head": "pr17457-r12",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "Cursor's built-in HTTP/2 transport opens a request without asking the hold, so a held job still submits authenticated inference",
+			"mechanism": [
+				[
+					"cursor\\.ts:14[89]|providers/cursor|streamCursor|Cursor.{0,40}HTTP/?2"
+				],
+				[
+					"client\\.request|without the hold|bypasses the hold|no admission|opens HTTP/?2"
+				],
+				[
+					"authenticated .{0,24}Run|AgentService/Run|208 body bytes|one authenticated request"
+				]
+			],
+			"trigger": [
+				[
+					"beginDispose|held|survivor job"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r12-2",
+			"head": "pr17457-r12",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "a shared saved-reset redemption carries the initiating job's signal, so disposing the initiator fails every joined caller",
+			"mechanism": [
+				[
+					"resets\\.ts:1[45][0-9]|shared (saved-)?reset|reset redemption|redeem"
+				],
+				[
+					"first caller.{0,3}s signal|initiat(or|ing) (job|caller)|inherits|one promise|joins the same"
+				],
+				[
+					"credit_list_failed|zero reset POST|0 reset POST|both callers|both return"
+				]
+			],
+			"trigger": [
+				[
+					"dispos|cancel|leaves"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r12-3",
+			"head": "pr17457-r12",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "Anthropic Messages runs on node:https through coworkFetch, so the product's default provider never reaches the hold's fetch wrapper",
+			"mechanism": [
+				[
+					"coworkFetch|cowork-fetch|transport-fetch\\.ts"
+				],
+				[
+					"node:https"
+				],
+				[
+					"never touches the|does not go through the wrapped|bypass(es)?|outside the wrapper|wrapper cannot see"
+				]
+			],
+			"trigger": [
+				[
+					"anthropic|x-api-key|/v1/messages|default provider"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17457-r12-4",
+			"head": "pr17457-r12",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "withAuth resolves the credential before it checks the hold, so a held job's expired-token refresh sends refresh_token to the provider",
+			"mechanism": [
+				[
+					"refresh_token|oauth/token|refreshes? (an )?expired"
+				],
+				[
+					"resolves the key before|before its hold check|auth-retry\\.ts:35|runOutsideRequestHold"
+				],
+				[
+					"api\\.anthropic\\.com|2 requests|two requests|session.s own credential reaches"
+				]
+			],
+			"trigger": [
+				[
+					"held job|beginDispose|hold"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17457-r12-5",
+			"head": "pr17457-r12",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the ownership checker does not recognise a node:http / node:https provider request, so such a site is neither inventoried nor declared",
+			"mechanism": [
+				[
+					"checker|inventory|ownership walk"
+				],
+				[
+					"node:https?"
+				],
+				[
+					"cannot see|outside .{0,36}grammar|not a (request )?site|accept(s|ed)|exit 0|adds no"
+				]
+			],
+			"trigger": [
+				[
+					"provider request|model request|credential|POST|request site"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17457-r14-1",
+			"head": "pr17457-r14",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "Cursor sends a tool-result frame from a held job on the already-open HTTP/2 run stream",
+			"mechanism": [
+				[
+					"frame"
+				],
+				[
+					"execClientMessage|already-?open (HTTP/?2 )?(run )?stream|wrapHttp2RunTransport|tool result"
+				],
+				[
+					"never ask(s)? the hold|no admission|without .{0,16}admitSend|cursor\\.ts:(814|1590)|not a second `?session\\.request"
+				]
+			],
+			"trigger": [
+				[
+					"beginDispose|owner begins disposal|held:true|held job"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r14-2",
+			"head": "pr17457-r14",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "a synchronous Codex outbound observer can begin disposal between admitSend and WebSocket.send, and the frame still goes out",
+			"mechanism": [
+				[
+					"onSseEvent|outbound (observer|callback)|openai-codex-responses"
+				],
+				[
+					"after `?admitSend`?|between admission and|before .{0,24}send|post-?admission"
+				],
+				[
+					"response\\.create|frame"
+				]
+			],
+			"trigger": [
+				[
+					"beginDispose|isDisposed|begins? disposal"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r14-3",
+			"head": "pr17457-r14",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "a held job's Cursor model discovery treats the hold's refusal as a transport error and retries on an ungated HTTP/2 leg, sending the account token after the scope ended",
+			"mechanism": [
+				[
+					"discovery/cursor|fetchCursorUnary|fetchViaHttp2|model discovery"
+				],
+				[
+					"bare `?catch`?|caught as a transport failure|refusal .{0,40}(transport|caught|read)|isRequestRefusal|turns the refusal"
+				],
+				[
+					"no `?admitSend`?|nobody gated|ungated|http2\\.connect"
+				]
+			],
+			"trigger": [
+				[
+					"Bearer|cursorClientHeaders|token|credential"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17457-r14-4",
+			"head": "pr17457-r14",
+			"severity": "P2",
+			"how_found_primary": "inject-fault",
+			"title": "the new no-block rule keys on the caller's aborted signal, so a 429 the provider already sent is forgotten and the credential is not blocked",
+			"mechanism": [
+				[
+					"select\\.ts:(85|119)|auth/select|credential block|no-?block (rule|guard)"
+				],
+				[
+					"429|rate limit|invalid_grant|provider.s (answer|outcome|error)"
+				],
+				[
+					"signal\\?*\\.aborted|caller.s signal|keys on|cancellation"
+				],
+				[
+					"zero blocks|0 blocks|no longer blocks|neither blocked|not blocked|loses? .{0,16}block|forgotten"
+				]
+			],
+			"trigger": [
+				[
+					"Retry-After|before the (caller|provider)|abort(s|ed)? after|land(s|ing) while|while the caller.s signal"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17457-r14-5",
+			"head": "pr17457-r14",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "the ownership checker accepts thirteen of nineteen further mutation and invisible-network shapes, twelve of which really send with an aborted owner",
+			"mechanism": [
+				[
+					"Object\\.assign|Reflect\\.set|Object\\.defineProperty|getBuiltinModule|Bun\\.fetch|getOwnPropertyDescriptor"
+				],
+				[
+					"checker|ownership"
+				],
+				[
+					"accept(s|ed)|13 accepted|thirteen accepted|missing cancellation|invisible network"
+				]
+			],
+			"trigger": [
+				[
+					"owner.{0,24}already aborted|aborted owner|HTTPS request|signal:\\s*undefined"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17457-r14-6",
+			"head": "pr17457-r14",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "the checker takes a `none` declaration on a credentialed call at its word, so a credentialed transport can declare itself out of the gate",
+			"mechanism": [
+				[
+					"`?none`? declaration|declared `?none`?|model-request: ?none"
+				],
+				[
+					"at its word|takes? (the|that) claim|trust(s|ed)|PROBLEMS 0|checker (accepts|passes)"
+				],
+				[
+					"credential(ed)?|Bearer|http2\\.connect"
+				],
+				[
+					"PROBLEMS 0|on the line above the call|r14c|checker-attacks-r14c"
+				]
+			],
+			"trigger": [
+				[
+					"checker|declaration on the line above|mirror"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17488-r19-1",
+			"head": "pr17488-r19",
+			"severity": "P2",
+			"how_found_primary": "inject-fault",
+			"title": "a killed `gc --restore` leaves its recorded partial stage in the live artifact tree, where an ordinary archive absorbs it and a later restore republishes it as an artifact",
+			"mechanism": [
+				[
+					"killed restore",
+					"kill(?:ed)?\\s+(?:a\\s+)?(?:real\\s+)?restore",
+					"killed `?gc --restore",
+					"SIGKILL(?:ed)?[^.]{0,40}restore"
+				],
+				[
+					"live (?:artifact )?tree",
+					"live staging",
+					"stays live",
+					"staging directory",
+					"partial stage",
+					"recorded (?:live )?stage",
+					"while staging",
+					"partial copy",
+					"left in place",
+					"ledger record"
+				],
+				[
+					"copies it into the archive",
+					"absorb",
+					"as an ordinary (?:directory|dir|artifact)",
+					"archive[sd]? it",
+					"unrecorded archived artifact",
+					"then archived",
+					"as a session artifact"
+				]
+			],
+			"trigger": [
+				[
+					"retry restore",
+					"restore(?: again| retry)?[^.\\n]{0,40}\\b0\\b",
+					"archive[^.\\n]{0,30}(?:0|eligible|cold)",
+					"reclaim"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-17488-r21-1",
+			"head": "pr17488-r21",
+			"severity": "P1",
+			"how_found_primary": "real-kernel-resource",
+			"title": "`gc --restore --apply` writes the restore record with a bare `fs.writeFile`, so a symlink at `<archive>.jsonl.gz.restoring` has its target overwritten at exit 0",
+			"mechanism": [
+				[
+					"symlink",
+					"symbolic link",
+					"link to it",
+					"soft link"
+				],
+				[
+					"\\.restoring",
+					"restore record",
+					"record's name",
+					"restoreArchivedSessionLocked"
+				],
+				[
+					"writeFile",
+					"no `?wx`?",
+					"O_NOFOLLOW",
+					"openRegularFile",
+					"bare write",
+					"writes through"
+				],
+				[
+					"destro(?:y|ys|yed)",
+					"clobber",
+					"overwr(?:ite|ites|ote|itten)",
+					"target[^.\\n]{0,40}(?:gone|replaced)",
+					"its target"
+				]
+			],
+			"trigger": [
+				[
+					"exit 0",
+					"`errors: \\[\\]`",
+					"errors: \\[\\]",
+					"reports? success",
+					"restored"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17488-r21-2",
+			"head": "pr17488-r21",
+			"severity": "P1",
+			"how_found_primary": "real-kernel-resource",
+			"title": "a FIFO at `<archive>.jsonl.gz.restoring` blocks `gc --restore --apply` for ever inside the gc lock",
+			"mechanism": [
+				[
+					"FIFO",
+					"named pipe",
+					"mkfifo"
+				],
+				[
+					"\\.restoring",
+					"restore record",
+					"same name",
+					"record's own name"
+				],
+				[
+					"hang",
+					"hangs",
+					"hung",
+					"block(?:s|ed)? (?:on|for)",
+					"never (?:returns|comes)",
+					"124"
+				],
+				[
+					"gc lock",
+					"withGcLock",
+					"holding the lock",
+					"inside the lock",
+					"queues? behind"
+				]
+			],
+			"trigger": [
+				[
+					"writeFile",
+					"apply",
+					"--apply",
+					"restore"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17488-r21-3",
+			"head": "pr17488-r21",
+			"severity": "P1/P2",
+			"how_found_primary": "inject-fault",
+			"title": "a killed `gc --restore` leaves its recorded partial stage in the live artifact tree, where archive absorbs it as an ordinary artifact and reclaim plus restore bring it home",
+			"mechanism": [
+				[
+					"killed restore",
+					"kill(?:ed)?\\s+(?:a\\s+)?(?:real\\s+)?restore",
+					"killed `?gc --restore",
+					"SIGKILL(?:ed)?"
+				],
+				[
+					"live (?:artifact )?tree",
+					"live staging",
+					"stays live",
+					"staging directory",
+					"partial stage",
+					"recorded (?:live )?stage",
+					"while staging",
+					"partial copy",
+					"left in place",
+					"ledger record"
+				],
+				[
+					"copies it into the archive",
+					"absorb",
+					"as an ordinary (?:directory|dir|artifact)",
+					"archive[sd]? it",
+					"unrecorded archived artifact",
+					"then archived",
+					"as a session artifact"
+				],
+				[
+					"no message",
+					"adviceEverPrinted",
+					"no move instruction",
+					"never says",
+					"no recovery",
+					"no staging mention"
+				]
+			],
+			"trigger": [
+				[
+					"retry restore",
+					"Retry restore",
+					"restore[^.\\n]{0,30}\\b0\\b",
+					"reclaim"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17488-r21-4",
+			"head": "pr17488-r21",
+			"severity": "P1/P2",
+			"how_found_primary": "real-kernel-resource",
+			"title": "the printed recovery command's `mkdir -p <agentDir>/gc-quarantine` follows a pre-existing symlink there and moves the stage back inside the archived session tree",
+			"mechanism": [
+				[
+					"gc-quarantine",
+					"quarantine directory",
+					"destination symlink",
+					"`mkdir -p`",
+					"mkdir -p"
+				],
+				[
+					"symlink",
+					"alias(?:ed)?",
+					"symbolic link"
+				],
+				[
+					"inside (?:the |an )?(?:archive|session) tree",
+					"into the archive",
+					"resolved containment",
+					"containment check",
+					"lexical",
+					"path\\.relative"
+				],
+				[
+					"printed command",
+					"copyable command",
+					"the generated command",
+					"the supplied command",
+					"recovery command",
+					"the command"
+				]
+			],
+			"trigger": [
+				[
+					"restore (?:then )?(?:returned|exits?|refus)",
+					"move[sd]? (?:the )?stage",
+					"exit 0",
+					"returned \\*\\*0\\*\\*"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17488-r21-5",
+			"head": "pr17488-r21",
+			"severity": "P2",
+			"how_found_primary": "real-kernel-resource",
+			"title": "`gc --reclaim --apply` removes every non-regular live entry whether or not the archive holds it, and reports nothing",
+			"mechanism": [
+				[
+					"reclaim"
+				],
+				[
+					"non-?regular",
+					"isFile\\(\\)",
+					"not a (?:regular )?file",
+					"FIFO",
+					"pipe",
+					"socket"
+				],
+				[
+					"remove[sd]?",
+					"delete[sd]?",
+					"deletes",
+					"gone",
+					"takes it",
+					"given up"
+				],
+				[
+					"proveLiveTreeIsArchived",
+					"compared: false",
+					"whether or not the archive holds",
+					"not archived",
+					"archive does not hold",
+					"reports nothing",
+					"source comment"
+				]
+			],
+			"trigger": [
+				[
+					"live (?:tree|entry|entries)",
+					"unarchived",
+					"round-trip",
+					"after archiving"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17488-r21-6",
+			"head": "pr17488-r21",
+			"severity": "P3",
+			"how_found_primary": "write-probe",
+			"title": "the apply path prefixes the staging note with \"could not restore \", producing an ungrammatical message that differs from the preview's",
+			"mechanism": [
+				[
+					"could not restore"
+				],
+				[
+					"prefix",
+					"wraps",
+					"wrapped",
+					"ungrammatical",
+					"differs from the preview",
+					"preview's"
+				],
+				[
+					"note",
+					"message",
+					"sentence"
+				]
+			],
+			"trigger": [
+				[
+					"2633",
+					"apply path",
+					"apply",
+					"manual-\\*",
+					"recovery-\\*"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17488-r21-7",
+			"head": "pr17488-r21",
+			"severity": "P3",
+			"how_found_primary": "write-probe",
+			"title": "`gc --archive`'s `stagingResidue` prints the staging record's raw, possibly relative `dir` string",
+			"mechanism": [
+				[
+					"stagingResidue",
+					"surveyRecordedStagingGrounds"
+				],
+				[
+					"relative",
+					"raw",
+					"entry\\.dir",
+					"`dir`"
+				],
+				[
+					"record"
+				]
+			],
+			"trigger": [
+				[
+					"cwd",
+					"gc process",
+					"honoured",
+					"prints?",
+					"reports?"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17488-r21-8",
+			"head": "pr17488-r21",
+			"severity": "cleanup",
+			"how_found_primary": "read-diff",
+			"title": "the test helper `archivedWithKilledStage` returns an unused `record` property",
+			"mechanism": [
+				[
+					"archivedWithKilledStage"
+				],
+				[
+					"unused",
+					"dead",
+					"never read",
+					"no caller",
+					"not used"
+				],
+				[
+					"`record`",
+					"record property",
+					"returns"
+				]
+			],
+			"trigger": [
+				[
+					"test",
+					"session-archive\\.test\\.ts",
+					"helper",
+					"caller"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17488-r23-1",
+			"head": "pr17488-r23",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "any file whose first bytes are `omp gc --restore ` at `<archive>.jsonl.gz.restoring` is taken for the product's own record and unlinked, exit 0",
+			"mechanism": [
+				[
+					"omp gc --restore ",
+					"first line",
+					"first bytes",
+					"prefix"
+				],
+				[
+					"\\.restoring",
+					"restore record",
+					"restoreRecordRefusal"
+				],
+				[
+					"unlink(?:ed|s)?",
+					"deleted",
+					"removed",
+					"gone",
+					"lost"
+				],
+				[
+					"foreign",
+					"user(?:'s)? (?:own )?(?:file|data)",
+					"a file no restore wrote",
+					"not a restore record",
+					"my content"
+				]
+			],
+			"trigger": [
+				[
+					"exit 0",
+					"restore exit 0",
+					"`errors:\\[\\]`",
+					"errors: ?\\[\\]",
+					"re-?archiv"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "found"
+			}
+		},
+		{
+			"id": "D-17488-r23-2",
+			"head": "pr17488-r23",
+			"severity": "P2",
+			"how_found_primary": "inject-fault",
+			"title": "restore reports success and clears `.restoring` for a genuine killed live stage when the archived artifact directory is absent",
+			"mechanism": [
+				[
+					"archived artifact directory",
+					"archive[d]? (?:artifact )?tree",
+					"hasArtifacts",
+					"missing-archive"
+				],
+				[
+					"absent",
+					"missing",
+					"moved",
+					"removed",
+					"gone"
+				],
+				[
+					"killed[^.\\n]{0,30}restore",
+					"live stage",
+					"recorded stage",
+					"staged bytes"
+				],
+				[
+					"exited? \\*?\\*?0",
+					"reported success",
+					"false success",
+					"\\.restoring` was deleted",
+					"liveSessionIsComplete"
+				]
+			],
+			"trigger": [
+				[
+					"preview",
+					"apply(?:ing)?"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17488-r25-1",
+			"head": "pr17488-r25",
+			"severity": "P2",
+			"how_found_primary": "inject-fault",
+			"title": "the printed `0500` repair instruction cannot be followed: the failed command leaves its new empty `gc-quarantine-*` directory, so the identical rerun stops at `mkdir: File exists`",
+			"mechanism": [
+				[
+					"0500",
+					"read-?only",
+					"chmod u\\+w",
+					"Permission denied"
+				],
+				[
+					"identical (?:command|retry)",
+					"run (?:it|the|that|this)[^.\\n]{0,30}again",
+					"rerun",
+					"retry",
+					"second attempt"
+				],
+				[
+					"mkdir",
+					"File exists",
+					"EEXIST",
+					"empty `?gc-quarantine",
+					"left the new",
+					"directory it just made"
+				],
+				[
+					"cannot be rerun",
+					"exited? \\*?\\*?1",
+					"fails?",
+					"failed",
+					"stopp?ed at"
+				]
+			],
+			"trigger": [
+				[
+					"printed command",
+					"recovery command",
+					"stagingResidueNote",
+					"prescribed",
+					"the command it prints"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-17488-r25-2",
+			"head": "pr17488-r25",
+			"severity": "P2",
+			"how_found_primary": "read-surrounding",
+			"title": "CHANGELOG line 14 still promises that re-archiving clears an unfinished restore record, which the code now deliberately refuses to do",
+			"mechanism": [
+				[
+					"CHANGELOG",
+					"changelog"
+				],
+				[
+					"re-?archiv"
+				],
+				[
+					"clear(?:s|ed|ing)?",
+					"removes? (?:the|an) (?:unfinished )?record",
+					"drops? the record"
+				],
+				[
+					"deliberately keeps",
+					"now keeps it",
+					"false",
+					"does not",
+					"no longer"
+				]
+			],
+			"trigger": [
+				[
+					"unfinished restore record",
+					"`\\.restoring`",
+					"restore record",
+					"line 14",
+					"2096"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "missed"
+			}
+		},
+		{
+			"id": "D-quarantine-r3-1",
+			"head": "gc-quarantine-r3",
+			"severity": "P2",
+			"how_found_primary": "real-kernel-resource",
+			"title": "the new unlisted-transcript scan opens every candidate `.jsonl` name blocking, so one FIFO stops the whole archive run while the gc lock is held",
+			"mechanism": [
+				[
+					"unreadable-file scan|second scan|listActiveSessions|peek-?file|unlisted"
+				],
+				[
+					"FIFO|named pipe"
+				],
+				[
+					"hangs|blocks on a FIFO|without a writer|exit 124|never reaches"
+				],
+				[
+					"regular file|opens with|\\\"r\\\"|blocking open"
+				]
+			],
+			"trigger": [
+				[
+					"\\.jsonl|sessions/other|gc --archive --apply|archive run"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-quarantine-r3-2",
+			"head": "gc-quarantine-r3",
+			"severity": "P2",
+			"how_found_primary": "write-probe",
+			"title": "a timed-out test leaves its cross-filesystem spies installed, and the next test's spy wraps itself into unbounded recursion",
+			"mechanism": [
+				[
+					"afterEach|mock\\.restore|spyOn|spies|mocks"
+				],
+				[
+					"times? out|timeout|timed out"
+				],
+				[
+					"calls `real`|which is now itself|stack|recursi|next (test|helper)|corrupts"
+				]
+			],
+			"trigger": [
+				[
+					"session-archive\\.test\\.ts|cross-filesystem|rename/link|asynchronous test body|`finally`"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-quarantine-r3-3",
+			"head": "gc-quarantine-r3",
+			"severity": "P2",
+			"how_found_primary": "inject-fault",
+			"title": "a failed verification read after a successful publication is reported as \"not the copy ... this run wrote\" and \"The archive is damaged\"",
+			"mechanism": [
+				[
+					"publishedIsStaged|publication|verification open"
+				],
+				[
+					"EACCES|EIO|ESTALE|read failure|failed verification|false-on-failure"
+				],
+				[
+					"not the copy|not the transcript|archive is damaged|false .{0,12}diagnos|factual diagnoses"
+				]
+			],
+			"trigger": [
+				[
+					"inject|first verification open|restored transcript|superseding archive"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-quarantine-r3-4",
+			"head": "gc-quarantine-r3",
+			"severity": "P2",
+			"how_found_primary": "real-kernel-resource",
+			"title": "the artifact ownership scan follows a symlink to a FIFO and drains it, consuming a user's bytes during archive and even during a reclaim preview",
+			"mechanism": [
+				[
+					"collectSessionFiles|readArtifactSessionId|leaseTranscripts|ownership scan|followSymlinks"
+				],
+				[
+					"symlink whose target is a FIFO|symlink to a (named pipe|FIFO)|symlinks? [a-z ]{0,12}to [a-z ]{0,6}FIFO"
+				],
+				[
+					"no descriptor-based regular-file check|regular-file check|O_NONBLOCK alone|without .{0,30}regular file"
+				],
+				[
+					"await input|\\.text\\(\\)|HEADER_SNIFF_BYTES|slice\\(0"
+				]
+			],
+			"trigger": [
+				[
+					"special-file stream|artifact session ownership|reclaim|archive"
+				]
+			],
+			"found_by": {
+				"astra": "missed",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-rbudget-r2-1",
+			"head": "ai-replay-budget-r2",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "Vertex's regional 404 fallback sends a second request at the global endpoint without consulting the replay budget",
+			"mechanism": [
+				[
+					"google-shared|Vertex"
+				],
+				[
+					"regional|404|global endpoint|fallback"
+				],
+				[
+					"without checking the budget|ignores the budget|no marker|unmarked|budget zero"
+				]
+			],
+			"trigger": [
+				[
+					"budget zero|two requests|both URLs"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-rbudget-r3-1",
+			"head": "ai-replay-budget-r3",
+			"severity": "P1",
+			"how_found_primary": "measure-timing",
+			"title": "three correction paths resend immediately instead of honouring the rejected response's longest retry hint",
+			"mechanism": [
+				[
+					"request-compression|github-copilot-headers|correction path|gzip|identity"
+				],
+				[
+					"Retry-After|longest hint|longest (named )?wait|rejected response"
+				],
+				[
+					"zero delay|138\\.21|184\\.32|28\\.01|without a marker|replacement failures"
+				]
+			],
+			"trigger": [
+				[
+					"2000 ms|Retry-After: 30|budget"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-rbudget-r3-2",
+			"head": "ai-replay-budget-r3",
+			"severity": "P1",
+			"how_found_primary": "write-probe",
+			"title": "the GitLab Duo Workflow step-limit restart creates a fresh workflow without passing through the budgeted restart helper",
+			"mechanism": [
+				[
+					"gitlab-duo-workflow|Workflow step-limit|step limit"
+				],
+				[
+					"restart"
+				],
+				[
+					"unbudgeted|budgeted restart helper|directly creates|No marker|without using"
+				]
+			],
+			"trigger": [
+				[
+					"budget \\*\\*0\\*\\*|budget 0|zero budget|workflow-create|startRequest"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		},
+		{
+			"id": "D-rbudget-r3-3",
+			"head": "ai-replay-budget-r3",
+			"severity": "P2",
+			"how_found_primary": "measure-timing",
+			"title": "the direct GitLab delegate creates its replay budget only after the token fetch, so the clock starts late",
+			"mechanism": [
+				[
+					"streamGitLabDuo|inheritReplayBudget|delegat"
+				],
+				[
+					"token (fetch|acquisition|response)|after its token"
+				],
+				[
+					"clock|does not create the budget|941\\.24|944\\.56|exempt"
+				]
+			],
+			"trigger": [
+				[
+					"700 ms|900 ms|budget"
+				]
+			],
+			"found_by": {
+				"astra": "found",
+				"claude": "not-run"
+			}
+		}
+	],
+	"decoys": [
+		{
+			"id": "F-17394-r27-1",
+			"head": "pr17394-r27",
+			"title": "a second native release call after a release that threw, reported as idempotence the head does not establish or implement",
+			"decoy_class": "obsolete-assertion",
+			"refuted_by": "deliberate-change",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"idempoten\\w*",
+					"second (native )?(release|invocation)",
+					"calls:2",
+					"no-second-invocation"
+				],
+				[
+					"throw",
+					"threw",
+					"throw-after",
+					"after a throw"
+				],
+				[
+					"not established",
+					"not implemented",
+					"versus round 26",
+					"calls:1"
+				]
+			],
+			"trigger": [
+				[
+					"release",
+					"native release",
+					"wrapper",
+					"isHeld"
+				]
+			]
+		},
+		{
+			"id": "F-17394-r27-2",
+			"head": "pr17394-r27",
+			"title": "a lifetime probe that expected the capture to stay absent after process exit, failed by the head completing that capture safely",
+			"decoy_class": "probe-defect",
+			"refuted_by": "self-withdrawn",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"lifetime probe",
+					"after process exit",
+					"capture to remain absent",
+					"r27-settle"
+				],
+				[
+					"incorrect test expectation",
+					"failed that",
+					"wrong expectation",
+					"its own expectation"
+				],
+				[
+					"125[- .]?second",
+					"completed .{0,25}capture",
+					"safely"
+				]
+			],
+			"trigger": [
+				[
+					"disconnect",
+					"IPC",
+					"unreferenced",
+					"deadline",
+					"bound"
+				]
+			]
+		},
+		{
+			"id": "F-17394-r28-1",
+			"head": "pr17394-r28",
+			"title": "21 CLI test failures reported as a head gate result, all of them a 30-second budget on a loaded, 96%-full box",
+			"decoy_class": "environment",
+			"refuted_by": "measurement",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"21 fail",
+					"21 failures",
+					"cli-headless",
+					"cli-completions-exit",
+					"cli-launch"
+				],
+				[
+					"timed out after 30000",
+					"30 ?s (budget|cap|deadline)",
+					"--timeout",
+					"exitCode 143",
+					"timeout"
+				],
+				[
+					"96% full",
+					"under other load",
+					"load",
+					"spawns? the built binary"
+				]
+			],
+			"trigger": [
+				[
+					"regression-subset",
+					"bun test test/cli",
+					"gate",
+					"exit.{0,12}`?1`?"
+				]
+			]
+		},
+		{
+			"id": "F-17394-r30-1",
+			"head": "pr17394-r30",
+			"title": "a task-subset failure in parked-subagent-session-release reported in the head's gate table, which passes when rerun alone",
+			"decoy_class": "environment",
+			"refuted_by": "measurement",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"parked-subagent-session-release",
+					"settings overlay",
+					"parks without retaining"
+				],
+				[
+					"weak[- ]reference",
+					"COLLECT_DEADLINE_MS",
+					"collected\\(",
+					"collection deadline"
+				],
+				[
+					"rerun alone",
+					"exits? `?0`?",
+					"passes alone",
+					"serialis"
+				]
+			],
+			"trigger": [
+				[
+					"task subset",
+					"748 pass",
+					"749",
+					"unserialised",
+					"nine other lanes"
+				]
+			]
+		},
+		{
+			"id": "F-17396-r5-1",
+			"head": "pr17396-r5",
+			"title": "a connection hold can be charged against the two-hold budget without being taken",
+			"decoy_class": "other",
+			"refuted_by": "self-withdrawn",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"connectionHoldsSpent",
+					"charged",
+					"spent on nothing"
+				],
+				[
+					"outside",
+					"not .{0,12}consumer",
+					"StaleResponsesItem",
+					"currentSelector"
+				],
+				[
+					"turn-recovery\\.ts:3045",
+					"3045",
+					"3047"
+				]
+			],
+			"trigger": [
+				[
+					"StaleResponsesItem",
+					"Flag\\.Connection",
+					"currentSelector"
+				],
+				[
+					"one of the two holds",
+					"spent on nothing",
+					"robustness note"
+				]
+			]
+		},
+		{
+			"id": "F-17396-r9-1",
+			"head": "pr17396-r9",
+			"title": "the credential-rotation probe's exit 1: `rotate()` was expected to return a wait duration",
+			"decoy_class": "harness-invented",
+			"refuted_by": "code-fact",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"hint-auth",
+					"rotate\\(\\)",
+					"oracle"
+				],
+				[
+					"expected .{0,30}return",
+					"wait duration",
+					"boolean rotation result"
+				],
+				[
+					"incorrect",
+					"invalid",
+					"correction",
+					"not a product"
+				]
+			],
+			"trigger": [
+				[
+					"exit 1",
+					"initial"
+				],
+				[
+					"auth\\.blocks\\.list",
+					"persisted block",
+					"oracle correction"
+				]
+			]
+		},
+		{
+			"id": "F-17396-r9-2",
+			"head": "pr17396-r9",
+			"title": "a credential-rotation race hangs the cancellation path (`rotation-race` times out at 120 s)",
+			"decoy_class": "probe-defect",
+			"refuted_by": "measurement",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"rotation-race",
+					"rotation-hang",
+					"cancel-tls"
+				],
+				[
+					"hang",
+					"times? out",
+					"120 s",
+					"latency"
+				],
+				[
+					"control",
+					"identical",
+					"fixture"
+				]
+			],
+			"trigger": [
+				[
+					"abortRetry",
+					"cancellation"
+				],
+				[
+					"my two failures",
+					"fixture latency",
+					"not a cancellation hang"
+				]
+			]
+		},
+		{
+			"id": "F-17396-r13-1",
+			"head": "pr17396-r13",
+			"title": "`markReached` stores `NaN` when handed `NaN`, so the block fails open",
+			"decoy_class": "other",
+			"refuted_by": "self-withdrawn",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"markReached"
+				],
+				[
+					"NaN"
+				],
+				[
+					"Math\\.min",
+					"fails open",
+					"stores"
+				]
+			],
+			"trigger": [
+				[
+					"requestedForMs",
+					"blockedForMs",
+					"RAW"
+				],
+				[
+					"no reachable producer",
+					"providerRetryWaitMs",
+					"header parser"
+				]
+			]
+		},
+		{
+			"id": "F-17402-r53-1",
+			"head": "pr17402-r53",
+			"title": "An autocomplete provider's disposer is handed back to the extension and runs at the host after the session has gone",
+			"decoy_class": "harness-invented",
+			"refuted_by": "code-fact",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"autocomplete|addAutocompleteProvider"
+				],
+				[
+					"disposer|dispose function|returned function|return value"
+				],
+				[
+					"after the session|ungated|host|gone|retired|inventing a return|declared `?void"
+				]
+			],
+			"trigger": [
+				[
+					"V2|kept|saved|return|disposed"
+				]
+			]
+		},
+		{
+			"id": "F-17402-r41-1",
+			"head": "pr17402-r41",
+			"title": "A class-backed ToolInfo loses its callable `parameters` schema when the extension reads pi.getAllTools",
+			"decoy_class": "probe-defect",
+			"refuted_by": "self-withdrawn",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"ToolInfo|getAllTools|tool schema|parameters"
+				],
+				[
+					"class-backed|class implementing|synthetic|instance field|own callable `?parameters"
+				],
+				[
+					"loses|lost|dropped|no longer callable|handedType.{0,12}undefined"
+				]
+			],
+			"trigger": [
+				[
+					"copy|handed|read|initializeExtensions"
+				]
+			]
+		},
+		{
+			"id": "F-17402-r41-2",
+			"head": "pr17402-r41",
+			"title": "Copying a 20,000-link graph overflows the stack at this head",
+			"decoy_class": "environment",
+			"refuted_by": "measurement",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"20,000|deep chain|link chain|recursive copy"
+				],
+				[
+					"RangeError|Maximum call stack|stack overflow"
+				],
+				[
+					"copyHostValue|copyHostData|copy"
+				]
+			],
+			"trigger": [
+				[
+					"depth|no depth bound|unbounded|chain"
+				]
+			]
+		},
+		{
+			"id": "F-17402-r47-1",
+			"head": "pr17402-r47",
+			"title": "Extension handler work is still pending immediately after a dispatch, so the depth refusal leaves work unfinished",
+			"decoy_class": "probe-defect",
+			"refuted_by": "self-withdrawn",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"pending (work|handler work)|hasPendingHandlerWork|waitForPendingHandlerWork"
+				],
+				[
+					"immediately after|sampled|right after (the )?dispatch|still pending"
+				],
+				[
+					"depth|refus|RangeError|route"
+				]
+			],
+			"trigger": [
+				[
+					"probe|assertion|hook|dispatch"
+				]
+			]
+		},
+		{
+			"id": "F-17402-r49-1",
+			"head": "pr17402-r49",
+			"title": "The real session tree's object count is 1,000,001, so the copy bound's accounting is off by one",
+			"decoy_class": "probe-defect",
+			"refuted_by": "self-withdrawn",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"tree|session tree|entries"
+				],
+				[
+					"1,000,00[12]|object count|counting assertion"
+				],
+				[
+					"expected|probe|corrected|failed"
+				]
+			],
+			"trigger": [
+				[
+					"bound|limit|copy"
+				]
+			]
+		},
+		{
+			"id": "F-17402-r53-2",
+			"head": "pr17402-r53",
+			"title": "ctx.clearTimer lets one session cancel another session's timer",
+			"decoy_class": "other",
+			"refuted_by": "self-withdrawn",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"clearTimer"
+				],
+				[
+					"another session|B timer|other session|cross-session|isolation"
+				],
+				[
+					"cancel|clear|own:0|refuse"
+				]
+			],
+			"trigger": [
+				[
+					"handle|ManagedTimers|timer"
+				]
+			]
+		},
+		{
+			"id": "F-17457-r16-1",
+			"head": "pr17457-r16",
+			"title": "an authenticated HTTP/2 stream with Bearer headers appears at the server after the hold began, during the TLS settings exchange",
+			"decoy_class": "probe-defect",
+			"refuted_by": "measurement",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"settings exchange|announces an HTTP/?2 session|stream event"
+				],
+				[
+					"after the hold|post-?hold send|while held"
+				],
+				[
+					"Bearer|authenticated (request|send)"
+				]
+			],
+			"trigger": [
+				[
+					"hold|held|beginDispose"
+				]
+			]
+		},
+		{
+			"id": "F-17457-r10-1",
+			"head": "pr17457-r10",
+			"title": "the raw `stream` and `complete` APIs lose their hold when a resolver-valued key resolution crosses disposal (two credential-crossing timeouts)",
+			"decoy_class": "probe-defect",
+			"refuted_by": "self-withdrawn",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"resolver-?valued key|resolver key|resolver-option"
+				],
+				[
+					"raw `?stream`?|raw `?complete`?|do not resolve that option|invalid fixture|fixture error"
+				],
+				[
+					"timeout(s)?|credential-?crossing|are not findings|not production findings"
+				]
+			],
+			"trigger": [
+				[
+					"hold|disposal"
+				]
+			]
+		},
+		{
+			"id": "F-17457-r12-1",
+			"head": "pr17457-r12",
+			"title": "the Cursor adapter retries six times after disposal",
+			"decoy_class": "probe-defect",
+			"refuted_by": "self-withdrawn",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"six Cursor retries|six retries|6 retries"
+				],
+				[
+					"fixture timed out|overlapped its next case|not reliable"
+				],
+				[
+					"timings|gate evidence|after disposal"
+				]
+			],
+			"trigger": [
+				[
+					"Cursor|disposal"
+				]
+			]
+		},
+		{
+			"id": "F-17457-r14-1",
+			"head": "pr17457-r14",
+			"title": "the auth broker's observed-usage flush is the one runOutsideRequestHold entrance with no admitSharedStart, so a held job can start that broker POST",
+			"decoy_class": "other",
+			"refuted_by": "code-fact",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"remote-store\\.ts:16|observed[- ]usage|usage flush|recordObservedUsage"
+				],
+				[
+					"runOutsideRequestHold|admitSharedStart"
+				],
+				[
+					"only .{0,24}site without|no admission check|has no admission|without `?admitSharedStart`?"
+				]
+			],
+			"trigger": [
+				[
+					"held (job|caller)|while held|from a held"
+				]
+			]
+		},
+		{
+			"id": "F-17488-r21-1",
+			"head": "pr17488-r21",
+			"title": "seven permission/schema probes returned exit 124, as if `gc --restore` preview and apply hang on those inputs",
+			"decoy_class": "environment",
+			"refuted_by": "measurement",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"124"
+				],
+				[
+					"five-second",
+					"5 ?s(?:econd)?",
+					"timeout",
+					"timed out",
+					"cap"
+				],
+				[
+					"permission",
+					"schema",
+					"probes?"
+				],
+				[
+					"load"
+				]
+			],
+			"trigger": [
+				[
+					"rerun",
+					"re-?ran",
+					"repeat(?:ed)?",
+					"refused \\*?\\*?1"
+				]
+			]
+		},
+		{
+			"id": "F-17488-r21-2",
+			"head": "pr17488-r21",
+			"title": "the advice-control driver failed at this head, as if the head's own advice test were broken",
+			"decoy_class": "environment",
+			"refuted_by": "measurement",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"advice control",
+					"advice-control",
+					"control's first run"
+				],
+				[
+					"ownership-lock namespace",
+					"private namespace",
+					"skipped an active session",
+					"unrelated failure"
+				],
+				[
+					"excluded",
+					"isolated repeat",
+					"intended advice assertion"
+				]
+			],
+			"trigger": [
+				[
+					"gate",
+					"first run",
+					"driver",
+					"receipts?"
+				]
+			]
+		},
+		{
+			"id": "F-17488-r23-1",
+			"head": "pr17488-r23",
+			"title": "the unchanged `direct.py` and `restore-stage-lifecycle.py` drivers exited 1 at this head",
+			"decoy_class": "obsolete-assertion",
+			"refuted_by": "deliberate-change",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"direct\\.py",
+					"restore-stage-lifecycle\\.py"
+				],
+				[
+					"exited? \\*?\\*?1",
+					"exit 1"
+				],
+				[
+					"old `?gc-quarantine",
+					"this head does not make",
+					"old assumption",
+					"obsolete"
+				],
+				[
+					"not counted as product success",
+					"unchanged"
+				]
+			],
+			"trigger": [
+				[
+					"replay",
+					"historical",
+					"snapshots",
+					"fact gathering"
+				]
+			]
+		},
+		{
+			"id": "F-17488-r23-2",
+			"head": "pr17488-r23",
+			"title": "two record/destination cases returned exit 124, as if they hung at this head",
+			"decoy_class": "environment",
+			"refuted_by": "measurement",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"124"
+				],
+				[
+					"record-extra-fields",
+					"occupied-readonly-dir"
+				],
+				[
+					"load",
+					"60 s cap",
+					"600 s cap"
+				],
+				[
+					"not a hang",
+					"re-?run alone",
+					"completed in"
+				]
+			],
+			"trigger": [
+				[
+					"sweep",
+					"batteries",
+					"cases came back"
+				]
+			]
+		},
+		{
+			"id": "F-17488-r25-1",
+			"head": "pr17488-r25",
+			"title": "record cleanup's `unlink` deletes a foreign file when `lstat` reports the foreign inode as the owned one",
+			"decoy_class": "probe-defect",
+			"refuted_by": "self-withdrawn",
+			"origin": "withdrawn",
+			"mechanism": [
+				[
+					"simulat(?:ion|ed)",
+					"made `?lstat`? report",
+					"forced `?lstat"
+				],
+				[
+					"lstat"
+				],
+				[
+					"foreign inode",
+					"owned inode",
+					"foreign bytes"
+				],
+				[
+					"not a demonstrated failure",
+					"conditional filesystem-semantics",
+					"not a failure of either tested filesystem"
+				]
+			],
+			"trigger": [
+				[
+					"identity",
+					"inode",
+					"hard link",
+					"cleanup",
+					"unlink"
+				]
+			]
+		},
+		{
+			"id": "F-rbudget-r2-1",
+			"head": "ai-replay-budget-r2",
+			"title": "the chunked coding-agent suite's ten failures are carried as a red gate of this head",
+			"decoy_class": "environment",
+			"refuted_by": "measurement",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"coding-agent(-heavy)?|ci-test-ts|chunk"
+				],
+				[
+					"fail|failures|exit 1|\\| 1 \\|"
+				],
+				[
+					"image fallback|JavaScript package isolation|HUD|browser relay|upload staging|kernel shutdown"
+				]
+			],
+			"trigger": [
+				[
+					"20151|10 fail|215 chunks|OMP_TEST_CONCURRENCY"
+				]
+			]
+		},
+		{
+			"id": "F-rbudget-r3-1",
+			"head": "ai-replay-budget-r3",
+			"title": "browser and child-process suite failures kept as red gates of this head",
+			"decoy_class": "environment",
+			"refuted_by": "code-fact",
+			"origin": "asserted",
+			"mechanism": [
+				[
+					"browser|Chromium|relay|sandbox|puppeteer"
+				],
+				[
+					"No usable sandbox|Target closed|launch failed|rendering deadline"
+				],
+				[
+					"fail|failures|red|exit 1"
+				]
+			],
+			"trigger": [
+				[
+					"coding-agent|screenshot|PDF|relay ownership|full-package|suite"
+				]
+			]
+		}
+	],
+	"prior_overlap": [
+		"D-17402-r41-4",
+		"D-17402-r41-8",
+		"D-17402-r43-5",
+		"D-17402-r47-3",
+		"D-17402-r49-5",
+		"D-17402-r51-1",
+		"D-17402-r51-3",
+		"D-17402-r51-8",
+		"D-17402-r53-3",
+		"D-17402-r53-7",
+		"D-17421-r26-5",
+		"D-17488-r23-1",
+		"D-quarantine-r3-3",
+		"F-17402-r41-2",
+		"F-rbudget-r3-1"
+	]
+}

@@ -94,3 +94,38 @@ bun scripts/reviewer-gap/rederive.ts --a <a dirs> --b <b dirs> --stored scripts/
 
 One `run.ts` per arm, started together, keeps the arms in the same time window;
 a second runner on the same directory takes the next unclaimed job.
+
+## The claims lane
+
+The first three lanes scored recall only: a finding counted when its patterns
+matched anywhere in a report. That cannot see a reviewer asserting a defect
+that is not there, and it credits a report that names a real defect only to
+clear it. This lane's cases carry both kinds, at real heads of the batch, and
+scores only what a report asserts.
+
+- `corpus/claims/` — one record per review round, per real defect (with which
+  arm found it and which missed it) and per decoy: a claim a reviewer put
+  forward that a measurement, a code fact, its own withdrawal or a deliberate
+  change showed was not a defect.
+- `claims-build.ts` — `cases` selects heads by a written rule and writes
+  `cases-c.json` from the corpus; `setup` builds each head's read-only snapshot
+  and patch, and a read-only copy of the previous round's reports and probes,
+  which the run prompt asks the reviewer to replay.
+- `claims-freeze.json` — the rule, the counts, the run settings and the hashes,
+  committed before the first model call of this lane.
+- `claims.ts` — scoring. A run in the `claims` format puts each asserted defect
+  under `## DEFECT:` and everything it cleared under `## NOT A DEFECT`. A finding
+  is found, and a decoy asserted, when its patterns fire inside one `## DEFECT:`
+  section; `detects` from `grade.ts` is unchanged. `--compare a:b` gives paired
+  deltas for both rates from the same bootstrap draws.
+
+`run.ts` now checks every head before it starts (`preflight`): a snapshot whose
+dependency links dangle, a missing patch or a missing earlier-round copy stops
+the run, because a reviewer that cannot run its probes scores as a weak one.
+
+```bash
+bun scripts/reviewer-gap/claims-build.ts cases
+bun scripts/reviewer-gap/claims-build.ts setup
+MISE_BUN_VERSION=1.4.4 bun scripts/reviewer-gap/run.ts --cases scripts/reviewer-gap/cases-c.json --out <dir> --arms current --trials 3 --concurrency 2 --max-time 20m --no-repo-gate
+bun scripts/reviewer-gap/claims.ts --runs <dir> [--compare candidate:current]
+```

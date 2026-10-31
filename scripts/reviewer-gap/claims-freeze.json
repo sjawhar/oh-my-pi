@@ -1,0 +1,85 @@
+{
+	"frozen_at": "2026-10-31T13:45:00Z",
+	"question": "Under the shipped reviewer prompt, how many of this batch's real defects does a fresh reviewer claim at their heads, and how many of the batch's false claims (decoys) does it assert as defects?",
+	"why_this_lane": "The first three lanes scored recall only: a finding counted when its patterns matched anywhere in a report. That cannot see a reviewer asserting a defect that is not there, and it credits a report that names a real defect in order to clear it: on the batch's own reports, the detector fires on 3 whole reports of arms that are recorded as having missed the defect, because they discuss it to dismiss it. A prompt revision is worth adopting only if it finds more real defects without raising more false ones, so the cases carry both, and only the claims a report asserts are scored.",
+	"inherits": {
+		"grader": "grade.ts, unchanged: `detects`, window 1200 characters, every mechanism and trigger group inside one window centred on a hit of the first group",
+		"grader_sha256": "396d854054c6a1b8c404db05ecb657e1e7d1141ab99dabad2bc364918645cfe1",
+		"arm": "`current` from run.ts, unchanged: prompts/current.md appended to the system prompt, anthropic/claude-opus-5-5, thinking high, the same flags and tools as every earlier lane",
+		"prompt_sha256": "bed756ded5d543ed00da9452a6ec90af1cb53b07c616950129f605d1b4a6ad4e",
+		"prompt_note": "prompts/current.md is byte-identical to the body of packages/coding-agent/src/prompts/agents/reviewer.md at the local checkout's HEAD, checked 2026-10-31. omp 18.13.3."
+	},
+	"corpus": {
+		"dir": "corpus/claims/",
+		"records": { "round": 70, "defect": 277, "decoy": 38 },
+		"two_arm_rounds": 19,
+		"sources": "The review rounds of the batch's pull requests (#17394, #17396, #17398, #17399, #17402, #17412, #17421, #17457, #17488) and three branches with no pull request (the gc quarantine, the in-call replay budget, the upstream test-environment defects): reports, manifests, raw logs, the fix lanes' red-then-green tests and the coordinator's adjudications. Extracted by seven agents, one per slice, none shown a prompt under test.",
+		"defect_rule": "Real only with decisive evidence: a fix-lane test red on that head and green after, a later round closing it, or a reproduction the fix lane confirmed. found_by per arm is found, missed (that arm reviewed the same head and its report does not state it) or not-run. A defect a later round measured on this earlier head is missed by every arm that reviewed it.",
+		"decoy_rule": "A claim a reviewer put forward as a defect at that head that a measurement, a code fact, the reviewer's own withdrawal or a documented deliberate change shows is not a defect of the change: the reviewer's probe or harness was wrong, an assertion the fix deliberately changed was replayed as a regression, the environment failed, or the code cannot do what was claimed.",
+		"checks": [
+			"claims.test.ts: ids unique; every label from its enum; every record on a head with a round record; every record's patterns fire on each of its own source texts; no record's patterns fire on another record's source text at the same head, with one declared exception (F-17402-r53-1's text is nested inside D-17402-r53-6's).",
+			"One-off, against the reports on disk: 381 (defect, arm) labels checked against the arm's whole report with the frozen detector. 7 disagree, none a pattern fault: 3 arms marked missed whose reports discuss the defect in order to dismiss it (D-17402-r41-4 Claude, D-17402-r43-5 astra, D-17421-r26-5 astra), which is the failure this lane's scoring removes; 4 arms marked found whose finding sits in a second file of that arm, not the report of record (D-17457-r8-3, D-17457-r8-4, D-17457-r12-1, D-17457-r12-2). One report survives only as a transcript and was not checked (#17396 round 5, astra)."
+		],
+		"anchor_reorder": {
+			"rule": "claims-build.ts `anchored`: the extractors checked 'every group inside some 1200-character window'; the frozen grader checks 'inside a window centred on a first-group hit'. Where a record's own text passes the first and fails the second, the builder moves to the front the first group that anchors a window on every source text. Groups are never added, dropped or edited.",
+			"records": ["D-17394-r18-1", "D-17457-r12-5", "D-17457-r14-1", "D-17398-r22-2", "D-17398-r22-3"],
+			"in_cases": ["D-17457-r12-5", "D-17457-r14-1"]
+		}
+	},
+	"cases": {
+		"file": "cases-c.json",
+		"sha256": "ebe505b9a256a0c3672bf88ea49425ac635cc2b934d4ce0e0301d1bda3caa7a2",
+		"built_by": "bun scripts/reviewer-gap/claims-build.ts cases, then setup (setup adds prior_overlap)",
+		"selection": "A head is selected when (a) both arms reviewed it and reported, and no defect at it labels either arm not-run; (b) a reviewer asserted a decoy at it rather than raising and withdrawing it in the same report; or (c) a defect at it was missed by every arm that reviewed it. It is kept only when a donor shares its bun.lock blob and its crates tree. A decoy refuted only by a deliberate change counts only as an obsolete assertion.",
+		"heads": 26,
+		"findings": 132,
+		"decoys": 25,
+		"selected_by_rule": { "a": 18, "b": 10, "c": 3, "note": "a head can meet more than one rule; 26 heads in all" },
+		"excluded": [{ "head": "pr17421-r18", "rule": "b", "why": "no donor shares bun.lock ad3b2401 and crates e7b015bb; its native addon cannot be built here" }],
+		"findings_by_original_arm": {
+			"both found": 12,
+			"astra found, Claude missed": 50,
+			"Claude found, astra missed": 47,
+			"astra found, Claude not run": 11,
+			"Claude found, astra not run": 9,
+			"astra missed, Claude not run": 3
+		},
+		"decoys_by_origin": {
+			"asserted": 11,
+			"withdrawn": 14,
+			"note": "Most of the batch's false claims were caught by the reviewer that raised them: 14 of the 25 were raised and withdrawn in the same report, and no reviewer in rounds 21-27 of #17488 or in #17396 put an obsolete assertion in its findings as a regression. A decoy still counts when a fresh reviewer under another prompt asserts it."
+		},
+		"decoys_by_class": { "environment": 8, "probe-defect": 9, "harness-invented": 2, "obsolete-assertion": 2, "other": 4 },
+		"prior_overlap": "15 case ids whose patterns already fire on a file of the earlier round the run is pointed at (13 findings, 2 decoys). A reviewer can claim those by repeating the earlier report, so every rate is also reported without them."
+	},
+	"report_format": {
+		"name": "claims",
+		"rule": "The run prompt asks for one `## DEFECT:` section per asserted defect and one `## NOT A DEFECT` section for everything examined and cleared, or the line `NO DEFECTS`. A claimed section runs from a heading whose text starts with `DEFECT` and a separator to the next heading of the same or a higher level; a heading inside a fenced block is output, not structure.",
+		"scored": "A finding is found, and a decoy is asserted, when its patterns fire inside one claimed section. A run whose report neither claims anything nor says NO DEFECTS is unformatted: excluded from n and counted, like an errored run. The whole-report rule of the earlier lanes is reported as `mentioned`, a diagnostic: a decoy no run mentions measured nothing.",
+		"scorer": "claims.ts",
+		"scorer_sha256": "bfb16de9a35345b875ec5086421641b94f6da3c9dc31d20d59e02e8727835516"
+	},
+	"held_fixed": {
+		"arm": "current only. This run is the baseline the brief asked for; control and candidate arms run later against the same frozen cases.",
+		"trials_per_head": 3,
+		"budget_minutes": 20,
+		"tools": "read,grep,glob,bash,write,edit",
+		"thinking": "high",
+		"flags": "--no-session --no-title --no-extensions --no-skills --no-rules --no-context-files --auto-approve",
+		"repo_gate": "off (--no-repo-gate), as in the re-derivation lane: the box runs under a cap of two parallel suites or typechecks, and its load average was 300-370 on 64 cores through the build.",
+		"concurrency": 2,
+		"bun": "MISE_BUN_VERSION=1.4.4 and /home/sami/.mise/installs/bun/1.4.4/bin first on PATH, as in the re-derivation lane",
+		"earlier_round": "Every head whose pull request has an earlier round in the corpus gets a read-only copy of that round's reports, probes and logs (regular files, at most two directory levels deep, at most 1 MiB each, no links, dependency trees or copied checkouts), and the prompt asks the reviewer to replay what still applies. Every round of the batch had this; without it an obsolete assertion has nothing to provoke it. pr17488-r19 has no earlier round in the corpus and gets none.",
+		"snapshots": "snapshot.ts build of the full head sha into /mnt/nvme/sami/reviewer-gap-evals/heads, dependencies linked to one of two donors this lane owns (donor-ad3b2401 copied from the #17396 export at 85917d21, donor-42c163d3 hard-linked from the #17402 export at ca8db136), each donor's native addon built from the same crates tree as every head it serves; diff against the head's merge base with upstream/main. run.ts preflight reports 0 problems over the 26 heads."
+	},
+	"trust": {
+		"checks": "Whether each frozen pattern set fires inside a claimed section of the report a run printed. No model judges.",
+		"assumes": [
+			"A real defect stated in different words still hits every group: the patterns carry alternative wordings and were checked against every arm's text that states the defect, but a reviewer with a third vocabulary is scored as missing it.",
+			"A reviewer files a cleared suspicion under NOT A DEFECT rather than under a DEFECT heading. The prompt says so; a run that ignores the format is counted, not scored.",
+			"Repeating the earlier round's text is not finding: rates are also reported without the 15 overlapping cases.",
+			"A claim matching no case is neither a find nor a false claim: it may be a defect nobody recorded. Its count is reported, never scored."
+		],
+		"enforced_by": "claims.test.ts (corpus, cases and scorer), run.ts preflight (snapshots, patches, earlier-round copies), this file's hashes."
+	}
+}
