@@ -1925,6 +1925,10 @@ async function ownerSignature(owners: () => Promise<(string | undefined)[]>): Pr
  *
  * See {@link sourceIsPrefixOfDestination} for what "holds" means and why the
  * title slot is the one span that may differ.
+ *
+ * A read that fails, on either side, throws: it is no answer either way, and
+ * taking it for "no" is how a transcript nobody could read was called a
+ * different session.
  */
 export async function archiveIsPrefixOfLive(archiveFile: string, sessionPath: string): Promise<boolean> {
 	// Non-blocking, so a FIFO at the live name is a refusal rather than a hang.
@@ -1940,8 +1944,8 @@ export async function archiveIsPrefixOfLive(archiveFile: string, sessionPath: st
 			holds = await recordsAreCarried(linesOf(source as AsyncIterable<Uint8Array>), linesOfHandle(live));
 		});
 		return holds;
-	} catch {
-		return false;
+	} catch (error) {
+		throw archiveReadError(archiveFile, error);
 	} finally {
 		await live.close();
 	}
@@ -1961,7 +1965,8 @@ export async function archiveIsPrefixOfLive(archiveFile: string, sessionPath: st
  * record-aware fallback included. Binding the read to a descriptor while
  * dropping that fallback is how an ordinary migrated session — a version 1
  * or 2 transcript the writer brought forward, or a legacy layout — stopped
- * being re-archivable with nothing competing with it at all.
+ * being re-archivable with nothing competing with it at all. A read that
+ * fails throws, the same way.
  */
 export async function archivedHandleIsPrefixOfLive(archived: fs.FileHandle, livePath: string): Promise<boolean> {
 	const live = await openRegularFile(livePath);
@@ -1976,8 +1981,6 @@ export async function archivedHandleIsPrefixOfLive(archived: fs.FileHandle, live
 			holds = await recordsAreCarried(linesOf(source as AsyncIterable<Uint8Array>), linesOfHandle(live));
 		});
 		return holds;
-	} catch {
-		return false;
 	} finally {
 		await live.close();
 	}
@@ -1992,6 +1995,8 @@ export async function archivedHandleIsPrefixOfLive(archived: fs.FileHandle, live
  * is of the file rather than of whatever its name points at by then. It is
  * only ever an answer about what was read: the caller writes over nothing on
  * the strength of it, and publishes only where there is nothing to replace.
+ * A read that fails throws — a comparison that could not be made is not one
+ * that found different bytes.
  */
 export async function archivedHandleIsHeldBy(
 	archived: fs.FileHandle,
@@ -2010,8 +2015,6 @@ export async function archivedHandleIsHeldBy(
 		if (await sourceIsPrefixOfDestination(bytesOfHandle(archived), candidate, transcript)) return true;
 		if (!transcript) return false;
 		return await recordsAreCarried(linesOfHandle(archived), linesOfHandle(candidate));
-	} catch {
-		return false;
 	} finally {
 		await candidate.close();
 	}
@@ -2054,8 +2057,14 @@ async function treeFiles(root: string): Promise<string[]> {
  * title slot narrower than its usual width, whitespace past any sniff window
  * — all of them are headers to the session loader, and a restore that cannot
  * see them walks past their owners.
+ *
+ * No archive at the name has no header and no owner. One that cannot be
+ * read throws: a header nobody could read is not one that names nobody, and
+ * a restore that took it for that would publish the transcript without its
+ * owner's lease.
  */
 async function inflateArchivedHeaderId(archiveFile: string): Promise<string | undefined> {
+	if (!(await statIfPresent(archiveFile))) return undefined;
 	const head: Uint8Array[] = [];
 	let bytes = 0;
 	try {
@@ -2066,9 +2075,8 @@ async function inflateArchivedHeaderId(archiveFile: string): Promise<string | un
 				bytes += chunk.byteLength;
 			}
 		});
-	} catch {
-		// Unreadable or damaged: the archive error paths report that on their own.
-		return undefined;
+	} catch (error) {
+		throw archiveReadError(archiveFile, error);
 	}
 	return sessionHeaderIdFromBytes(Buffer.concat(head, bytes));
 }
@@ -2096,11 +2104,13 @@ async function inflateArchivedHeaderId(archiveFile: string): Promise<string | un
  * than chased.
  *
  * Null, with everything taken so far released, when any of them is live.
+ * Throws, with everything released, when one cannot be probed: an owner
+ * nobody could look for is not a live one.
  */
 const RESTORE_LEASE_PASSES = 8;
 
 interface RestoreLeases {
-	/** Take the set again, for owners that have appeared since. False when one is live. */
+	/** Take the set again, for owners that have appeared since. False when one is live; throws when one cannot be probed. */
 	refresh(): Promise<boolean>;
 	release(): void;
 }
@@ -2127,10 +2137,14 @@ async function tryAcquireRestoreLeases(owners: () => Promise<(string | undefined
 				if (!added) return true;
 			}
 			return false;
-		} catch {
-			// A probe that throws says nothing about who owns what, and holding
-			// what it took would read as a live owner to everything after it.
-			return false;
+		} catch (error) {
+			// A probe that throws says nothing about who owns what: it is not
+			// a live owner, and saying one is sends the reader to look for a
+			// process that is not there. What it took goes with the failure.
+			release();
+			throw new Error(`who owns this session and its subagent sessions could not be checked: ${errorText(error)}`, {
+				cause: error,
+			});
 		}
 	};
 	if (await refresh()) return { refresh, release };
@@ -2234,7 +2248,9 @@ export async function restoreArchivedSessionLocked(archiveFile: string, agentDir
 	const target = stem.slice(stem.lastIndexOf("_") + 1) || stem;
 	const agentDirSuffix = agentDirFlag(agentDir ?? agentDirOfArchivedPath(archiveFile) ?? getAgentDir());
 	const restoreCommand = `omp gc --restore ${shellQuote(target)} --apply${agentDirSuffix}`;
-	const leases = await tryAcquireRestoreLeases(owners);
+	const leases = await tryAcquireRestoreLeases(owners).catch((error: unknown) => {
+		throw new Error(`Cannot restore "${archiveFile}": ${errorText(error)}. Nothing was restored`, { cause: error });
+	});
 	const noOwners = (): Error =>
 		new Error(
 			`Cannot restore "${archiveFile}": a running process owns this session or one of its subagent sessions. ` +
@@ -2272,7 +2288,16 @@ export async function restoreArchivedSessionLocked(archiveFile: string, agentDir
 			// transcript and failed on its artifact tree. Finishing that attempt is
 			// the only way the tree comes home, so a retry resumes rather than
 			// refusing — for this session, carried on or not, never another.
-			if ((await statIfPresent(archiveFile)) && !(await archiveIsPrefixOfLive(archiveFile, sessionPath))) {
+			const carried =
+				!(await statIfPresent(archiveFile)) ||
+				(await archiveIsPrefixOfLive(archiveFile, sessionPath).catch((error: unknown) => {
+					throw new Error(
+						`Cannot restore "${archiveFile}": ${sessionPath} could not be compared with it, so whether it is ` +
+							`this session carried on is not known: ${errorText(error)}`,
+						{ cause: error },
+					);
+				}));
+			if (!carried) {
 				throw new Error(
 					`Refusing to restore over a different session file: ${sessionPath} is not this archive carried on. ` +
 						`To bring the archived one home, move ${sessionPath} and its artifact directory ${liveArtifacts} aside, ` +
